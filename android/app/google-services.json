@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "807854350071",
+    "project_id": "lila-d4748",
+    "storage_bucket": "lila-d4748.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807854350071:android:2a9a3f563c210136a2bdf2",
+        "android_client_info": {
+          "package_name": "com.linealila"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "807854350071-0tu80uq1t9mqbpbq23jrahmau4b8oud6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.linealila",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCAvX4HKfqX6Cb3JV640B1dlQ8aNuV-Vjk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
