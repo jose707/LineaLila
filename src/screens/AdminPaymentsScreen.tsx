@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+// src/screens/AdminPaymentsScreen.tsx
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,412 +10,321 @@ import {
   StatusBar,
   TextInput,
   Modal,
-} from "react-native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../navigation/AppNavigator";
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+import api from '../services/api.client';
 
-type AdminPaymentsScreenNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  "AdminPayments"
->;
+// ─── Tokens ───────────────────────────────────────────────────────────────────
+const C = {
+  primary:     '#7514C5',
+  primaryLight:'#F3E8FF',
+  bg:          '#FAFAFA',
+  white:       '#FFFFFF',
+  border:      '#E5E7EB',
+  text:        '#1F2937',
+  textMuted:   '#6B7280',
+  surface:     '#F9FAFB',
+  completed:   '#10B981',
+  pending:     '#F59E0B',
+  failed:      '#EF4444',
+  refunded:    '#8B5CF6',
+};
 
-interface AdminPaymentsScreenProps {
-  navigation: AdminPaymentsScreenNavigationProp;
-}
+type NavProp = NativeStackNavigationProp<RootStackParamList, 'AdminPayments'>;
+interface Props { navigation: NavProp; }
 
-interface Payment {
+type PayStatus = 'all' | 'completed' | 'pending' | 'failed' | 'refunded';
+
+interface PaymentFromAPI {
   id: string;
   rideId: string;
-  userName: string;
   amount: number;
-  status: "completed" | "pending" | "failed" | "refunded";
-  paymentMethod: string;
-  date: string;
-  transactionId: string;
+  currency: string;
+  payment_method: string;
+  payment_status: string;
+  transaction_id: string | null;
+  paid_at: string | null;
+  createdAt: string;
+  passenger?: { id: string; name: string; phone: string };
+  ride?:      { id: string; pickup_address: string; dropoff_address: string; finalFare: number };
 }
 
-const AdminPaymentsScreen: React.FC<AdminPaymentsScreenProps> = ({
-  navigation,
-}) => {
-  const [searchText, setSearchText] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<
-    "all" | "completed" | "pending" | "failed" | "refunded"
-  >("all");
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+interface Summary {
+  completedRevenue: number;
+  pendingAmount: number;
+  pendingCount: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const statusColor = (s: string) => {
+  switch (s) {
+    case 'completed': return C.completed;
+    case 'pending':   return C.pending;
+    case 'failed':    return C.failed;
+    case 'refunded':  return C.refunded;
+    default:          return C.textMuted;
+  }
+};
+
+const statusLabel = (s: string) => {
+  const m: Record<string, string> = {
+    completed: 'Completado', pending: 'Pendiente', failed: 'Fallido', refunded: 'Reembolsado',
+  };
+  return m[s] || s;
+};
+
+const methodLabel = (m: string) => (m === 'cash' ? 'Efectivo' : m === 'qr' ? 'QR' : m);
+
+const fmtDate = (iso: string) => {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
+  } catch { return iso; }
+};
+
+const FILTERS: { label: string; value: PayStatus }[] = [
+  { label: 'Todos',       value: 'all' },
+  { label: 'Completado',  value: 'completed' },
+  { label: 'Pendiente',   value: 'pending' },
+  { label: 'Fallido',     value: 'failed' },
+  { label: 'Reembolso',   value: 'refunded' },
+];
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+const AdminPaymentsScreen: React.FC<Props> = ({ navigation }) => {
+  const [payments, setPayments]       = useState<PaymentFromAPI[]>([]);
+  const [total, setTotal]             = useState(0);
+  const [summary, setSummary]         = useState<Summary>({ completedRevenue: 0, pendingAmount: 0, pendingCount: 0 });
+  const [page, setPage]               = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  const [searchText, setSearchText]     = useState('');
+  const [statusFilter, setStatusFilter] = useState<PayStatus>('all');
+
+  const [selected, setSelected]       = useState<PaymentFromAPI | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  const [payments] = useState<Payment[]>([
-    {
-      id: "PAY001",
-      rideId: "RIDE001",
-      userName: "María García",
-      amount: 45.5,
-      status: "completed",
-      paymentMethod: "Credit Card",
-      date: "2024-12-15 14:35",
-      transactionId: "TXN_1701362100_ABC123",
-    },
-    {
-      id: "PAY002",
-      rideId: "RIDE002",
-      userName: "Ana López",
-      amount: 38.0,
-      status: "pending",
-      paymentMethod: "Debit Card",
-      date: "2024-12-15 16:50",
-      transactionId: "TXN_1701363000_DEF456",
-    },
-    {
-      id: "PAY003",
-      rideId: "RIDE003",
-      userName: "Patricia Sánchez",
-      amount: 52.75,
-      status: "completed",
-      paymentMethod: "Cash",
-      date: "2024-12-15 10:20",
-      transactionId: "TXN_1701356400_GHI789",
-    },
-    {
-      id: "PAY004",
-      rideId: "RIDE005",
-      userName: "Roberto Torres",
-      amount: 41.2,
-      status: "failed",
-      paymentMethod: "Credit Card",
-      date: "2024-12-14 19:15",
-      transactionId: "TXN_1701283500_JKL012",
-    },
-    {
-      id: "PAY005",
-      rideId: "RIDE006",
-      userName: "Luis Mendez",
-      amount: 55.0,
-      status: "refunded",
-      paymentMethod: "Debit Card",
-      date: "2024-12-14 15:30",
-      transactionId: "TXN_1701268200_MNO345",
-    },
-  ]);
+  const LIMIT = 20;
 
-  const filteredPayments = payments.filter((payment) => {
-    const matchesSearch =
-      payment.id.toLowerCase().includes(searchText.toLowerCase()) ||
-      payment.userName.toLowerCase().includes(searchText.toLowerCase()) ||
-      payment.rideId.toLowerCase().includes(searchText.toLowerCase());
-    const matchesStatus =
-      selectedStatus === "all" || payment.status === selectedStatus;
-    return matchesSearch && matchesStatus;
-  });
+  const fetchPayments = useCallback(async (opts: {
+    reset?: boolean; isRefresh?: boolean; status?: PayStatus; offset?: number;
+  } = {}) => {
+    const { reset = false, isRefresh = false, status = statusFilter, offset = 0 } = opts;
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "#10B981";
-      case "pending":
-        return "#F59E0B";
-      case "failed":
-        return "#EF4444";
-      case "refunded":
-        return "#8B5CF6";
-      default:
-        return "#6B7280";
+    if (isRefresh) setRefreshing(true);
+    else if (offset === 0) setLoading(true);
+    else setLoadingMore(true);
+    setError(null);
+
+    try {
+      const params: Record<string, string | number> = { limit: LIMIT, offset };
+      if (status !== 'all') params.status = status;
+
+      const data = await api.get<{ payments: PaymentFromAPI[]; total: number; summary: Summary }>('/admin/payments', { params });
+
+      if (reset || offset === 0) setPayments(data.payments || []);
+      else setPayments(prev => [...prev, ...(data.payments || [])]);
+
+      setTotal(data.total || 0);
+      setSummary(data.summary || { completedRevenue: 0, pendingAmount: 0, pendingCount: 0 });
+      setPage(offset / LIMIT);
+    } catch (err: any) {
+      const detail = err?.data?.error || err?.data?.message || err?.statusText || 'Error de conexión';
+      setError(`${err?.status ?? ''} ${detail}`);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
     }
+  }, [statusFilter]);
+
+  useEffect(() => { fetchPayments({ reset: true }); }, [fetchPayments]);
+
+  const handleFilter = (s: PayStatus) => {
+    setStatusFilter(s);
+    fetchPayments({ reset: true, status: s, offset: 0 });
   };
 
-  const totalRevenue = payments
-    .filter((p) => p.status === "completed")
-    .reduce((sum, p) => sum + p.amount, 0);
+  const handleLoadMore = () => {
+    if (loadingMore || payments.length >= total) return;
+    fetchPayments({ offset: (page + 1) * LIMIT });
+  };
 
-  const pendingAmount = payments
-    .filter((p) => p.status === "pending")
-    .reduce((sum, p) => sum + p.amount, 0);
+  const displayed = payments.filter(p => {
+    if (!searchText.trim()) return true;
+    const q = searchText.toLowerCase();
+    return (
+      p.id.toLowerCase().includes(q) ||
+      (p.passenger?.name || '').toLowerCase().includes(q) ||
+      (p.transaction_id || '').toLowerCase().includes(q)
+    );
+  });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#7C3AED" />
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>‹</Text>
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+          <Text style={s.backTxt}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Payments</Text>
-        <Text style={styles.headerEmpty} />
+        <Text style={s.headerTitle}>Pagos e ingresos</Text>
+        <Text style={s.totalBadge}>{total}</Text>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 }}
-      >
-        {/* Revenue Summary */}
-        <View style={styles.summarySection}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Revenue</Text>
-            <Text style={styles.summaryValue}>${totalRevenue.toFixed(2)}</Text>
-            <Text style={styles.summaryMeta}>Completed payments</Text>
-          </View>
-          <View style={[styles.summaryCard, { borderLeftColor: "#F59E0B" }]}>
-            <Text style={styles.summaryLabel}>Pending</Text>
-            <Text style={[styles.summaryValue, { color: "#F59E0B" }]}>
-              ${pendingAmount.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryMeta}>
-              {payments.filter((p) => p.status === "pending").length} payments
-            </Text>
-          </View>
+      {/* Summary */}
+      <View style={s.summaryRow}>
+        <View style={[s.summaryCard, { borderLeftColor: C.completed }]}>
+          <Text style={s.sumLabel}>Ingresos completados</Text>
+          <Text style={[s.sumValue, { color: C.completed }]}>Bs {summary.completedRevenue.toFixed(2)}</Text>
         </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by payment ID, ride, or user..."
-            placeholderTextColor="#999"
-            value={searchText}
-            onChangeText={setSearchText}
-          />
+        <View style={[s.summaryCard, { borderLeftColor: C.pending }]}>
+          <Text style={s.sumLabel}>Pendiente</Text>
+          <Text style={[s.sumValue, { color: C.pending }]}>Bs {summary.pendingAmount.toFixed(2)}</Text>
+          <Text style={s.sumMeta}>{summary.pendingCount} pagos</Text>
         </View>
+      </View>
 
-        {/* Status Filter */}
-        <View style={styles.filterSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "all" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("all")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "all" && styles.filterTextActive,
-                ]}
-              >
-                All Payments
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "completed" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("completed")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "completed" && styles.filterTextActive,
-                ]}
-              >
-                Completed
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "pending" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("pending")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "pending" && styles.filterTextActive,
-                ]}
-              >
-                Pending
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "failed" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("failed")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "failed" && styles.filterTextActive,
-                ]}
-              >
-                Failed
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "refunded" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("refunded")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "refunded" && styles.filterTextActive,
-                ]}
-              >
-                Refunded
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
+      {/* Search */}
+      <View style={s.searchWrap}>
+        <TextInput
+          style={s.searchInput}
+          placeholder="Buscar por ID, pasajero o transacción…"
+          placeholderTextColor={C.textMuted}
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+      </View>
+
+      {/* Filters */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filtersScroll} contentContainerStyle={s.filtersContent}>
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.value}
+            style={[s.filterBtn, statusFilter === f.value && s.filterBtnActive]}
+            onPress={() => handleFilter(f.value)}
+          >
+            <Text style={[s.filterTxt, statusFilter === f.value && s.filterTxtActive]}>{f.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Error */}
+      {error && (
+        <TouchableOpacity style={s.errorBanner} onPress={() => fetchPayments({ reset: true })}>
+          <Text style={s.errorTxt}>{error} — Toca para reintentar</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* List */}
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color={C.primary} />
+          <Text style={s.loadingTxt}>Cargando pagos…</Text>
         </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={s.list}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPayments({ reset: true, isRefresh: true })} colors={[C.primary]} />}
+          onScroll={({ nativeEvent }) => {
+            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+            if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 60) handleLoadMore();
+          }}
+          scrollEventThrottle={400}
+        >
+          <Text style={s.resultCount}>{displayed.length} de {total} pagos</Text>
 
-        {/* Payments List */}
-        <View style={styles.listSection}>
-          <Text style={styles.resultCount}>
-            {filteredPayments.length} payment
-            {filteredPayments.length !== 1 ? "s" : ""}
-          </Text>
-          {filteredPayments.map((payment) => (
+          {displayed.length === 0 && !error && (
+            <View style={s.empty}><Text style={s.emptyTxt}>No hay pagos con este filtro.</Text></View>
+          )}
+
+          {displayed.map(p => (
             <TouchableOpacity
-              key={payment.id}
-              style={styles.paymentCard}
-              onPress={() => {
-                setSelectedPayment(payment);
-                setModalVisible(true);
-              }}
+              key={p.id}
+              style={s.card}
+              onPress={() => { setSelected(p); setModalVisible(true); }}
+              activeOpacity={0.75}
             >
-              <View style={styles.paymentHeader}>
-                <View>
-                  <Text style={styles.paymentId}>{payment.id}</Text>
-                  <Text style={styles.paymentRide}>{payment.rideId}</Text>
+              <View style={s.cardHead}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardId} numberOfLines={1}>#{p.id.slice(0, 8).toUpperCase()}</Text>
+                  <Text style={s.cardDate}>{fmtDate(p.createdAt)}</Text>
                 </View>
-                <Text
-                  style={[
-                    styles.paymentAmount,
-                    { color: getStatusColor(payment.status) },
-                  ]}
-                >
-                  ${payment.amount.toFixed(2)}
+                <Text style={[s.cardAmount, { color: statusColor(p.payment_status) }]}>
+                  Bs {Number(p.amount).toFixed(2)}
                 </Text>
               </View>
-              <View style={styles.paymentBody}>
-                <Text style={styles.paymentUser}>👤 {payment.userName}</Text>
-                <Text style={styles.paymentMethod}>
-                  💳 {payment.paymentMethod}
-                </Text>
+
+              <View style={s.cardBody}>
+                <Text style={s.participantTxt}>👤 {p.passenger?.name || 'Sin pasajero'}</Text>
+                <Text style={s.participantTxt}>💳 {methodLabel(p.payment_method)}</Text>
               </View>
-              <View style={styles.paymentFooter}>
-                <Text style={styles.paymentDate}>{payment.date}</Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: getStatusColor(payment.status) },
-                  ]}
-                >
-                  <Text style={styles.statusText}>
-                    {payment.status.charAt(0).toUpperCase() +
-                      payment.status.slice(1)}
-                  </Text>
+
+              <View style={s.cardFoot}>
+                <Text style={s.metaTxt}>{fmtDate(p.createdAt)}</Text>
+                <View style={[s.statusChip, { backgroundColor: statusColor(p.payment_status) }]}>
+                  <Text style={s.statusChipTxt}>{statusLabel(p.payment_status)}</Text>
                 </View>
               </View>
             </TouchableOpacity>
           ))}
-        </View>
-      </ScrollView>
 
-      {/* Payment Details Modal */}
-      {selectedPayment && (
-        <Modal visible={modalVisible} animationType="slide" transparent={true}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.closeButton}>‹</Text>
+          {loadingMore && (
+            <View style={s.loadMoreWrap}><ActivityIndicator size="small" color={C.primary} /></View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* Detail Modal */}
+      {selected && (
+        <Modal visible={modalVisible} animationType="slide" transparent>
+          <View style={s.modalOverlay}>
+            <View style={s.modalSheet}>
+              <View style={s.modalHeader}>
+                <TouchableOpacity onPress={() => setModalVisible(false)} style={s.backBtn}>
+                  <Text style={s.backTxt}>‹</Text>
                 </TouchableOpacity>
-                <Text style={styles.modalTitle}>Payment Details</Text>
-                <Text style={styles.emptySpace} />
+                <Text style={s.headerTitle}>Detalle del pago</Text>
+                <View style={{ width: 36 }} />
               </View>
 
-              <ScrollView style={styles.modalBody}>
-                {/* Status Card */}
-                <View
-                  style={[
-                    styles.statusCard,
-                    { backgroundColor: getStatusColor(selectedPayment.status) },
-                  ]}
-                >
-                  <Text style={styles.statusCardText}>
-                    {selectedPayment.status.toUpperCase()}
-                  </Text>
-                  <Text style={styles.statusCardAmount}>
-                    ${selectedPayment.amount.toFixed(2)}
-                  </Text>
+              <ScrollView style={s.modalBody} contentContainerStyle={{ paddingBottom: 40 }}>
+                {/* Status + amount banner */}
+                <View style={[s.statusBanner, { backgroundColor: statusColor(selected.payment_status) }]}>
+                  <Text style={s.statusBannerLabel}>{statusLabel(selected.payment_status).toUpperCase()}</Text>
+                  <Text style={s.statusBannerAmount}>Bs {Number(selected.amount).toFixed(2)}</Text>
                 </View>
 
-                {/* Transaction Details */}
-                <View style={styles.detailsSection}>
-                  <DetailRow
-                    label="Payment ID"
-                    value={selectedPayment.id}
-                    icon="🆔"
-                  />
-                  <DetailRow
-                    label="Ride ID"
-                    value={selectedPayment.rideId}
-                    icon="🗺️"
-                  />
-                  <DetailRow
-                    label="Transaction ID"
-                    value={selectedPayment.transactionId}
-                    icon="🔐"
-                  />
-                  <DetailRow
-                    label="User"
-                    value={selectedPayment.userName}
-                    icon="👤"
-                  />
-                  <DetailRow
-                    label="Payment Method"
-                    value={selectedPayment.paymentMethod}
-                    icon="💳"
-                  />
-                  <DetailRow
-                    label="Date & Time"
-                    value={selectedPayment.date}
-                    icon="🕐"
-                  />
+                <View style={s.infoCard}>
+                  <InfoRow icon="🆔" label="ID Pago"       value={selected.id} />
+                  <InfoRow icon="🗺️" label="ID Viaje"      value={selected.rideId || '—'} />
+                  <InfoRow icon="🔐" label="Transacción"    value={selected.transaction_id || 'Sin transacción'} />
+                  <InfoRow icon="👤" label="Pasajero"       value={selected.passenger?.name || '—'} />
+                  <InfoRow icon="📞" label="Teléfono"       value={selected.passenger?.phone || '—'} />
+                  <InfoRow icon="💳" label="Método"         value={methodLabel(selected.payment_method)} />
+                  <InfoRow icon="💰" label="Moneda"         value={selected.currency || 'BOB'} />
+                  <InfoRow icon="🕐" label="Creado"         value={fmtDate(selected.createdAt)} />
+                  <InfoRow icon="✅" label="Pagado"         value={selected.paid_at ? fmtDate(selected.paid_at) : 'No pagado'} last />
                 </View>
 
-                {/* Actions */}
-                <View style={styles.actionsSection}>
-                  {selectedPayment.status === "pending" && (
-                    <>
-                      <TouchableOpacity style={styles.actionButtonPrimary}>
-                        <Text style={styles.actionButtonText}>
-                          ✓ Confirm Payment
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionButtonDanger}>
-                        <Text style={styles.actionButtonText}>
-                          ✕ Mark as Failed
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  {selectedPayment.status === "completed" && (
-                    <TouchableOpacity style={styles.actionButtonWarning}>
-                      <Text style={styles.actionButtonText}>
-                        ↶ Process Refund
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedPayment.status === "failed" && (
-                    <TouchableOpacity style={styles.actionButtonSecondary}>
-                      <Text style={styles.actionButtonTextSecondary}>
-                        🔄 Retry Payment
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.actionButtonSecondary}>
-                    <Text style={styles.actionButtonTextSecondary}>
-                      📧 Send Receipt
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                {selected.ride && (
+                  <View style={s.infoCard}>
+                    <Text style={s.infoCardTitle}>Información del viaje</Text>
+                    <InfoRow icon="📍" label="Recogida" value={selected.ride.pickup_address || '—'} />
+                    <InfoRow icon="🎯" label="Destino"  value={selected.ride.dropoff_address || '—'} />
+                    <InfoRow icon="💵" label="Tarifa viaje" value={`Bs ${Number(selected.ride.finalFare ?? 0).toFixed(2)}`} last />
+                  </View>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -424,318 +334,87 @@ const AdminPaymentsScreen: React.FC<AdminPaymentsScreenProps> = ({
   );
 };
 
-interface DetailRowProps {
-  label: string;
-  value: string;
-  icon: string;
-}
-
-const DetailRow: React.FC<DetailRowProps> = ({ label, value, icon }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailIcon}>{icon}</Text>
-    <View style={styles.detailContent}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+// ─── Sub-components ───────────────────────────────────────────────────────────
+const InfoRow = ({ icon, label, value, last }: { icon: string; label: string; value: string; last?: boolean }) => (
+  <View style={[ir.row, !last && ir.border]}>
+    <Text style={ir.icon}>{icon}</Text>
+    <View style={{ flex: 1 }}>
+      <Text style={ir.label}>{label}</Text>
+      <Text style={ir.value}>{value}</Text>
     </View>
   </View>
 );
+const ir = StyleSheet.create({
+  row:    { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 11 },
+  border: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  icon:   { fontSize: 16, marginRight: 12, marginTop: 1 },
+  label:  { fontSize: 11, color: C.textMuted, fontWeight: '500', marginBottom: 2 },
+  value:  { fontSize: 13, color: C.text, fontWeight: '600' },
+});
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAFAFA",
-  },
-  header: {
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  backButton: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  headerEmpty: {
-    width: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  summarySection: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: "row",
-    gap: 12,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    borderLeftWidth: 4,
-    borderLeftColor: "#10B981",
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#10B981",
-    marginVertical: 6,
-  },
-  summaryMeta: {
-    fontSize: 11,
-    color: "#9CA3AF",
-  },
-  searchContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  searchInput: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#1F2937",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  filterSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  filterButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginRight: 8,
-  },
-  filterButtonActive: {
-    backgroundColor: "#7C3AED",
-    borderColor: "#7C3AED",
-  },
-  filterText: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  filterTextActive: {
-    color: "#FFFFFF",
-  },
-  listSection: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  resultCount: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginBottom: 12,
-    fontWeight: "500",
-  },
-  paymentCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginBottom: 10,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  paymentHeader: {
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  paymentId: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1F2937",
-  },
-  paymentRide: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  paymentAmount: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  paymentBody: {
-    padding: 14,
-    gap: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  paymentUser: {
-    fontSize: 12,
-    color: "#1F2937",
-  },
-  paymentMethod: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  paymentFooter: {
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-  },
-  paymentDate: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: "#FAFAFA",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "90%",
-  },
-  modalHeader: {
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  closeButton: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  emptySpace: {
-    width: 28,
-  },
-  modalBody: {
-    padding: 16,
-  },
-  statusCard: {
-    borderRadius: 12,
-    padding: 20,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  statusCardText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  statusCardAmount: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    marginTop: 8,
-  },
-  detailsSection: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 14,
-  },
-  detailIcon: {
-    fontSize: 18,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 14,
-    color: "#1F2937",
-    fontWeight: "600",
-  },
-  actionsSection: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  actionButtonPrimary: {
-    backgroundColor: "#10B981",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  actionButtonDanger: {
-    backgroundColor: "#EF4444",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  actionButtonWarning: {
-    backgroundColor: "#F59E0B",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  actionButtonSecondary: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  actionButtonTextSecondary: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1F2937",
-  },
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
+
+  header:      { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, gap: 10 },
+  backBtn:     { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  backTxt:     { fontSize: 28, color: C.white, fontWeight: '700', lineHeight: 32 },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: C.white },
+  totalBadge:  { fontSize: 12, fontWeight: '700', color: C.primary, backgroundColor: C.white, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12 },
+
+  summaryRow:  { flexDirection: 'row', paddingHorizontal: 14, paddingTop: 12, gap: 10 },
+  summaryCard: { flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 14, borderLeftWidth: 4 },
+  sumLabel:    { fontSize: 11, color: C.textMuted, fontWeight: '500' },
+  sumValue:    { fontSize: 17, fontWeight: '800', marginVertical: 4 },
+  sumMeta:     { fontSize: 10, color: '#9CA3AF' },
+
+  searchWrap:  { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 },
+  searchInput: { backgroundColor: C.white, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13, color: C.text, borderWidth: 1, borderColor: C.border },
+
+  filtersScroll:   { flexGrow: 0 },
+  filtersContent:  { paddingHorizontal: 14, paddingVertical: 8, gap: 8, flexDirection: 'row' },
+  filterBtn:       { paddingHorizontal: 13, paddingVertical: 6, borderRadius: 20, backgroundColor: C.white, borderWidth: 1, borderColor: C.border },
+  filterBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  filterTxt:       { fontSize: 12, color: C.textMuted, fontWeight: '500' },
+  filterTxtActive: { color: C.white },
+
+  errorBanner: { margin: 14, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FECACA' },
+  errorTxt:    { fontSize: 13, color: C.failed, fontWeight: '600' },
+
+  centered:    { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingTxt:  { fontSize: 14, color: C.textMuted },
+
+  list:        { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 24 },
+  resultCount: { fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 10 },
+
+  empty:       { paddingVertical: 40, alignItems: 'center' },
+  emptyTxt:    { fontSize: 14, color: C.textMuted },
+
+  card:        { backgroundColor: C.white, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  cardHead:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  cardId:      { fontSize: 13, fontWeight: '700', color: C.text },
+  cardDate:    { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  cardAmount:  { fontSize: 16, fontWeight: '800' },
+
+  cardBody:    { paddingHorizontal: 14, paddingVertical: 10, gap: 4, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  participantTxt: { fontSize: 12, color: C.textMuted },
+
+  cardFoot:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB' },
+  metaTxt:     { fontSize: 11, color: C.textMuted },
+  statusChip:  { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  statusChipTxt: { fontSize: 11, fontWeight: '600', color: C.white },
+
+  loadMoreWrap: { paddingVertical: 16, alignItems: 'center' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet:   { backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' },
+  modalHeader:  { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, gap: 10, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  modalBody:    { padding: 16 },
+  statusBanner: { borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 16 },
+  statusBannerLabel: { fontSize: 14, fontWeight: '700', color: C.white },
+  statusBannerAmount: { fontSize: 28, fontWeight: '800', color: C.white, marginTop: 6 },
+  infoCard:     { backgroundColor: C.white, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: C.border },
+  infoCardTitle: { fontSize: 13, fontWeight: '700', color: C.text, paddingTop: 14, paddingBottom: 4 },
 });
 
 export default AdminPaymentsScreen;

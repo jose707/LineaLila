@@ -1,24 +1,24 @@
 {
   "development": {
     "username": "postgres",
-    "password": "password",
-    "database": "linea_lila",
+    "password": "1234",
+    "database": "Lila",
     "host": "localhost",
     "port": 5432,
     "dialect": "postgres"
   },
   "test": {
     "username": "postgres",
-    "password": "password",
-    "database": "linea_lila_test",
+    "password": "1234",
+    "database": "lila_test",
     "host": "localhost",
     "port": 5432,
     "dialect": "postgres"
   },
   "production": {
     "username": "postgres",
-    "password": "password",
-    "database": "linea_lila_prod",
+    "password": "1234",
+    "database": "lila_prod",
     "host": "localhost",
     "port": 5432,
     "dialect": "postgres"

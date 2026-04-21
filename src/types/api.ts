@@ -16,6 +16,14 @@ export interface ApiError {
   details?: Record<string, unknown>;
 }
 
+export interface CancellationReason {
+  id: string;
+  code: string;
+  description: string;
+  applicable_to: 'passenger' | 'driver' | 'both' | null;
+  is_active: boolean;
+}
+
 // AUTH
 export interface LoginRequest {
   email: string;
@@ -55,6 +63,7 @@ export interface CreateRideRequest {
     longitude: number;
     address: string;
   };
+  vehicleTypeRequested?: string;
   paymentMethod?: string;
   scheduledTime?: string;
   notes?: string;
@@ -94,6 +103,7 @@ export interface CompleteRideRequest {
 export interface CancelRideRequest {
   rideId: string;
   reason?: string;
+  cancellationReasonId?: string;
 }
 
 export interface RideDetailsResponse extends Ride {
@@ -124,6 +134,7 @@ export interface RideRequestsResponse {
   passengerName: string;
   passengerRating: number;
   passengerPhone: string;
+  passengerProfilePhoto?: string | null;
   pickupLocation: {
     latitude: number;
     longitude: number;
@@ -162,6 +173,15 @@ export interface RideEstimateResponse {
   timeFare: number;
   totalFare: number;
   currency: string;
+}
+
+export interface FareSettingsResponse {
+  baseFare: number;
+  farePerKm: number;
+  farePerMinute: number;
+  currency: string;
+  zoneId?: string | null;
+  zoneName?: string | null;
 }
 
 // PAYMENTS

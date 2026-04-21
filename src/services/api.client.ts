@@ -1,10 +1,10 @@
 // src/services/api.client.ts
-import { Platform } from 'react-native';
 import { StorageHelper } from './storage';
+import { API_HOST } from '../config/constants';
 
 // Detectar si estamos en Android emulator, iOS simulator o dispositivo real
 // Para device real en red local: 192.168.100.133:3000
-const API_URL = 'http://192.168.100.133:3000';
+const API_URL = API_HOST;
 
 interface FetchOptions extends RequestInit {
   params?: Record<string, string | number>;
@@ -15,7 +15,7 @@ class ApiClient {
   private baseURL: string;
   private timeout: number;
 
-  constructor(baseURL: string, timeout: number = 10000) {
+  constructor(baseURL: string, timeout: number = 40000) {
     this.baseURL = baseURL;
     this.timeout = timeout;
   }
@@ -47,7 +47,6 @@ class ApiClient {
   ): Promise<Record<string, string>> {
     try {
       const token = StorageHelper.getItem('authToken');
-      console.log('getHeaders - token:', token ? 'present' : 'missing');
       const defaultHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         ...headers,
@@ -55,9 +54,9 @@ class ApiClient {
 
       if (token) {
         defaultHeaders.Authorization = `Bearer ${token}`;
-        console.log('getHeaders - Authorization header set');
       } else {
-        console.warn('getHeaders - WARNING: No token found!');
+        // Importante: warning útil para endpoints que requieren auth
+        console.warn('⚠️ [API] No auth token found');
       }
 
       return defaultHeaders;

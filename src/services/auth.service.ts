@@ -7,31 +7,11 @@ import {
   SignupRequest,
   SignupResponse,
 } from '../types/api';
-import { User, UserRole } from '../types/models';
-
-// Usuarios de prueba
-const TEST_USERS = [
-  {
-    id: 'admin-001',
-    email: 'admin@linealiła.com',
-    password: 'admin123',
-    name: 'Admin Línea Lila',
-    phone: '+57 300 123 0001',
-    role: UserRole.ADMIN,
-    profileImage:
-      'https://api.dicebear.com/7.x/avataaars/svg?seed=admin&backgroundColor=7C3AED',
-  },
-  {
-    id: 'user-001',
-    email: 'usuario@linealiła.com',
-    password: 'usuario123',
-    name: 'María López',
-    phone: '+57 300 123 0002',
-    role: UserRole.USER,
-    profileImage:
-      'https://api.dicebear.com/7.x/avataaars/svg?seed=user&backgroundColor=EC4899',
-  },
-];
+import { User } from '../types/models';
+import {
+  getFCMToken,
+  requestNotificationPermission,
+} from './firebase.service';
 
 export const authService = {
   // Login
@@ -66,7 +46,7 @@ export const authService = {
       if (token && !token.startsWith('mock_token_')) {
         await api.post('/auth/logout');
       }
-    } catch (error) {
+    } catch {
       // No fallar si la API no responde
       console.log('Logout API call skipped or failed, clearing local data');
     } finally {
@@ -86,12 +66,66 @@ export const authService = {
     return response.token;
   },
 
-  // Get Current User
+  // Register FCM Token
+  registerFCMToken: async (): Promise<void> => {
+    try {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+
+      const token = await getFCMToken();
+      if (!token) return;
+
+      await authService.registerFCMTokenValue(token);
+    } catch (e: any) {
+      console.error('[FCM] Error registering token:', e.message);
+    }
+  },
+
+  registerFCMTokenValue: async (token: string): Promise<void> => {
+    if (!token) return;
+    await api.post('/notifications/register-token', { token });
+    console.log('[FCM] Token registered with backend via API client');
+  },
+
+  // Get Current User from Local Storage
   getCurrentUser: async (): Promise<User | null> => {
     try {
       const userJson = StorageHelper.getItem('user');
       return userJson ? JSON.parse(userJson) : null;
     } catch {
+      return null;
+    }
+  },
+
+  // Fetch Current User from Server (refreshes data)
+  fetchCurrentUser: async (): Promise<User | null> => {
+    try {
+      console.log(
+        'ðŸ“¡ [fetchCurrentUser] Obteniendo datos actualizados del servidor...',
+      );
+      const response = await api.get<{ user: User }>('/auth/me');
+      console.log('ðŸ“¡ [fetchCurrentUser] Respuesta del servidor:', response);
+
+      if (response && response.user) {
+        // Actualizar localStorage con los datos nuevos
+        console.log(
+          'âœ… [fetchCurrentUser] Guardando usuario en localStorage:',
+          {
+            id: response.user.id,
+            name: response.user.name,
+            rating: response.user.rating,
+            totalTrips: response.user.totalTrips,
+          },
+        );
+        StorageHelper.setItem('user', JSON.stringify(response.user));
+        return response.user;
+      }
+      return null;
+    } catch (error: any) {
+      console.error(
+        'âŒ [fetchCurrentUser] Error:',
+        error?.response?.data || error.message,
+      );
       return null;
     }
   },
@@ -119,7 +153,7 @@ export const authService = {
     firebaseUid?: string;
     photoURL?: string;
     role?: string;
-  }): Promise<User> => {
+  }): Promise<{ token: string; user: User }> => {
     const registerData = {
       email: data.email,
       phone: data.phone,
@@ -131,22 +165,23 @@ export const authService = {
     };
 
     console.log(
-      '📡 Enviando registro al backend:',
+      'ðŸ“¡ Enviando registro al backend:',
       JSON.stringify(registerData, null, 2),
     );
 
     try {
-      const response = await api.post<{ user: User }>(
+      const response = await api.post<{ token: string; user: User }>(
         '/auth/verify-phone',
         registerData,
       );
 
-      // Guardar usuario
+      // Guardar token y usuario
+      StorageHelper.setItem('authToken', response.token);
       StorageHelper.setItem('user', JSON.stringify(response.user));
 
-      return response.user;
+      return response;
     } catch (error: any) {
-      console.error('❌ Backend registration error:', error);
+      console.error('âŒ Backend registration error:', error);
       console.error('   Status:', error.response?.status);
       console.error('   Data:', error.response?.data);
       throw error;
@@ -160,10 +195,10 @@ export const authService = {
     email?: string,
   ): Promise<boolean> => {
     try {
-      console.log(`🔍 Verificando si el teléfono existe: ${phoneNumber}`);
+      console.log(`ðŸ” Verificando si el telÃ©fono existe: ${phoneNumber}`);
 
       // Hacer una llamada al endpoint verify-phone con los datos necesarios
-      // El backend debe retornar un error 409 si el teléfono ya está registrado
+      // El backend debe retornar un error 409 si el telÃ©fono ya estÃ¡ registrado
       try {
         const response = await api.post<any>('/auth/verify-phone', {
           phone: phoneNumber,
@@ -172,58 +207,58 @@ export const authService = {
           checkOnly: true, // Indica que solo queremos verificar, no registrar
         });
 
-        console.log('📱 Respuesta verificación teléfono:', response);
+        console.log('ðŸ“± Respuesta verificaciÃ³n telÃ©fono:', response);
 
-        // Si no hay error, el teléfono NO existe
+        // Si no hay error, el telÃ©fono NO existe
         return false;
       } catch (error: any) {
-        // Si hay error, verificar si es por teléfono duplicado
+        // Si hay error, verificar si es por telÃ©fono duplicado
         console.log(
-          '📱 Respuesta error completa:',
+          'ðŸ“± Respuesta error completa:',
           JSON.stringify(error, null, 2),
         );
-        console.log('📱 error.status:', error?.status);
-        console.log('📱 error.data:', error?.data);
-        console.log('📱 error.message:', error?.message);
-        console.log('📱 error.data?.message:', error?.data?.message);
-        console.log('📱 error.data?.error:', error?.data?.error);
+        console.log('ðŸ“± error.status:', error?.status);
+        console.log('ðŸ“± error.data:', error?.data);
+        console.log('ðŸ“± error.message:', error?.message);
+        console.log('ðŸ“± error.data?.message:', error?.data?.message);
+        console.log('ðŸ“± error.data?.error:', error?.data?.error);
 
-        // Detectar si es un error por teléfono duplicado (debe venir explícitamente del backend)
+        // Detectar si es un error por telÃ©fono duplicado (debe venir explÃ­citamente del backend)
         const isDuplicatePhone =
-          error?.status === 409 || // Conflict (teléfono duplicado)
+          error?.status === 409 || // Conflict (telÃ©fono duplicado)
           (error?.data?.message &&
-            (error.data.message.toLowerCase().includes('teléfono') ||
+            (error.data.message.toLowerCase().includes('telÃ©fono') ||
               error.data.message.toLowerCase().includes('phone') ||
               error.data.message.toLowerCase().includes('already') ||
               error.data.message.toLowerCase().includes('registrado') ||
               error.data.message.toLowerCase().includes('existe'))) ||
           (error?.data?.error &&
-            (error.data.error.toLowerCase().includes('teléfono') ||
+            (error.data.error.toLowerCase().includes('telÃ©fono') ||
               error.data.error.toLowerCase().includes('phone') ||
               error.data.error.toLowerCase().includes('already') ||
               error.data.error.toLowerCase().includes('registrado') ||
               error.data.error.toLowerCase().includes('existe')));
 
-        console.log('📱 ¿Es duplicado? isDuplicatePhone:', isDuplicatePhone);
+        console.log('ðŸ“± Â¿Es duplicado? isDuplicatePhone:', isDuplicatePhone);
 
         if (isDuplicatePhone) {
-          console.log('✅ Teléfono YA existe en BD');
+          console.log('âœ… TelÃ©fono YA existe en BD');
           return true;
         }
 
         // Si es otro error (campos faltantes, etc), asumir que no existe
         console.log(
-          '📱 Error detectado, pero NO es duplicado:',
+          'ðŸ“± Error detectado, pero NO es duplicado:',
           error?.data?.error,
         );
         return false;
       }
     } catch (error: any) {
-      console.error('❌ Error checking phone number:');
+      console.error('âŒ Error checking phone number:');
       console.error('   Status:', error?.status);
       console.error('   Data:', error?.data);
       console.error('   Message:', error?.message);
-      // Si hay error en la validación, asumir que NO existe para permitir el flujo
+      // Si hay error en la validaciÃ³n, asumir que NO existe para permitir el flujo
       return false;
     }
   },
@@ -233,16 +268,21 @@ export const authService = {
     firebaseUid: string,
   ): Promise<{
     exists: boolean;
+    needsPhoneVerification?: boolean;
     token?: string;
     user?: User;
   }> => {
     try {
-      console.log(`🔍 Verificando si usuario Firebase existe: ${firebaseUid}`);
       const response = await api.get<any>(
         `/auth/check-firebase/${firebaseUid}`,
       );
 
-      console.log('✅ Respuesta del backend:', response);
+      if (response.exists && response.needsPhoneVerification) {
+        return {
+          exists: true,
+          needsPhoneVerification: true,
+        };
+      }
 
       if (response.exists && response.token && response.user) {
         // User exists, save token and user data
@@ -252,11 +292,12 @@ export const authService = {
 
       return {
         exists: response.exists,
+        needsPhoneVerification: response.needsPhoneVerification,
         token: response.token,
         user: response.user,
       };
     } catch (error: any) {
-      console.error('❌ Error checking Firebase user:');
+      console.error('âŒ Error checking Firebase user:');
       console.error('   Status:', error.response?.status);
       console.error('   Data:', error.response?.data);
       console.error('   Message:', error.message);
@@ -264,4 +305,49 @@ export const authService = {
       return { exists: false };
     }
   },
+
+  // Change user mode (passenger or driver)
+  changeMode: async (mode: 'passenger' | 'driver'): Promise<User> => {
+    try {
+      const userStr = StorageHelper.getItem('user');
+      if (!userStr) {
+        throw new Error('No user found in storage');
+      }
+
+      const user = JSON.parse(userStr) as User;
+      const userId = user.id;
+
+      console.log(`ðŸ”„ Cambiando modo a: ${mode}`);
+
+      const response = await api.put<any>(`/users/${userId}/current-mode`, {
+        currentMode: mode,
+      });
+
+      console.log('âœ… Respuesta cambio de modo:', response);
+
+      if (response.user) {
+        // Update user in storage with new mode
+        StorageHelper.setItem('user', JSON.stringify(response.user));
+      }
+
+      return response.user;
+    } catch (error: any) {
+      console.error('âŒ Error changing mode:');
+      console.error('   Status:', error?.status);
+      console.error('   Data:', error?.data);
+      console.error('   Message:', error?.message);
+
+      // Check if it's a driver approval error
+      if (error?.status === 403) {
+        throw new Error(
+          error?.data?.error || 'No tienes permisos para ser conductor',
+        );
+      }
+
+      throw new Error(
+        error?.data?.error || `Error al cambiar el modo a ${mode}`,
+      );
+    }
+  },
 };
+

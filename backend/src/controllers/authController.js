@@ -1,5 +1,6 @@
 // backend/src/controllers/authController.js
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -15,6 +16,72 @@ const generateToken = user => {
       expiresIn: process.env.JWT_EXPIRE || '30d',
     },
   );
+};
+
+// Helper function to build response user object with driver rating
+const buildUserResponseObject = async user => {
+  const responseUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    isVerified: user.isVerified,
+    role: user.role,
+    photoURL: user.profilePhoto,
+    rating: user.rating,
+    totalRides: user.totalTrips || 0,
+    currentMode: user.currentMode || 'passenger',
+  };
+
+  // Fetch driver data if user has a driver profile
+  try {
+    const driver = await Driver.findOne({
+      where: { userId: user.id },
+    });
+    if (driver) {
+      responseUser.driverRating = driver.rating;
+      responseUser.totalTripsAsDriver = driver.totalRides || 0;
+      console.log('✅ [buildUserResponseObject] Driver encontrado:', {
+        userId: user.id,
+        driverRating: driver.rating,
+        totalRidesAsDriver: driver.totalRides,
+      });
+    } else {
+      console.log(
+        '⚠️ [buildUserResponseObject] No driver profile found for userId:',
+        user.id,
+      );
+      // Si no existe registro de conductor pero el modo guardado es 'driver',
+      // lo reseteamos a 'passenger' para evitar acceso indebido al panel de conductor.
+      if (responseUser.currentMode === 'driver') {
+        console.log(
+          '🔄 [buildUserResponseObject] Reseteando currentMode a passenger (sin registro de conductor)',
+        );
+        responseUser.currentMode = 'passenger';
+        // Persistir en la BD para que futuros logins ya estén limpios
+        try {
+          await user.update({ currentMode: 'passenger' });
+        } catch (updateErr) {
+          console.error(
+            '⚠️ [buildUserResponseObject] No se pudo actualizar currentMode en BD:',
+            updateErr,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching driver data:', error);
+  }
+
+  console.log('📤 [buildUserResponseObject] Retornando user object:', {
+    id: responseUser.id,
+    name: responseUser.name,
+    rating: responseUser.rating,
+    driverRating: responseUser.driverRating,
+    currentMode: responseUser.currentMode,
+  });
+
+  return responseUser;
 };
 
 // Check if user exists by Firebase UID
@@ -33,20 +100,25 @@ const checkFirebaseUser = async (req, res) => {
     });
 
     if (user) {
+      // Si el usuario fue creado con Firebase/Google pero no completó la verificación de teléfono,
+      // no debemos permitir inicio de sesión.
+      if (user.firebaseUid && !user.isVerified) {
+        return res.status(200).json({
+          exists: true,
+          needsPhoneVerification: true,
+          message: 'Phone verification required',
+        });
+      }
+
       // User exists, return user data and generate token
       const token = generateToken(user);
+      const responseUser = await buildUserResponseObject(user);
+
       return res.status(200).json({
         exists: true,
         message: 'User found',
         token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          photoURL: user.profilePhoto,
-        },
+        user: responseUser,
       });
     } else {
       // User doesn't exist, needs to complete registration
@@ -98,28 +170,24 @@ const signup = async (req, res) => {
     // Hash de la contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear usuario
+    // Crear usuario: por defecto todos son pasajeros al inicio
     const user = await User.create({
       name,
       email,
       phone,
       password: hashedPassword,
-      role: 'user',
+      role: 'passenger',
     });
 
     // Generar token
     const token = generateToken(user);
 
+    const responseUser = await buildUserResponseObject(user);
+
     res.status(201).json({
       message: 'Usuario registrado exitosamente',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-      },
+      user: responseUser,
     });
   } catch (error) {
     console.error('Error en signup:', error);
@@ -159,6 +227,14 @@ const login = async (req, res) => {
       });
     }
 
+    // Si este usuario está asociado a Firebase/Google, exigir verificación (teléfono/OTP)
+    if (user.firebaseUid && !user.isVerified) {
+      return res.status(403).json({
+        error:
+          'Debes verificar tu número de celular antes de iniciar sesión.',
+      });
+    }
+
     // Comparar contraseña
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -176,17 +252,12 @@ const login = async (req, res) => {
     // Generar token
     const token = generateToken(user);
 
+    const responseUser = await buildUserResponseObject(user);
+
     res.status(200).json({
       message: 'Login exitoso',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        photoURL: user.profilePhoto,
-      },
+      user: responseUser,
     });
   } catch (error) {
     console.error('Error en login:', error);
@@ -208,8 +279,12 @@ const getCurrentUser = async (req, res) => {
       });
     }
 
+    // Usar buildUserResponseObject para validar que el registro de conductor existe
+    // y resetear currentMode si fue eliminado de la BD
+    const responseUser = await buildUserResponseObject(user);
+
     res.status(200).json({
-      user,
+      user: responseUser,
     });
   } catch (error) {
     console.error('Error al obtener usuario:', error);
@@ -265,7 +340,7 @@ const googleAuth = async (req, res) => {
         name,
         email,
         phone: '', // Valor por defecto para Google Auth
-        photo,
+        profilePhoto: photo,
         password: 'google_auth', // Valor por defecto para Google Auth
         role: 'user',
         isActive: true,
@@ -283,17 +358,12 @@ const googleAuth = async (req, res) => {
 
     const token = generateToken(user);
 
+    const responseUser = await buildUserResponseObject(user);
+
     res.json({
       message: 'Google login successful',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        photo: user.photo,
-        role: user.role,
-      },
+      user: responseUser,
     });
   } catch (error) {
     console.error('Error in googleAuth:', error);
@@ -307,7 +377,31 @@ const googleAuth = async (req, res) => {
  */
 const verifyPhoneOTP = async (req, res) => {
   try {
-    const { firebaseUid, phone, email, name, photoURL } = req.body;
+    const { firebaseUid, phone, email, name, photoURL, checkOnly } = req.body;
+
+    // Modo "solo consulta": NO escribir en BD, solo verificar duplicados
+    if (checkOnly) {
+      if (!phone) {
+        return res.status(400).json({ error: 'Phone number is required' });
+      }
+
+      const existingByPhone = await User.findOne({ where: { phone } });
+
+      // Si el teléfono ya está registrado por otra cuenta, bloquear
+      if (
+        existingByPhone &&
+        (!firebaseUid || existingByPhone.firebaseUid !== firebaseUid)
+      ) {
+        return res.status(409).json({
+          error: 'Este número de teléfono ya está registrado',
+        });
+      }
+
+      return res.status(200).json({
+        ok: true,
+        exists: false,
+      });
+    }
 
     if (!firebaseUid || !phone || !email) {
       return res.status(400).json({
@@ -329,7 +423,8 @@ const verifyPhoneOTP = async (req, res) => {
         firebaseUid,
         profilePhoto: photoURL || null, // Save the photo URL from Google
         password: firebaseUid, // Use Firebase UID as temporary password
-        role: 'user', // New users are always 'user'
+        role: 'passenger', // New users start as passenger; driver role is via Driver table
+        isVerified: true,
       });
 
       console.log('✅ New user created from Firebase:', {
@@ -346,6 +441,7 @@ const verifyPhoneOTP = async (req, res) => {
         email: email || user.email,
         phone,
         profilePhoto: photoURL || user.profilePhoto,
+        isVerified: true,
       });
 
       console.log('✅ User updated:', {
@@ -358,17 +454,12 @@ const verifyPhoneOTP = async (req, res) => {
 
     const token = generateToken(user);
 
+    const responseUser = await buildUserResponseObject(user);
+
     res.status(200).json({
       message: 'Phone verified successfully',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        photoURL: user.profilePhoto,
-      },
+      user: responseUser,
     });
   } catch (error) {
     console.error('Error verifying phone:', error);
@@ -384,4 +475,5 @@ module.exports = {
   googleAuth,
   checkFirebaseUser,
   verifyPhoneOTP,
+  buildUserResponseObject,
 };

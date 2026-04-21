@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+// src/screens/AdminRidesScreen.tsx
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,419 +10,345 @@ import {
   StatusBar,
   TextInput,
   Modal,
-} from "react-native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../navigation/AppNavigator";
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+import api from '../services/api.client';
 
-type AdminRidesScreenNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  "AdminRides"
->;
+// ─── Tokens ───────────────────────────────────────────────────────────────────
+const C = {
+  primary:     '#7514C5',
+  primaryLight:'#F3E8FF',
+  bg:          '#FAFAFA',
+  white:       '#FFFFFF',
+  border:      '#E5E7EB',
+  text:        '#1F2937',
+  textMuted:   '#6B7280',
+  surface:     '#F9FAFB',
+  completed:   '#10B981',
+  inProgress:  '#3B82F6',
+  cancelled:   '#6B7280',
+  requested:   '#F59E0B',
+  error:       '#EF4444',
+};
 
-interface AdminRidesScreenProps {
-  navigation: AdminRidesScreenNavigationProp;
-}
+type NavProp = NativeStackNavigationProp<RootStackParamList, 'AdminRides'>;
+interface Props { navigation: NavProp; }
 
-interface Ride {
+type RideStatus = 'all' | 'completed' | 'in_progress' | 'cancelled' | 'requested' | 'accepted';
+
+interface RideFromAPI {
   id: string;
-  passengerName: string;
-  driverName: string;
-  pickupLocation: string;
-  dropoffLocation: string;
-  status: "completed" | "in_progress" | "cancelled" | "disputed";
-  fare: number;
-  date: string;
+  pickup_address: string;
+  dropoff_address: string;
+  status: string;
+  finalFare: number;
   distance: number;
   duration: number;
+  createdAt: string;
+  passenger?: { id: string; name: string; phone: string };
+  driver?:    { id: string; name: string; phone: string };
 }
 
-const AdminRidesScreen: React.FC<AdminRidesScreenProps> = ({ navigation }) => {
-  const [searchText, setSearchText] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<
-    "all" | "completed" | "in_progress" | "cancelled" | "disputed"
-  >("all");
-  const [selectedRide, setSelectedRide] = useState<Ride | null>(null);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const statusColor = (s: string) => {
+  switch (s) {
+    case 'completed':   return C.completed;
+    case 'in_progress':
+    case 'accepted':
+    case 'arrived':     return C.inProgress;
+    case 'requested':   return C.requested;
+    case 'cancelled':
+    case 'expired':     return C.cancelled;
+    default:            return C.textMuted;
+  }
+};
+
+const statusLabel = (s: string) => {
+  const map: Record<string, string> = {
+    completed:   'Completado',
+    in_progress: 'En curso',
+    accepted:    'Aceptado',
+    arrived:     'Conductor llegó',
+    requested:   'Solicitado',
+    cancelled:   'Cancelado',
+    expired:     'Expirado',
+  };
+  return map[s] || s;
+};
+
+const fmtDate = (iso: string) => {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
+  } catch { return iso; }
+};
+
+const fmtDuration = (secs: number) => {
+  if (!secs) return '—';
+  const m = Math.round(secs / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+};
+
+// ─── Filters config ───────────────────────────────────────────────────────────
+const FILTERS: { label: string; value: RideStatus }[] = [
+  { label: 'Todos',      value: 'all' },
+  { label: 'Completado', value: 'completed' },
+  { label: 'En curso',   value: 'in_progress' },
+  { label: 'Aceptado',   value: 'accepted' },
+  { label: 'Solicitado', value: 'requested' },
+  { label: 'Cancelado',  value: 'cancelled' },
+];
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+const AdminRidesScreen: React.FC<Props> = ({ navigation }) => {
+  const [rides, setRides]             = useState<RideFromAPI[]>([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  const [searchText, setSearchText]   = useState('');
+  const [statusFilter, setStatusFilter] = useState<RideStatus>('all');
+
+  const [selectedRide, setSelectedRide] = useState<RideFromAPI | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  const [rides] = useState<Ride[]>([
-    {
-      id: "RIDE001",
-      passengerName: "María García",
-      driverName: "Juan Rodríguez",
-      pickupLocation: "Calle Santa Cruz",
-      dropoffLocation: "Centro Paceño",
-      status: "completed",
-      fare: 45.5,
-      date: "2024-12-15 14:30",
-      distance: 12.5,
-      duration: 28,
-    },
-    {
-      id: "RIDE002",
-      passengerName: "Ana López",
-      driverName: "Carlos Méndez",
-      pickupLocation: "Zona Sud",
-      dropoffLocation: "Sopocachi",
-      status: "disputed",
-      fare: 38.0,
-      date: "2024-12-15 16:45",
-      distance: 9.2,
-      duration: 22,
-    },
-    {
-      id: "RIDE003",
-      passengerName: "Patricia Sánchez",
-      driverName: "Luis Fernández",
-      pickupLocation: "El Alto",
-      dropoffLocation: "Miraflores",
-      status: "completed",
-      fare: 52.75,
-      date: "2024-12-15 10:15",
-      distance: 15.8,
-      duration: 35,
-    },
-    {
-      id: "RIDE004",
-      passengerName: "Roberto Torres",
-      driverName: "Miguel Díaz",
-      pickupLocation: "Calacoto",
-      dropoffLocation: "Irpavi",
-      status: "cancelled",
-      fare: 0,
-      date: "2024-12-14 18:00",
-      distance: 0,
-      duration: 0,
-    },
-  ]);
+  const LIMIT = 20;
 
-  const filteredRides = rides.filter((ride) => {
-    const matchesSearch =
-      ride.id.toLowerCase().includes(searchText.toLowerCase()) ||
-      ride.passengerName.toLowerCase().includes(searchText.toLowerCase()) ||
-      ride.driverName.toLowerCase().includes(searchText.toLowerCase());
-    const matchesStatus =
-      selectedStatus === "all" || ride.status === selectedStatus;
-    return matchesSearch && matchesStatus;
+  const fetchRides = useCallback(async (opts: {
+    reset?: boolean; isRefresh?: boolean; status?: RideStatus; offset?: number;
+  } = {}) => {
+    const { reset = false, isRefresh = false, status = statusFilter, offset = 0 } = opts;
+
+    if (isRefresh) { setRefreshing(true); }
+    else if (offset === 0) { setLoading(true); }
+    else { setLoadingMore(true); }
+    setError(null);
+
+    try {
+      const params: Record<string, string | number> = { limit: LIMIT, offset };
+      if (status !== 'all') { params.status = status; }
+
+      const data = await api.get<{ rides: RideFromAPI[]; total: number }>('/admin/rides', { params });
+
+      if (reset || offset === 0) {
+        setRides(data.rides || []);
+      } else {
+        setRides(prev => [...prev, ...(data.rides || [])]);
+      }
+      setTotal(data.total || 0);
+      setPage(offset / LIMIT);
+    } catch (err: any) {
+      const detail = err?.data?.error || err?.data?.message || err?.statusText || 'Error de conexión';
+      setError(`${err?.status ?? ''} ${detail}`);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => { fetchRides({ reset: true }); }, [fetchRides]);
+
+  const handleStatusFilter = (s: RideStatus) => {
+    setStatusFilter(s);
+    fetchRides({ reset: true, status: s, offset: 0 });
+  };
+
+  const handleLoadMore = () => {
+    if (loadingMore || rides.length >= total) return;
+    const nextOffset = (page + 1) * LIMIT;
+    fetchRides({ offset: nextOffset });
+  };
+
+  // Client-side search on loaded rides
+  const displayed = rides.filter(r => {
+    if (!searchText.trim()) return true;
+    const q = searchText.toLowerCase();
+    return (
+      r.id.toLowerCase().includes(q) ||
+      (r.passenger?.name || '').toLowerCase().includes(q) ||
+      (r.driver?.name || '').toLowerCase().includes(q) ||
+      (r.pickup_address || '').toLowerCase().includes(q) ||
+      (r.dropoff_address || '').toLowerCase().includes(q)
+    );
   });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "#10B981";
-      case "in_progress":
-        return "#3B82F6";
-      case "disputed":
-        return "#EF4444";
-      case "cancelled":
-        return "#6B7280";
-      default:
-        return "#6B7280";
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "✓";
-      case "in_progress":
-        return "▶";
-      case "disputed":
-        return "⚠";
-      case "cancelled":
-        return "✕";
-      default:
-        return "?";
-    }
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#7C3AED" />
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>‹</Text>
+      {/* ── Header ── */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+          <Text style={s.backTxt}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Rides Management</Text>
-        <Text style={styles.headerEmpty} />
+        <Text style={s.headerTitle}>Gestión de viajes</Text>
+        <Text style={s.totalBadge}>{total}</Text>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 }}
-      >
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by ride ID, passenger, or driver..."
-            placeholderTextColor="#999"
-            value={searchText}
-            onChangeText={setSearchText}
-          />
-        </View>
+      {/* ── Search ── */}
+      <View style={s.searchWrap}>
+        <TextInput
+          style={s.searchInput}
+          placeholder="Buscar por ID, pasajero, conductor o dirección…"
+          placeholderTextColor={C.textMuted}
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+      </View>
 
-        {/* Status Filter */}
-        <View style={styles.filterSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "all" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("all")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "all" && styles.filterTextActive,
-                ]}
-              >
-                All Rides
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "completed" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("completed")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "completed" && styles.filterTextActive,
-                ]}
-              >
-                Completed
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "in_progress" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("in_progress")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "in_progress" && styles.filterTextActive,
-                ]}
-              >
-                In Progress
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "disputed" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("disputed")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "disputed" && styles.filterTextActive,
-                ]}
-              >
-                Disputed
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === "cancelled" && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus("cancelled")}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === "cancelled" && styles.filterTextActive,
-                ]}
-              >
-                Cancelled
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
+      {/* ── Status filters ── */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filtersScroll} contentContainerStyle={s.filtersContent}>
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.value}
+            style={[s.filterBtn, statusFilter === f.value && s.filterBtnActive]}
+            onPress={() => handleStatusFilter(f.value)}
+          >
+            <Text style={[s.filterTxt, statusFilter === f.value && s.filterTxtActive]}>{f.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-        {/* Rides List */}
-        <View style={styles.listSection}>
-          <Text style={styles.resultCount}>
-            {filteredRides.length} ride{filteredRides.length !== 1 ? "s" : ""}{" "}
-            found
-          </Text>
-          {filteredRides.map((ride) => (
+      {/* ── Error ── */}
+      {error && (
+        <TouchableOpacity style={s.errorBanner} onPress={() => fetchRides({ reset: true })}>
+          <Text style={s.errorTxt}>{error} — Toca para reintentar</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ── List ── */}
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color={C.primary} />
+          <Text style={s.loadingTxt}>Cargando viajes…</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={s.list}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => fetchRides({ reset: true, isRefresh: true })}
+              colors={[C.primary]}
+            />
+          }
+          onScroll={({ nativeEvent }) => {
+            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+            const nearBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 60;
+            if (nearBottom) handleLoadMore();
+          }}
+          scrollEventThrottle={400}
+        >
+          <Text style={s.resultCount}>{displayed.length} de {total} viajes</Text>
+
+          {displayed.length === 0 && !error && (
+            <View style={s.empty}>
+              <Text style={s.emptyTxt}>No hay viajes con este filtro.</Text>
+            </View>
+          )}
+
+          {displayed.map(ride => (
             <TouchableOpacity
               key={ride.id}
-              style={styles.rideCard}
-              onPress={() => {
-                setSelectedRide(ride);
-                setModalVisible(true);
-              }}
+              style={s.card}
+              onPress={() => { setSelectedRide(ride); setModalVisible(true); }}
+              activeOpacity={0.75}
             >
-              <View style={styles.rideHeader}>
-                <View style={styles.rideIdSection}>
-                  <Text style={styles.rideId}>{ride.id}</Text>
-                  <Text style={styles.rideDate}>{ride.date}</Text>
+              {/* Card header */}
+              <View style={s.cardHead}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardId} numberOfLines={1}>#{ride.id.slice(0, 8).toUpperCase()}</Text>
+                  <Text style={s.cardDate}>{fmtDate(ride.createdAt)}</Text>
                 </View>
-                <View
-                  style={[
-                    styles.statusIndicator,
-                    { backgroundColor: getStatusColor(ride.status) },
-                  ]}
-                >
-                  <Text style={styles.statusIcon}>
-                    {getStatusIcon(ride.status)}
-                  </Text>
+                <View style={[s.statusChip, { backgroundColor: statusColor(ride.status) + '20' }]}>
+                  <View style={[s.statusDot, { backgroundColor: statusColor(ride.status) }]} />
+                  <Text style={[s.statusTxt, { color: statusColor(ride.status) }]}>{statusLabel(ride.status)}</Text>
                 </View>
               </View>
 
-              <View style={styles.rideBody}>
-                <View style={styles.rideRoute}>
-                  <View style={styles.routePoint}>
-                    <Text style={styles.routeIcon}>▓</Text>
-                    <Text style={styles.routeText}>{ride.pickupLocation}</Text>
-                  </View>
-                  <View style={styles.routeLine} />
-                  <View style={styles.routePoint}>
-                    <Text style={styles.routeIcon}>▓</Text>
-                    <Text style={styles.routeText}>{ride.dropoffLocation}</Text>
-                  </View>
+              {/* Route */}
+              <View style={s.cardBody}>
+                <View style={s.routeRow}>
+                  <View style={s.routeDot} />
+                  <Text style={s.routeTxt} numberOfLines={1}>{ride.pickup_address || '—'}</Text>
                 </View>
-
-                <View style={styles.rideParticipants}>
-                  <Text style={styles.participantLabel}>
-                    👤 {ride.passengerName}
-                  </Text>
-                  <Text style={styles.participantLabel}>
-                    🚗 {ride.driverName}
-                  </Text>
+                <View style={s.routeLine} />
+                <View style={s.routeRow}>
+                  <View style={[s.routeDot, { backgroundColor: C.primary }]} />
+                  <Text style={s.routeTxt} numberOfLines={1}>{ride.dropoff_address || '—'}</Text>
                 </View>
               </View>
 
-              <View style={styles.rideFooter}>
-                <View style={styles.rideMeta}>
-                  <Text style={styles.metaItem}>
-                    📏 {ride.distance.toFixed(1)} km
-                  </Text>
-                  <Text style={styles.metaItem}>⏱️ {ride.duration} min</Text>
+              {/* Participants + fare */}
+              <View style={s.cardFoot}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={s.participantTxt}>👤 {ride.passenger?.name || 'Sin pasajero'}</Text>
+                  <Text style={s.participantTxt}>🚗 {ride.driver?.name || 'Sin conductor'}</Text>
                 </View>
-                <Text style={styles.rideFare}>${ride.fare.toFixed(2)}</Text>
+                <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                  <Text style={s.fare}>Bs {(ride.finalFare ?? 0).toFixed(2)}</Text>
+                  <Text style={s.metaTxt}>{(ride.distance ?? 0).toFixed(1)} km · {fmtDuration(ride.duration)}</Text>
+                </View>
               </View>
             </TouchableOpacity>
           ))}
-        </View>
-      </ScrollView>
 
-      {/* Ride Details Modal */}
+          {loadingMore && (
+            <View style={s.loadMoreWrap}>
+              <ActivityIndicator size="small" color={C.primary} />
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* ── Detail Modal ── */}
       {selectedRide && (
-        <Modal visible={modalVisible} animationType="slide" transparent={true}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.closeButton}>‹</Text>
+        <Modal visible={modalVisible} animationType="slide" transparent>
+          <View style={s.modalOverlay}>
+            <View style={s.modalSheet}>
+              {/* Modal header */}
+              <View style={s.modalHeader}>
+                <TouchableOpacity onPress={() => setModalVisible(false)} style={s.backBtn}>
+                  <Text style={s.backTxt}>‹</Text>
                 </TouchableOpacity>
-                <Text style={styles.modalTitle}>Ride Details</Text>
-                <Text style={styles.emptySpace} />
+                <Text style={s.headerTitle}>Detalle del viaje</Text>
+                <View style={{ width: 36 }} />
               </View>
 
-              <ScrollView style={styles.modalBody}>
-                {/* Ride Status */}
-                <View
-                  style={[
-                    styles.statusSection,
-                    { backgroundColor: getStatusColor(selectedRide.status) },
-                  ]}
-                >
-                  <Text style={styles.statusLabel}>
-                    {selectedRide.status.toUpperCase().replace("_", " ")}
-                  </Text>
+              <ScrollView style={s.modalBody} contentContainerStyle={{ paddingBottom: 40 }}>
+                {/* Status banner */}
+                <View style={[s.modalStatusBanner, { backgroundColor: statusColor(selectedRide.status) }]}>
+                  <Text style={s.modalStatusTxt}>{statusLabel(selectedRide.status).toUpperCase()}</Text>
                 </View>
 
-                {/* Route Details */}
-                <View style={styles.detailsSection}>
-                  <DetailRow
-                    label="Ride ID"
-                    value={selectedRide.id}
-                    icon="🆔"
-                  />
-                  <DetailRow
-                    label="Date & Time"
-                    value={selectedRide.date}
-                    icon="🕐"
-                  />
-                  <DetailRow
-                    label="Passenger"
-                    value={selectedRide.passengerName}
-                    icon="👤"
-                  />
-                  <DetailRow
-                    label="Driver"
-                    value={selectedRide.driverName}
-                    icon="🚗"
-                  />
-                  <DetailRow
-                    label="Pickup"
-                    value={selectedRide.pickupLocation}
-                    icon="📍"
-                  />
-                  <DetailRow
-                    label="Dropoff"
-                    value={selectedRide.dropoffLocation}
-                    icon="🎯"
-                  />
+                {/* Info rows */}
+                <View style={s.infoCard}>
+                  <InfoRow icon="🆔" label="ID del viaje" value={selectedRide.id} />
+                  <InfoRow icon="🕐" label="Fecha / Hora"  value={fmtDate(selectedRide.createdAt)} />
+                  <InfoRow icon="👤" label="Pasajero"      value={selectedRide.passenger?.name || '—'} />
+                  <InfoRow icon="📞" label="Teléfono pasajero" value={selectedRide.passenger?.phone || '—'} />
+                  <InfoRow icon="🚗" label="Conductora"    value={selectedRide.driver?.name || 'No asignada'} />
+                  <InfoRow icon="📞" label="Teléfono conductora" value={selectedRide.driver?.phone || '—'} />
+                  <InfoRow icon="📍" label="Recogida"      value={selectedRide.pickup_address || '—'} />
+                  <InfoRow icon="🎯" label="Destino"       value={selectedRide.dropoff_address || '—'} last />
                 </View>
 
-                {/* Trip Metrics */}
-                <View style={styles.metricsSection}>
-                  <Text style={styles.metricsTitle}>Trip Metrics</Text>
-                  <View style={styles.metricsGrid}>
-                    <MetricCard
-                      label="Distance"
-                      value={`${selectedRide.distance.toFixed(1)} km`}
-                    />
-                    <MetricCard
-                      label="Duration"
-                      value={`${selectedRide.duration} min`}
-                    />
-                    <MetricCard
-                      label="Fare"
-                      value={`$${selectedRide.fare.toFixed(2)}`}
-                    />
-                  </View>
+                {/* Metrics */}
+                <View style={s.metricsRow}>
+                  <MetricBox label="Distancia" value={`${(selectedRide.distance ?? 0).toFixed(1)} km`} />
+                  <MetricBox label="Duración"  value={fmtDuration(selectedRide.duration)} />
+                  <MetricBox label="Tarifa"    value={`Bs ${(selectedRide.finalFare ?? 0).toFixed(2)}`} highlight />
                 </View>
-
-                {/* Actions */}
-                {selectedRide.status === "disputed" && (
-                  <View style={styles.actionsSection}>
-                    <TouchableOpacity style={styles.actionButtonPrimary}>
-                      <Text style={styles.actionButtonText}>
-                        ✓ Resolve Dispute
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButtonSecondary}>
-                      <Text style={styles.actionButtonTextSecondary}>
-                        💬 View Messages
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {selectedRide.status === "completed" && (
-                  <View style={styles.actionsSection}>
-                    <TouchableOpacity style={styles.actionButtonSecondary}>
-                      <Text style={styles.actionButtonTextSecondary}>
-                        ⭐ View Ratings
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
               </ScrollView>
             </View>
           </View>
@@ -431,351 +358,100 @@ const AdminRidesScreen: React.FC<AdminRidesScreenProps> = ({ navigation }) => {
   );
 };
 
-interface DetailRowProps {
-  label: string;
-  value: string;
-  icon: string;
-}
-
-const DetailRow: React.FC<DetailRowProps> = ({ label, value, icon }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailIcon}>{icon}</Text>
-    <View style={styles.detailContent}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+// ─── Sub-components ───────────────────────────────────────────────────────────
+const InfoRow = ({ icon, label, value, last }: { icon: string; label: string; value: string; last?: boolean }) => (
+  <View style={[ir.row, !last && ir.border]}>
+    <Text style={ir.icon}>{icon}</Text>
+    <View style={{ flex: 1 }}>
+      <Text style={ir.label}>{label}</Text>
+      <Text style={ir.value}>{value}</Text>
     </View>
   </View>
 );
+const ir = StyleSheet.create({
+  row:   { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 11 },
+  border:{ borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  icon:  { fontSize: 16, marginRight: 12, marginTop: 1 },
+  label: { fontSize: 11, color: C.textMuted, fontWeight: '500', marginBottom: 2 },
+  value: { fontSize: 13, color: C.text, fontWeight: '600' },
+});
 
-interface MetricCardProps {
-  label: string;
-  value: string;
-}
-
-const MetricCard: React.FC<MetricCardProps> = ({ label, value }) => (
-  <View style={styles.metricCard}>
-    <Text style={styles.metricLabel}>{label}</Text>
-    <Text style={styles.metricValue}>{value}</Text>
+const MetricBox = ({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) => (
+  <View style={[mb.box, highlight && mb.highlight]}>
+    <Text style={mb.label}>{label}</Text>
+    <Text style={[mb.value, highlight && mb.highlightTxt]}>{value}</Text>
   </View>
 );
+const mb = StyleSheet.create({
+  box:          { flex: 1, backgroundColor: C.white, borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: C.border },
+  highlight:    { backgroundColor: C.primaryLight, borderColor: C.primary },
+  label:        { fontSize: 10, color: C.textMuted, fontWeight: '600', marginBottom: 4 },
+  value:        { fontSize: 15, fontWeight: '800', color: C.text },
+  highlightTxt: { color: C.primary },
+});
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAFAFA",
-  },
-  header: {
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  backButton: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  headerEmpty: {
-    width: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  searchContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  searchInput: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#1F2937",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  filterSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  filterButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginRight: 8,
-  },
-  filterButtonActive: {
-    backgroundColor: "#7C3AED",
-    borderColor: "#7C3AED",
-  },
-  filterText: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  filterTextActive: {
-    color: "#FFFFFF",
-  },
-  listSection: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  resultCount: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginBottom: 12,
-    fontWeight: "500",
-  },
-  rideCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginBottom: 10,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  rideHeader: {
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  rideIdSection: {
-    flex: 1,
-  },
-  rideId: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1F2937",
-  },
-  rideDate: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  statusIndicator: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  statusIcon: {
-    fontSize: 18,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  rideBody: {
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  rideRoute: {
-    marginBottom: 12,
-  },
-  routePoint: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  routeIcon: {
-    fontSize: 12,
-    color: "#7C3AED",
-    marginRight: 8,
-  },
-  routeText: {
-    fontSize: 12,
-    color: "#1F2937",
-    flex: 1,
-  },
-  routeLine: {
-    width: 2,
-    height: 12,
-    backgroundColor: "#E5E7EB",
-    marginLeft: 5,
-    marginVertical: 2,
-  },
-  rideParticipants: {
-    gap: 4,
-  },
-  participantLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  rideFooter: {
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-  },
-  rideMeta: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  metaItem: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  rideFare: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#7C3AED",
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: "#FAFAFA",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "90%",
-  },
-  modalHeader: {
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  closeButton: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  emptySpace: {
-    width: 28,
-  },
-  modalBody: {
-    padding: 16,
-  },
-  statusSection: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  statusLabel: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  detailsSection: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  detailIcon: {
-    fontSize: 18,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 14,
-    color: "#1F2937",
-    fontWeight: "600",
-  },
-  metricsSection: {
-    marginBottom: 16,
-  },
-  metricsTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 12,
-  },
-  metricsGrid: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-  },
-  metricLabel: {
-    fontSize: 11,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#7C3AED",
-    marginTop: 4,
-  },
-  actionsSection: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  actionButtonPrimary: {
-    backgroundColor: "#10B981",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  actionButtonSecondary: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  actionButtonTextSecondary: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1F2937",
-  },
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
+
+  header:      { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, gap: 10 },
+  backBtn:     { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  backTxt:     { fontSize: 28, color: C.white, fontWeight: '700', lineHeight: 32 },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: C.white },
+  totalBadge:  { fontSize: 12, fontWeight: '700', color: C.primary, backgroundColor: C.white, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12 },
+
+  searchWrap:  { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 },
+  searchInput: { backgroundColor: C.white, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13, color: C.text, borderWidth: 1, borderColor: C.border },
+
+  filtersScroll:   { flexGrow: 0 },
+  filtersContent:  { paddingHorizontal: 14, paddingVertical: 8, gap: 8, flexDirection: 'row' },
+  filterBtn:       { paddingHorizontal: 13, paddingVertical: 6, borderRadius: 20, backgroundColor: C.white, borderWidth: 1, borderColor: C.border },
+  filterBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  filterTxt:       { fontSize: 12, color: C.textMuted, fontWeight: '500' },
+  filterTxtActive: { color: C.white },
+
+  errorBanner: { margin: 14, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FECACA' },
+  errorTxt:    { fontSize: 13, color: C.error, fontWeight: '600' },
+
+  centered:    { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingTxt:  { fontSize: 14, color: C.textMuted },
+
+  list:        { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 24 },
+  resultCount: { fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 10 },
+
+  empty:       { paddingVertical: 40, alignItems: 'center' },
+  emptyTxt:    { fontSize: 14, color: C.textMuted },
+
+  card:        { backgroundColor: C.white, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  cardHead:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  cardId:      { fontSize: 13, fontWeight: '700', color: C.text },
+  cardDate:    { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  statusChip:  { flexDirection: 'row', alignItems: 'center', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4, gap: 5 },
+  statusDot:   { width: 6, height: 6, borderRadius: 3 },
+  statusTxt:   { fontSize: 11, fontWeight: '700' },
+
+  cardBody:    { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  routeRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  routeDot:    { width: 8, height: 8, borderRadius: 4, backgroundColor: C.textMuted },
+  routeTxt:    { flex: 1, fontSize: 12, color: C.text },
+  routeLine:   { width: 1.5, height: 10, backgroundColor: C.border, marginLeft: 3, marginVertical: 3 },
+
+  cardFoot:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB' },
+  participantTxt: { fontSize: 11, color: C.textMuted },
+  fare:        { fontSize: 15, fontWeight: '800', color: C.primary },
+  metaTxt:     { fontSize: 10, color: C.textMuted },
+
+  loadMoreWrap: { paddingVertical: 16, alignItems: 'center' },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet:   { backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' },
+  modalHeader:  { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14, gap: 10, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  modalBody:    { padding: 16 },
+  modalStatusBanner: { borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 16 },
+  modalStatusTxt:    { fontSize: 16, fontWeight: '800', color: C.white, letterSpacing: 1 },
+  infoCard:    { backgroundColor: C.white, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: C.border },
+  metricsRow:  { flexDirection: 'row', gap: 10 },
 });
 
 export default AdminRidesScreen;

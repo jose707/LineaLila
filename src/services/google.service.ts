@@ -2,8 +2,9 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
+import { API_HOST } from '../config/constants';
 
-const API_URL = 'http://192.168.100.133:3000';
+const API_URL = API_HOST;
 
 GoogleSignin.configure({
   webClientId:

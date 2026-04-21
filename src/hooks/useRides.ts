@@ -345,6 +345,31 @@ export const useRides = (): UseRidesState & UseRidesActions => {
       return requests;
     } catch (error: any) {
       if (!isMountedRef.current) return [];
+
+      // 🔥 Manejar AbortError silenciosamente
+      if (error.name === 'AbortError' || error.message?.includes('abort')) {
+        console.warn(
+          '⏱️ [useRides] Timeout obteniendo solicitudes (reintentar)',
+        );
+        setError('Timeout al obtener solicitudes');
+        return [];
+      }
+
+      const isNetworkError =
+        error.message?.includes('Network request failed') ||
+        error.message?.includes('Network Error') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.code === 'ECONNABORTED' ||
+        error.code === 'NETWORK_ERROR' ||
+        error.name === 'NetworkError';
+
+      // Silenciosamente manejar errores de red sin alerta
+      if (isNetworkError) {
+        console.warn('📡 [useRides] Error de red, reintentando automáticamente...');
+        setLoading(false);
+        return [];
+      }
+
       const errorMsg = error?.message || 'Error al obtener solicitudes';
       setError(errorMsg);
       console.error('useRides - getRideRequests error:', error);

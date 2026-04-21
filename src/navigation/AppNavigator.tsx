@@ -10,20 +10,15 @@ import SearchScreen from '../screens/SearchScreen';
 
 import ProfileScreen from '../screens/ProfileScreen';
 import ClientRideDetailsScreen from '../screens/ClientRideDetailsScreen';
-import ClientRideHistoryScreen from '../screens/ClientRideHistoryScreen';
+import RideHistoryScreen from '../screens/RideHistoryScreen';
 
 // Importar pantallas - Viajes (Nuevas)
-import RequestRideScreen from '../screens/RequestRideScreen';
 import DriverRideRequestScreen from '../screens/DriverRideRequestScreen';
-import WaitingForDriverScreen from '../screens/WaitingForDriverScreen';
-import OfferWaitingScreen from '../screens/OfferWaitingScreen';
 import ActiveRideScreen from '../screens/ActiveRideScreen';
 import RideCompletedScreen from '../screens/RideCompletedScreen';
 
 // Importar pantallas - Conductor
-import DriverHomeScreen from '../screens/DriverHomeScreen';
-import DriverRidesScreen from '../screens/DriverRidesScreen';
-import DriverMapScreen from '../screens/DriverMapScreen';
+
 import DriverRegistrationScreen from '../screens/DriverRegistrationScreen';
 import DocumentResubmissionScreen from '../screens/DocumentResubmissionScreen';
 
@@ -58,35 +53,23 @@ export type RootStackParamList = {
       longitude: number;
     };
     pickupAddress?: string;
+    destinationLocation?: {
+      latitude: number;
+      longitude: number;
+    };
+    destinationAddress?: string;
   };
   // Screens del cliente/conductor
   Profile: undefined;
   ClientRideDetails: { rideId: string };
-  ClientRideHistory: undefined;
+  RideHistory: undefined;
   // Screens de viajes (Nuevas)
-  RequestRide: {
-    pickupLocation: {
-      latitude: number;
-      longitude: number;
-    };
-    pickupAddress: string;
-    destinationLocation: {
-      latitude: number;
-      longitude: number;
-    };
-    destinationAddress: string;
-    fare?: number;
-    distance?: number;
-    duration?: number;
-  };
   DriverRideRequest: undefined;
-  WaitingForDriver: { rideId: string; pickupAddress: string; fare: number };
-  OfferWaiting: { rideId: string; proposedPrice: number };
   ActiveRide: { rideId: string };
   RideCompleted: { rideId: string };
   // Screens del conductor
   DriverHome: undefined;
-  DriverRides: undefined;
+
   DriverMap: undefined;
   DriverRegistration: { user?: any };
   DocumentResubmission: undefined;
@@ -166,8 +149,8 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
         }}
       />
       <Stack.Screen
-        name="ClientRideHistory"
-        component={ClientRideHistoryScreen}
+        name="RideHistory"
+        component={RideHistoryScreen}
         options={{
           animation: 'slide_from_right',
         }}
@@ -175,33 +158,10 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
 
       {/* SCREENS DE VIAJES (NUEVAS) */}
       <Stack.Screen
-        name="RequestRide"
-        component={RequestRideScreen}
-        options={{
-          animation: 'slide_from_right',
-        }}
-      />
-      <Stack.Screen
         name="DriverRideRequest"
         component={DriverRideRequestScreen}
         options={{
           animation: 'slide_from_right',
-        }}
-      />
-      <Stack.Screen
-        name="WaitingForDriver"
-        component={WaitingForDriverScreen}
-        options={{
-          headerShown: false,
-          animationEnabled: true,
-        }}
-      />
-      <Stack.Screen
-        name="OfferWaiting"
-        component={OfferWaitingScreen}
-        options={{
-          headerShown: false,
-          animationEnabled: true,
         }}
       />
       <Stack.Screen
@@ -222,25 +182,12 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
       {/* SCREENS DEL CONDUCTOR */}
       <Stack.Screen
         name="DriverHome"
-        component={DriverHomeScreen}
+        component={DriverRideRequestScreen}
         options={{
           animation: 'slide_from_right',
         }}
       />
-      <Stack.Screen
-        name="DriverRides"
-        component={DriverRidesScreen}
-        options={{
-          animation: 'slide_from_right',
-        }}
-      />
-      <Stack.Screen
-        name="DriverMap"
-        component={DriverMapScreen}
-        options={{
-          animation: 'slide_from_right',
-        }}
-      />
+
       <Stack.Screen
         name="DriverRegistration"
         component={DriverRegistrationScreen}

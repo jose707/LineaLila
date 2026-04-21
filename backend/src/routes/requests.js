@@ -40,6 +40,8 @@ const uploadFields = upload.fields([
   { name: 'profilePhoto', maxCount: 1 },
   { name: 'ciFront', maxCount: 1 },
   { name: 'ciBack', maxCount: 1 },
+  { name: 'licenseFront', maxCount: 1 },
+  { name: 'licenseBack', maxCount: 1 },
   { name: 'antecedentsPhoto', maxCount: 1 },
   { name: 'carFront', maxCount: 1 },
   { name: 'carBack', maxCount: 1 },
@@ -50,10 +52,30 @@ const uploadFields = upload.fields([
 ]);
 
 // Register new driver request
+const multerErrorHandler = (err, req, res, next) => {
+  if (err && err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({
+      error: `Campo de archivo inesperado: "${err.field}". Verifica que los nombres de los campos coincidan con los esperados.`,
+    });
+  }
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      error: 'El archivo excede el tamaño máximo permitido (10 MB).',
+    });
+  }
+  if (err) {
+    return res.status(400).json({
+      error: err.message || 'Error al procesar los archivos.',
+    });
+  }
+  next();
+};
+
 router.post(
   '/register',
   authMiddleware,
   uploadFields,
+  multerErrorHandler,
   requestController.registerDriver,
 );
 
@@ -65,6 +87,7 @@ router.post(
   '/resubmit',
   authMiddleware,
   uploadFields,
+  multerErrorHandler,
   requestController.resubmitDocuments,
 );
 

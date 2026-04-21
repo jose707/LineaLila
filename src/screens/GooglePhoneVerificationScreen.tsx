@@ -1,5 +1,5 @@
 // src/screens/GooglePhoneVerificationScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,23 +10,193 @@ import {
   ActivityIndicator,
   Alert,
   StatusBar,
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  ChevronLeft,
+  Phone,
+  ShieldCheck,
+  Mail,
+  User,
+  RefreshCw,
+} from 'lucide-react-native';
 import * as firebaseService from '../services/firebase.service';
-import * as storageService from '../services/storage.service';
 import { authService } from '../services/auth.service';
 import { useAuth } from '../hooks/useAuth';
-import { COLORS } from '../theme/colors';
 
-type GooglePhoneVerificationScreenProps = NativeStackScreenProps<
-  any,
-  'GooglePhoneVerification'
->;
+// ─────────────────────────────────────────────────────────────
+// DESIGN TOKENS
+// ─────────────────────────────────────────────────────────────
+const D = {
+  brand: '#7514C5',
+  brandDeep: '#5C0FA3',
+  brandSoft: '#9333EA',
+  brandBorder: '#B06EF0',
+  white: '#FFFFFF',
+  textHigh: 'rgba(255,255,255,0.82)',
+  textMid: 'rgba(255,255,255,0.65)',
+  textLow: 'rgba(255,255,255,0.45)',
+  ink: '#0F0A1E',
+  inkMid: '#4B4561',
+  inkSoft: '#8E88A0',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F6F3FF',
+  border: '#EDE8FA',
+  radius: 16,
+};
+
+// ─────────────────────────────────────────────────────────────
+// ICONOS — wrappers delgados sobre lucide-react-native
+// ─────────────────────────────────────────────────────────────
+const Icons = {
+  back: (color = D.brand, size = 20) => (
+    <ChevronLeft color={color} size={size} strokeWidth={2.2} />
+  ),
+  phone: (color = D.inkSoft, size = 18) => (
+    <Phone color={color} size={size} strokeWidth={2} />
+  ),
+  shield: (color = D.brand, size = 18) => (
+    <ShieldCheck color={color} size={size} strokeWidth={2} />
+  ),
+  mail: (color = D.inkSoft, size = 18) => (
+    <Mail color={color} size={size} strokeWidth={2} />
+  ),
+  user: (color = D.inkSoft, size = 18) => (
+    <User color={color} size={size} strokeWidth={2} />
+  ),
+  refresh: (color = D.brand, size = 16) => (
+    <RefreshCw color={color} size={size} strokeWidth={2} />
+  ),
+};
+
+// ─────────────────────────────────────────────────────────────
+// PREFIJO BOLIVIA
+// ─────────────────────────────────────────────────────────────
+const BOLIVIA_PREFIX = '+591';
+
+// Formatea número boliviano: 7XXXXXXX → +591 7X XXX XXXX
+const formatBolivianPhone = (raw: string): string => {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 1) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 1)} ${digits.slice(1)}`;
+  return `${digits.slice(0, 1)} ${digits.slice(1, 4)} ${digits.slice(4)}`;
+};
+
+const toE164 = (formatted: string): string => {
+  const digits = formatted.replace(/\D/g, '').slice(0, 8);
+  return `${BOLIVIA_PREFIX}${digits}`;
+};
+
+const isValidBolivian = (formatted: string): boolean => {
+  const digits = formatted.replace(/\D/g, '');
+  return digits.length === 8 && /^[67]/.test(digits);
+};
+
+// ─────────────────────────────────────────────────────────────
+// OTP DOTS — 6 cuadros individuales
+// ─────────────────────────────────────────────────────────────
+const OtpBoxes = ({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+}) => {
+  const inputRef = useRef<TextInput>(null);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPress={() => inputRef.current?.focus()}
+      style={otpStyles.wrap}
+    >
+      {Array.from({ length: 6 }).map((_, i) => {
+        const char = value[i] ?? '';
+        const active = value.length === i;
+        return (
+          <View
+            key={i}
+            style={[
+              otpStyles.box,
+              active && otpStyles.boxActive,
+              char && otpStyles.boxFilled,
+            ]}
+          >
+            <Text style={otpStyles.char}>{char || (active ? '|' : '')}</Text>
+          </View>
+        );
+      })}
+      <TextInput
+        ref={inputRef}
+        value={value}
+        onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, 6))}
+        keyboardType="number-pad"
+        maxLength={6}
+        editable={!disabled}
+        style={otpStyles.hidden}
+        caretHidden
+      />
+    </TouchableOpacity>
+  );
+};
+
+const otpStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  box: {
+    width: 46,
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: D.border,
+    backgroundColor: D.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  boxActive: {
+    borderColor: D.brand,
+    backgroundColor: D.white,
+    shadowColor: D.brand,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  boxFilled: {
+    borderColor: D.brandSoft,
+    backgroundColor: D.white,
+  },
+  char: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: D.ink,
+  },
+  hidden: {
+    position: 'absolute',
+    opacity: 0,
+    width: 0,
+    height: 0,
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// SCREEN
+// ─────────────────────────────────────────────────────────────
+type Props = NativeStackScreenProps<any, 'GooglePhoneVerification'>;
 
 export default function GooglePhoneVerificationScreen({
   navigation,
   route,
-}: GooglePhoneVerificationScreenProps) {
+}: Props) {
   const { email, firebaseUid, displayName, photoURL } = route.params as {
     email: string;
     firebaseUid: string;
@@ -34,144 +204,113 @@ export default function GooglePhoneVerificationScreen({
     photoURL?: string;
   };
 
-  // Log the params received
-  console.log('📱 GooglePhoneVerificationScreen - Route params:', {
-    email,
-    firebaseUid,
-    displayName,
-    photoURL: photoURL ? 'YES' : 'NO',
-  });
-
   const { loginWithToken } = useAuth();
-  const [phoneNumber, setPhoneNumber] = useState('');
+
+  const [phoneFormatted, setPhoneFormatted] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [resendTimer, setResendTimer] = useState(0);
+  const [phoneError, setPhoneError] = useState('');
+
+  // Animaciones
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  const animateTransition = (cb: () => void) => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      cb();
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    });
+  };
+
+  // Timer reenvío
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setInterval(
+      () => setResendTimer(p => (p <= 1 ? 0 : p - 1)),
+      1000,
+    );
+    return () => clearInterval(t);
+  }, [resendTimer]);
+
+  const formatTimer = (s: number) =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  // ── Handlers ──────────────────────────────────────────────
+  const handlePhoneChange = (text: string) => {
+    setPhoneError('');
+    const digits = text.replace(/\D/g, '').slice(0, 8);
+    setPhoneFormatted(formatBolivianPhone(digits));
+  };
 
   const handleSendOTP = async () => {
-    if (!phoneNumber.trim()) {
-      Alert.alert('Error', 'Por favor ingresa tu número de teléfono');
+    if (!isValidBolivian(phoneFormatted)) {
+      setPhoneError('Ingresa un número boliviano válido (ej: 7X XXX XXXX)');
       return;
     }
-
-    // Validar formato E.164
-    const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-    if (!phoneRegex.test(phoneNumber)) {
-      Alert.alert(
-        'Formato inválido',
-        'Por favor ingresa un número con código de país (ej: +57 3001234567)',
-      );
-      return;
-    }
-
+    const e164 = toE164(phoneFormatted);
     try {
       setLoading(true);
-      console.log(
-        `📱 Verificando si el teléfono está registrado: ${phoneNumber}`,
-      );
-
-      // ✅ NUEVA VALIDACIÓN: Verificar si el teléfono ya está registrado
-      // Pasamos firebaseUid y email para que el backend pueda verificar correctamente
-      const phoneExists = await authService.checkPhoneExists(
-        phoneNumber,
+      const exists = await authService.checkPhoneExists(
+        e164,
         firebaseUid,
         email,
       );
-      console.log(`📱 ¿Teléfono existe? ${phoneExists}`);
-
-      if (phoneExists) {
-        console.log('🚫 Teléfono ya registrado, bloqueando OTP');
-        Alert.alert(
-          'Teléfono registrado',
-          'Este número de teléfono ya está registrado en el sistema. Por favor, usa otro número o inicia sesión con tu cuenta existente.',
+      if (exists) {
+        setPhoneError(
+          'Este número ya está registrado. Usa otro o inicia sesión.',
         );
         return;
       }
-
-      console.log(`✅ Teléfono disponible, enviando OTP a: ${phoneNumber}`);
-
-      const verificationId = await firebaseService.sendPhoneOTP(phoneNumber);
-      setVerificationId(verificationId);
-      setStep('otp');
-      setResendTimer(300); // 5 minutos
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo enviar el OTP');
+      const newVId = await firebaseService.sendPhoneOTP(e164);
+      setVerificationId(newVId);
+      animateTransition(() => {
+        setStep('otp');
+        setResendTimer(300);
+      });
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo enviar el código');
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyOTP = async () => {
-    // Limpia espacios del código
-    const cleanCode = otpCode.trim().replace(/\s/g, '');
-
-    if (!cleanCode || cleanCode.length !== 6) {
-      Alert.alert('Error', 'Por favor ingresa un código de 6 dígitos válido');
-      return;
-    }
-
+    if (otpCode.length !== 6) return;
     if (!verificationId) {
-      Alert.alert('Error', 'No se encontró el ID de verificación');
+      Alert.alert('Error', 'Solicita un nuevo código');
       return;
     }
-
     try {
       setLoading(true);
-      console.log('🔐 Verificando OTP...');
-      console.log(`   Código limpio: ${cleanCode}`);
-
-      // Verifica el OTP con Firebase
-      const userCredential = await firebaseService.verifyPhoneOTP(
-        verificationId,
-        cleanCode,
-      );
-
-      // Obtiene el ID token
-      const idToken = await userCredential.user.getIdToken();
-
-      // Crea/actualiza el usuario en el backend
-      console.log('📝 Creando usuario en el backend...');
-      console.log(`   Email: "${email}"`);
-      console.log(`   Phone: "${phoneNumber}"`);
-      console.log(`   Firebase UID: "${firebaseUid}"`);
-      console.log(`   Display Name: "${displayName}"`);
-      console.log(`   Photo URL: "${photoURL ? 'YES' : 'NO'}"`);
-
-      if (!email || !phoneNumber || !firebaseUid) {
-        throw new Error(
-          `Datos incompletos para registro. Email: ${email}, Phone: ${phoneNumber}, UID: ${firebaseUid}`,
-        );
-      }
-
+      await firebaseService.verifyPhoneOTP(verificationId, otpCode);
+      const e164 = toE164(phoneFormatted);
       const response = await authService.register({
         email,
-        phone: phoneNumber,
+        phone: e164,
         displayName,
         firebaseUid,
         photoURL,
       });
-
-      console.log('✅ Backend response:', JSON.stringify(response, null, 2));
-
-      // Usa loginWithToken para actualizar AuthContext
-      // El backend devuelve el usuario con su información correcta
-      await loginWithToken(idToken, response);
-
-      console.log('✅ Verificación completada');
-      Alert.alert('Éxito', '¡Bienvenido a Línea Lila!');
-
-      // El RootNavigator se actualiza automáticamente cuando isAuthenticated = true
-      // No es necesario usar navigation.replace
-    } catch (error: any) {
-      console.error('❌ Error:', error);
-      console.error('   Error response:', error.response?.data);
-      console.error('   Full error:', JSON.stringify(error));
-
-      // Mostrar error más específico
-      const errorMessage = error.message || 'No se pudo verificar el código';
-      Alert.alert('Error en Verificación', errorMessage);
+      await loginWithToken(response.token, response.user);
+    } catch (e: any) {
+      Alert.alert(
+        'Código incorrecto',
+        e.message || 'Verifica el código e intenta de nuevo',
+      );
+      setOtpCode('');
     } finally {
       setLoading(false);
     }
@@ -179,306 +318,525 @@ export default function GooglePhoneVerificationScreen({
 
   const handleResendOTP = async () => {
     if (resendTimer > 0) return;
-
     try {
       setLoading(true);
       setOtpCode('');
-      const newVerificationId = await firebaseService.sendPhoneOTP(phoneNumber);
-      setVerificationId(newVerificationId);
+      const e164 = toE164(phoneFormatted);
+      const newVId = await firebaseService.sendPhoneOTP(e164);
+      setVerificationId(newVId);
       setResendTimer(300);
-      Alert.alert('Éxito', 'Se envió un nuevo código a tu teléfono');
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo reenviar el OTP');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo reenviar el código');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleBackToPhone = () => {
-    setStep('phone');
-    setOtpCode('');
-    setVerificationId(null);
-  };
+  // Auto-verificar cuando completen 6 dígitos
+  useEffect(() => {
+    if (otpCode.length === 6 && !loading) handleVerifyOTP();
+  }, [otpCode]);
 
-  // Timer para resend
-  React.useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (resendTimer > 0) {
-      interval = setInterval(() => {
-        setResendTimer(prev => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [resendTimer]);
-
-  const formatTimer = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
+  // ─────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────
   return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.contentContainer}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: D.brand }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="light-content" backgroundColor={D.brand} />
 
-      {/* Header */}
+      {/* ── HEADER LILA ─────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity
+          style={styles.backBtn}
           onPress={() =>
-            step === 'otp' ? handleBackToPhone() : navigation.goBack()
+            step === 'otp'
+              ? animateTransition(() => {
+                  setStep('phone');
+                  setOtpCode('');
+                  setVerificationId(null);
+                })
+              : navigation.goBack()
           }
-          style={styles.backButton}
+          activeOpacity={0.75}
         >
-          <Text style={styles.backButtonText}>← Atrás</Text>
+          {Icons.back(D.white)}
         </TouchableOpacity>
 
-        <Text style={styles.title}>
-          {step === 'phone' ? 'Verifica tu teléfono' : 'Ingresa el código'}
+        {/* Icono central */}
+        <View style={styles.headerIcon}>
+          {step === 'phone' ? Icons.phone(D.brand) : Icons.shield(D.brand)}
+        </View>
+
+        <Text style={styles.headerTitle}>
+          {step === 'phone' ? 'Tu número de teléfono' : 'Verifica tu código'}
         </Text>
-        <Text style={styles.subtitle}>
+        <Text style={styles.headerSub}>
           {step === 'phone'
-            ? 'Necesitamos tu número para completar tu registro'
-            : `Hemos enviado un código a ${phoneNumber}`}
+            ? 'Ingresa tu número boliviano para recibir el código'
+            : `Código enviado a +591 ${phoneFormatted}`}
         </Text>
       </View>
 
-      {/* Form */}
-      <View style={styles.form}>
-        {step === 'phone' ? (
-          <>
-            {/* Display Name (Read-only) */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Nombre</Text>
-              <View style={styles.readOnlyInput}>
-                <Text style={styles.readOnlyText}>
-                  {displayName || 'Usuario'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Email (Read-only) */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Correo</Text>
-              <View style={styles.readOnlyInput}>
-                <Text style={styles.readOnlyText}>{email}</Text>
-              </View>
-            </View>
-
-            {/* Phone Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Número de Teléfono</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="+57 300 1234567"
-                placeholderTextColor="#999"
-                keyboardType="phone-pad"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                editable={!loading}
+      {/* ── CARD BLANCA ──────────────────────────────────── */}
+      <ScrollView
+        style={styles.card}
+        contentContainerStyle={styles.cardContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ opacity: fadeAnim }}>
+          {step === 'phone' ? (
+            <>
+              {/* Campo nombre (read-only) */}
+              <FieldReadOnly
+                icon={Icons.user()}
+                label="Nombre"
+                value={displayName || 'Usuario'}
               />
-              <Text style={styles.helperText}>
-                Incluye el código de país (ej: +57 para Colombia)
-              </Text>
-            </View>
 
-            {/* Send OTP Button */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleSendOTP}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFF" size="small" />
-              ) : (
-                <Text style={styles.buttonText}>Enviar Código OTP</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            {/* OTP Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Código de Verificación</Text>
-              <TextInput
-                style={[styles.input, styles.otpInput]}
-                placeholder="000000"
-                placeholderTextColor="#999"
-                keyboardType="number-pad"
-                maxLength={6}
-                value={otpCode}
-                onChangeText={text => {
-                  setOtpCode(text);
-                  // Auto-submit cuando llegue a 6 dígitos
-                  if (text.length === 6 && !loading) {
-                    handleVerifyOTP();
-                  }
-                }}
-                editable={!loading}
+              {/* Campo email (read-only) */}
+              <FieldReadOnly
+                icon={Icons.mail()}
+                label="Correo electrónico"
+                value={email}
               />
-              <Text style={styles.helperText}>
-                Ingresa el código de 6 dígitos que recibiste por SMS
-              </Text>
-            </View>
 
-            {/* Timer */}
-            {resendTimer > 0 ? (
-              <View style={styles.timerContainer}>
-                <Text style={styles.timerText}>
-                  Reenviar código en {formatTimer(resendTimer)}
-                </Text>
+              {/* Teléfono Bolivia */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Número de teléfono</Text>
+                <View
+                  style={[
+                    styles.phoneRow,
+                    phoneError ? styles.inputError : null,
+                  ]}
+                >
+                  {/* Prefijo */}
+                  <View style={styles.prefixBadge}>
+                    <Text style={styles.flagText}>🇧🇴</Text>
+                    <Text style={styles.prefixText}>+591</Text>
+                  </View>
+                  <View style={styles.phoneSep} />
+                  <TextInput
+                    style={styles.phoneInput}
+                    placeholder="7X XXX XXXX"
+                    placeholderTextColor={D.inkSoft}
+                    keyboardType="phone-pad"
+                    value={phoneFormatted}
+                    onChangeText={handlePhoneChange}
+                    editable={!loading}
+                    maxLength={11}
+                  />
+                  {Icons.phone(phoneError ? '#EF4444' : D.inkSoft)}
+                </View>
+                {phoneError ? (
+                  <Text style={styles.errorText}>{phoneError}</Text>
+                ) : (
+                  <Text style={styles.helperText}>
+                    Celulares Tigo, Viva o Entel (7X o 6X)
+                  </Text>
+                )}
               </View>
-            ) : (
+
+              {/* Botón enviar */}
               <TouchableOpacity
-                onPress={handleResendOTP}
-                disabled={loading || resendTimer > 0}
+                style={[
+                  styles.cta,
+                  (!isValidBolivian(phoneFormatted) || loading) &&
+                    styles.ctaDisabled,
+                ]}
+                onPress={handleSendOTP}
+                disabled={!isValidBolivian(phoneFormatted) || loading}
+                activeOpacity={0.88}
               >
-                <Text style={styles.resendLink}>Reenviar código</Text>
+                {loading ? (
+                  <ActivityIndicator color={D.white} size="small" />
+                ) : (
+                  <Text style={styles.ctaText}>Enviar código OTP</Text>
+                )}
               </TouchableOpacity>
-            )}
+            </>
+          ) : (
+            <>
+              {/* Número confirmado */}
+              <View style={styles.phoneConfirm}>
+                <View style={styles.phoneConfirmIcon}>
+                  {Icons.phone(D.brand)}
+                </View>
+                <View>
+                  <Text style={styles.phoneConfirmLabel}>Enviado a</Text>
+                  <Text style={styles.phoneConfirmValue}>
+                    +591 {phoneFormatted}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() =>
+                    animateTransition(() => {
+                      setStep('phone');
+                      setOtpCode('');
+                      setVerificationId(null);
+                    })
+                  }
+                  style={styles.changeBtn}
+                >
+                  <Text style={styles.changeBtnText}>Cambiar</Text>
+                </TouchableOpacity>
+              </View>
 
-            {/* Verify Button */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleVerifyOTP}
-              disabled={loading || otpCode.length !== 6}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFF" size="small" />
-              ) : (
-                <Text style={styles.buttonText}>Verificar Código</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-    </ScrollView>
+              {/* OTP boxes */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Código de 6 dígitos</Text>
+                <OtpBoxes
+                  value={otpCode}
+                  onChange={setOtpCode}
+                  disabled={loading}
+                />
+                <Text style={styles.helperText}>
+                  El código expira en 5 minutos
+                </Text>
+              </View>
+
+              {/* Timer / reenvío */}
+              <View style={styles.resendRow}>
+                {resendTimer > 0 ? (
+                  <Text style={styles.resendTimer}>
+                    Reenviar en{' '}
+                    <Text style={styles.resendTimerBold}>
+                      {formatTimer(resendTimer)}
+                    </Text>
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleResendOTP}
+                    disabled={loading}
+                    style={styles.resendBtn}
+                    activeOpacity={0.75}
+                  >
+                    {Icons.refresh(D.brand)}
+                    <Text style={styles.resendBtnText}>Reenviar código</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Botón verificar */}
+              <TouchableOpacity
+                style={[
+                  styles.cta,
+                  (otpCode.length !== 6 || loading) && styles.ctaDisabled,
+                ]}
+                onPress={handleVerifyOTP}
+                disabled={otpCode.length !== 6 || loading}
+                activeOpacity={0.88}
+              >
+                {loading ? (
+                  <ActivityIndicator color={D.white} size="small" />
+                ) : (
+                  <Text style={styles.ctaText}>Verificar y continuar</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Footer */}
+          <Text style={styles.footerNote}>
+            Al continuar aceptas nuestros Términos de servicio y Política de
+            privacidad
+          </Text>
+        </Animated.View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// CAMPO READ-ONLY
+// ─────────────────────────────────────────────────────────────
+const FieldReadOnly = ({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) => (
+  <View style={styles.fieldGroup}>
+    <Text style={styles.fieldLabel}>{label}</Text>
+    <View style={styles.readOnly}>
+      {icon}
+      <Text style={styles.readOnlyText} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  </View>
+);
+
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  contentContainer: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-  },
+  // Header
   header: {
-    paddingTop: 20,
-    paddingBottom: 40,
+    backgroundColor: D.brand,
+    paddingHorizontal: 24,
+    paddingTop: 52,
+    paddingBottom: 36,
+    alignItems: 'center',
   },
-  backButton: {
-    marginBottom: 20,
+  backBtn: {
+    position: 'absolute',
+    top: 52,
+    left: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  backButtonText: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '400',
-  },
-  form: {
-    flex: 1,
-  },
-  inputGroup: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#333',
-  },
-  otpInput: {
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: 4,
-    textAlign: 'center',
-  },
-  readOnlyInput: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#F5F5F5',
-  },
-  readOnlyText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 8,
-  },
-  button: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    paddingVertical: 16,
+  headerIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    backgroundColor: D.white,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    shadowColor: COLORS.primary,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: D.white,
+    marginBottom: 6,
+    textAlign: 'center',
   },
-  buttonText: {
-    color: '#FFF',
-    fontSize: 16,
+  headerSub: {
+    fontSize: 14,
+    color: D.textMid,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 280,
+  },
+
+  // Card blanca
+  card: {
+    flex: 1,
+    backgroundColor: D.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -4,
+  },
+  cardContent: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 48,
+  },
+
+  // Grupos de campo
+  fieldGroup: {
+    marginBottom: 20,
+  },
+  fieldLabel: {
+    fontSize: 12,
     fontWeight: '600',
+    color: D.inkSoft,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
-  timerContainer: {
+
+  // Read-only
+  readOnly: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: D.surfaceAlt,
+    borderRadius: D.radius,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  readOnlyText: {
+    flex: 1,
+    fontSize: 15,
+    color: D.inkMid,
+  },
+
+  // Fila teléfono
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: D.white,
+    borderRadius: D.radius,
+    borderWidth: 1.5,
+    borderColor: D.border,
+    overflow: 'hidden',
+    paddingRight: 14,
+  },
+  inputError: {
+    borderColor: '#EF4444',
+  },
+  prefixBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    backgroundColor: D.surfaceAlt,
+  },
+  flagText: {
+    fontSize: 18,
+  },
+  prefixText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: D.brand,
+  },
+  phoneSep: {
+    width: 1,
+    height: 24,
+    backgroundColor: D.border,
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 17,
+    fontWeight: '600',
+    color: D.ink,
+    letterSpacing: 1,
+  },
+  helperText: {
+    fontSize: 12,
+    color: D.inkSoft,
+    marginTop: 6,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 6,
+    fontWeight: '500',
+  },
+
+  // Número confirmado
+  phoneConfirm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: D.surfaceAlt,
+    borderRadius: D.radius,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  phoneConfirmIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: D.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  phoneConfirmLabel: {
+    fontSize: 11,
+    color: D.inkSoft,
+    fontWeight: '500',
+  },
+  phoneConfirmValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: D.ink,
+    letterSpacing: 0.5,
+  },
+  changeBtn: {
+    marginLeft: 'auto',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: D.white,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  changeBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: D.brand,
+  },
+
+  // Reenvío
+  resendRow: {
     alignItems: 'center',
     marginBottom: 24,
   },
-  timerText: {
-    color: '#999',
-    fontSize: 14,
-    fontWeight: '500',
+  resendTimer: {
+    fontSize: 13,
+    color: D.inkSoft,
   },
-  resendLink: {
-    color: COLORS.primary,
-    fontSize: 14,
+  resendTimerBold: {
+    fontWeight: '700',
+    color: D.inkMid,
+  },
+  resendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: D.surfaceAlt,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  resendBtnText: {
+    fontSize: 13,
     fontWeight: '600',
+    color: D.brand,
+  },
+
+  // CTA
+  cta: {
+    backgroundColor: D.brand,
+    borderRadius: D.radius,
+    paddingVertical: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: D.brand,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 8,
+    marginBottom: 20,
+  },
+  ctaDisabled: {
+    opacity: 0.45,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  ctaText: {
+    color: D.white,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // Footer
+  footerNote: {
+    fontSize: 11,
+    color: D.inkSoft,
     textAlign: 'center',
-    marginBottom: 24,
+    lineHeight: 16,
+    paddingHorizontal: 16,
   },
 });

@@ -26,9 +26,12 @@ const seedDatabase = async () => {
       phone: '+573001234567',
       password: hashedPassword,
       role: 'admin',
+      // Campos requeridos por el esquema normalizado
+      firebaseUid: 'admin-seed-firebase-uid',
+      isActive: true,
       isVerified: true,
+      currentMode: 'passenger',
       profilePhoto: null,
-      rating: 5.0,
     });
 
     console.log('\n✅ Admin creado exitosamente:');

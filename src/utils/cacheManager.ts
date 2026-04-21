@@ -1,53 +1,5 @@
 import { LatLng } from 'react-native-maps';
-
-// Storage helper using react-native-mmkv
-let MMKV: any;
-let storageInstance: any;
-
-try {
-  ({ MMKV } = require('react-native-mmkv'));
-  storageInstance = new MMKV.MMKV();
-} catch (error) {
-  console.warn('MMKV not available', error);
-  // Fallback storage
-  storageInstance = new Map();
-}
-
-const StorageHelper = {
-  getItem: (key: string) => {
-    try {
-      if (storageInstance instanceof Map) {
-        return storageInstance.get(key) || null;
-      }
-      return storageInstance.getString(key) || null;
-    } catch (error) {
-      console.error('Error reading from storage:', error);
-      return null;
-    }
-  },
-  setItem: (key: string, value: string) => {
-    try {
-      if (storageInstance instanceof Map) {
-        storageInstance.set(key, value);
-      } else {
-        storageInstance.set(key, value);
-      }
-    } catch (error) {
-      console.error('Error writing to storage:', error);
-    }
-  },
-  removeItem: (key: string) => {
-    try {
-      if (storageInstance instanceof Map) {
-        storageInstance.delete(key);
-      } else {
-        storageInstance.delete(key);
-      }
-    } catch (error) {
-      console.error('Error removing from storage:', error);
-    }
-  },
-};
+import { StorageHelper } from '../services/storage';
 
 // 🔥 TIPOS DE CACHÉ
 export interface CachedLocation {

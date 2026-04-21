@@ -1,6 +1,9 @@
 // backend/src/controllers/driverController.js
 const Driver = require('../models/Driver');
+const Vehicle = require('../models/Vehicle');
 const User = require('../models/User');
+const DriverRequest = require('../models/DriverRequest');
+const RequestFile = require('../models/RequestFile');
 const fs = require('fs');
 const path = require('path');
 
@@ -230,6 +233,9 @@ const getDriverStatus = async (req, res) => {
       });
     }
 
+    // Obtener datos del vehículo (incluye estado RUAT)
+    const vehicle = await Vehicle.findOne({ where: { driver_id: driver.id } });
+
     // Usuario tiene solicitud
     res.status(200).json({
       hasApplication: true,
@@ -243,6 +249,17 @@ const getDriverStatus = async (req, res) => {
         rejectionReason: driver.rejectionReason,
         documents: driver.documents,
         createdAt: driver.createdAt,
+        vehicle: vehicle
+          ? {
+              id: vehicle.id,
+              ruatFile: vehicle.ruatFile,
+              ruatVerified: vehicle.ruatVerified,
+              ruatVerifiedAt: vehicle.ruatVerifiedAt,
+              ruatRequired: vehicle.ruatRequired,
+              ruatRequiredReason: vehicle.ruatRequiredReason,
+              ruatRequiredAt: vehicle.ruatRequiredAt,
+            }
+          : null,
       },
     });
   } catch (error) {
@@ -423,13 +440,6 @@ const updateDriverLocation = async (req, res) => {
     // Encontrar el conductor asociado al usuario
     const driver = await Driver.findOne({
       where: { userId },
-      include: [
-        {
-          model: User,
-          as: 'User',
-          attributes: { exclude: ['password'] },
-        },
-      ],
     });
 
     if (!driver) {
@@ -438,14 +448,16 @@ const updateDriverLocation = async (req, res) => {
       });
     }
 
-    // Actualizar ubicación con timestamp
-    driver.currentLocation = {
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
-      timestamp: new Date().toISOString(),
-    };
-
-    await driver.save();
+    // Guardar ubicación en driver_locations (upsert: crea o actualiza)
+    const DriverLocation = require('../models/DriverLocation');
+    await DriverLocation.upsert({
+      driver_id: driver.id,
+      location: {
+        type: 'Point',
+        coordinates: [parseFloat(longitude), parseFloat(latitude)],
+      },
+      is_online: true,
+    });
 
     console.log('✅ [updateDriverLocation] Ubicación actualizada:', {
       driverId: driver.id,
@@ -457,7 +469,10 @@ const updateDriverLocation = async (req, res) => {
       message: 'Ubicación actualizada exitosamente',
       driver: {
         id: driver.id,
-        currentLocation: driver.currentLocation,
+        currentLocation: {
+          latitude: parseFloat(latitude),
+          longitude: parseFloat(longitude),
+        },
       },
     });
   } catch (error) {
@@ -469,9 +484,98 @@ const updateDriverLocation = async (req, res) => {
   }
 };
 
+/**
+ * Conductor sube su RUAT para verificación del vehículo
+ * POST /drivers/submit-ruat
+ */
+const submitRuat = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId)
+      return res.status(401).json({ error: 'Usuario no autenticado' });
+
+    const driver = await Driver.findOne({ where: { userId } });
+    if (!driver)
+      return res
+        .status(404)
+        .json({ error: 'Perfil de conductor no encontrado' });
+
+    const vehicle = await Vehicle.findOne({ where: { driver_id: driver.id } });
+    if (!vehicle)
+      return res.status(404).json({ error: 'Vehículo no encontrado' });
+
+    if (!req.files?.ruatPhoto?.[0]) {
+      return res.status(400).json({ error: 'No se recibió la foto del RUAT' });
+    }
+
+    const file = req.files.ruatPhoto[0];
+
+    // Buscar la última DriverRequest del conductor para vincular el RequestFile
+    const latestRequest = await DriverRequest.findOne({
+      where: { userId },
+      order: [['version', 'DESC']],
+    });
+
+    if (!latestRequest) {
+      return res
+        .status(404)
+        .json({ error: 'No se encontró solicitud de conductor' });
+    }
+
+    // Crear o actualizar el RequestFile de tipo ruatPhoto vinculado a esa request
+    const [fileRecord, created] = await RequestFile.findOrCreate({
+      where: { requestId: latestRequest.id, fileType: 'ruatPhoto' },
+      defaults: {
+        filename: file.filename,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        status: 'pending',
+      },
+    });
+
+    if (!created) {
+      await fileRecord.update({
+        filename: file.filename,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        status: 'pending',
+      });
+    }
+
+    // Guardar referencia del archivo en el vehículo y limpiar el requerimiento
+    // ruat_file != null && ruat_verified = false  →  "en revisión"
+    await vehicle.update({
+      ruatFile: file.filename,
+      ruatRequired: false,
+      ruatRequiredAt: null,
+    });
+
+    console.log(
+      `📄 RUAT enviado por driver ${driver.id}: ${file.filename} → RequestFile ${fileRecord.id}`,
+    );
+
+    res.json({
+      message:
+        'RUAT enviado correctamente. El administrador lo revisará pronto.',
+      vehicle: {
+        id: vehicle.id,
+        ruatFile: vehicle.ruatFile,
+        ruatRequired: vehicle.ruatRequired,
+        ruatVerified: vehicle.ruatVerified,
+      },
+    });
+  } catch (error) {
+    console.error('Error al enviar RUAT:', error);
+    res
+      .status(500)
+      .json({ error: 'Error al enviar el RUAT: ' + error.message });
+  }
+};
+
 module.exports = {
   registerDriver,
   getDriverStatus,
   resubmitDocuments,
   updateDriverLocation,
+  submitRuat,
 };

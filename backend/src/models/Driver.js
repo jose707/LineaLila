@@ -19,89 +19,44 @@ const Driver = sequelize.define(
         model: 'users',
         key: 'id',
       },
+      field: 'user_id',
     },
     licenseNumber: {
       type: DataTypes.STRING,
       allowNull: true,
-      unique: true,
+      unique: 'drivers_license_number_unique',
+      field: 'license_number',
     },
     licenseExpiry: {
       type: DataTypes.DATE,
       allowNull: true,
-    },
-    vehicleType: {
-      type: DataTypes.ENUM('sedan', 'suv', 'van', 'motorcycle'),
-      allowNull: true,
-    },
-    vehiclePlate: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      unique: true,
-    },
-    vehicleYear: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    vehicleColor: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    vehicleModel: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    documents: {
-      type: DataTypes.JSON,
-      defaultValue: {
-        soatPhoto: null,
-        ruatPhoto: null,
-        licensePhoto: null,
-      },
-    },
-    backgroundCheckPassed: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
+      field: 'license_expiry',
     },
     status: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'suspended'),
       defaultValue: 'pending',
     },
     rejectionReason: {
       type: DataTypes.STRING,
       allowNull: true,
-    },
-    bankAccount: {
-      type: DataTypes.JSON,
-      defaultValue: {
-        accountHolder: null,
-        accountNumber: null,
-        bankName: null,
-      },
+      field: 'rejection_reason',
     },
     isAvailable: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+      field: 'is_available',
     },
-    totalEarnings: {
-      type: DataTypes.FLOAT,
-      defaultValue: 0,
-    },
-    totalRides: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0,
-    },
-    currentLocation: {
-      type: DataTypes.JSON,
-      defaultValue: {
-        latitude: null,
-        longitude: null,
-        timestamp: null,
-      },
+
+    deleted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
   },
   {
     timestamps: true,
     tableName: 'drivers',
+    paranoid: true,
+    deletedAt: 'deleted_at',
   },
 );
 

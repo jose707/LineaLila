@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
@@ -8,9 +14,14 @@ import {
   ActivityIndicator,
   PermissionsAndroid,
   Platform,
-  TextInput,
   BackHandler,
+  useWindowDimensions,
+  Image,
 } from 'react-native';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import MapView, { Marker, Region, LatLng, Polyline } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import {
@@ -20,8 +31,31 @@ import {
   useFocusEffect,
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  ArrowRight,
+  Banknote,
+  Bell,
+  Car,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  Clock,
+  History,
+  LocateFixed,
+  Menu,
+  MessageCircle,
+  Minus,
+  Plus,
+  Search,
+  Settings,
+  Star,
+  User,
+  X,
+} from 'lucide-react-native';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { SlideUpMenu } from '../components/SlideUpMenu';
 import { useAuth } from '../hooks/useAuth';
+import { MAPSCREEN_COLORS as T } from '../theme/colors';
 import {
   cacheLocationManager,
   cacheRouteManager,
@@ -29,785 +63,1101 @@ import {
   cleanExpiredCache,
 } from '../utils/cacheManager';
 import { ridesService } from '../services/rides.service';
+import { authService } from '../services/auth.service';
+import { StorageHelper } from '../services/storage';
+import socketService from '../services/socket.service';
 
-// 🔥 CONFIGURACIÓN LOCATIONIQ
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
 const LOCATIONIQ_API_KEY = 'pk.2c35bb8a74b61271c3e0f669fb81718d';
 const LOCATIONIQ_BASE_URL = 'https://us1.locationiq.com/v1';
+const FARE_STEP = 0.5;
+const TRAFFIC_CORRECTION_FACTOR = 3;
 
-// 🔥 TIPO DE NAVEGACIÓN
+// Pin dimensions — keep in sync with pinBody size
+const PIN_BODY_SIZE = 48; // width & height of the circle
+const PIN_TIP_SIZE = 12; // diamond tip
+const PIN_BUBBLE_H = 38; // approx bubble height + gap
+const PIN_SHIFT_UP = PIN_BODY_SIZE + PIN_TIP_SIZE / 2 + PIN_BUBBLE_H + 8;
+
+// ─── TYPES ───────────────────────────────────────────────────────────────────
 type MapScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   'Map'
 >;
 type MapScreenRouteProp = RouteProp<RootStackParamList, 'Map'>;
-
-// 🔥 INTERFAZ PARA INFORMACIÓN DE RUTA
 interface RouteInfo {
   distance: number;
   duration: number;
   coordinates: LatLng[];
 }
 
-// 🔥 COMPONENTE DE MARCADOR FLOTANTE ESTÁTICO
-const FloatingMarker = ({
+// ─── ICONS (Lucide) ──────────────────────────────────────────────────────────
+const Icon = {
+  Search: ({
+    size = 20,
+    color = T.inkLight,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Search size={size} color={color} />,
+  MyLocation: ({
+    size = 20,
+    color = T.accent,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <LocateFixed size={size} color={color} />,
+  Menu: ({ size = 20, color = T.ink }: { size?: number; color?: string }) => (
+    <Menu size={size} color={color} />
+  ),
+  Clock: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Clock size={size} color={color} />,
+  Distance: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <ArrowRight size={size} color={color} />,
+  Money: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Banknote size={size} color={color} />,
+  Check: ({
+    size = 16,
+    color = T.white,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Check size={size} color={color} />,
+  Close: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <X size={size} color={color} />,
+  Star: ({
+    size = 14,
+    color = '#F59E0B',
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Star size={size} color={color} fill={color} />,
+  Car: ({ size = 18, color = T.accent }: { size?: number; color?: string }) => (
+    <Car size={size} color={color} />
+  ),
+  User: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <User size={size} color={color} />,
+  History: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <History size={size} color={color} />,
+  Ride: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Car size={size} color={color} />,
+  ChevronRight: ({
+    size = 16,
+    color = T.border,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <ChevronRight size={size} color={color} />,
+  Minus: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Minus size={size} color={color} />,
+  Plus: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Plus size={size} color={color} />,
+  Settings: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Settings size={size} color={color} />,
+  Bell: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Bell size={size} color={color} />,
+  HelpCircle: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <CircleHelp size={size} color={color} />,
+  MessageCircle: ({
+    size = 20,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <MessageCircle size={size} color={color} />,
+};
+
+const FloatingPin = ({
   visible,
   address,
+  loading,
+  containerWidth,
+  containerHeight,
+  mode = 'origin',
 }: {
   visible: boolean;
   address: string;
+  loading: boolean;
+  containerWidth: number;
+  containerHeight: number;
+  mode?: 'origin' | 'destination';
 }) => {
+  const pinStyles = useMemo(
+    () => ({
+      top:
+        containerHeight > 0
+          ? Math.floor(containerHeight / 2) - PIN_SHIFT_UP
+          : 0,
+      left: containerWidth > 0 ? Math.floor(containerWidth / 2) - 240 / 2 : 0,
+    }),
+    [containerWidth, containerHeight],
+  );
+
   if (!visible) return null;
 
   return (
-    <View style={styles.floatingMarkerContainer}>
-      <View style={styles.floatingMarker}>
-        <View style={styles.markerTop}>
-          <View style={styles.markerInner} />
-        </View>
-        <View style={styles.markerBottom} />
-      </View>
+    <View
+      pointerEvents="none"
+      style={[
+        s.pinAnchor,
+        {
+          top: pinStyles.top,
+          left: pinStyles.left,
+        },
+      ]}
+    >
+      {/* Stack grows upward from the anchor point */}
+      <View style={s.pinStack}>
+        {/* Address bubble */}
+        {(address !== '' || loading) && (
+          <View style={s.pinBubble}>
+            {loading ? (
+              <ActivityIndicator size="small" color={T.accent} />
+            ) : (
+              <Text style={s.pinBubbleText} numberOfLines={2}>
+                {address}
+              </Text>
+            )}
+          </View>
+        )}
 
-      {address && (
-        <View style={styles.addressBubble}>
-          <Text style={styles.addressBubbleText} numberOfLines={2}>
-            {address}
-          </Text>
+        {/* Circle body */}
+        <View style={[s.pinBody, mode === 'destination' && { backgroundColor: T.accent }]}>
+          <View style={[s.pinCenter, mode === 'destination' && { backgroundColor: T.white }]} />
         </View>
-      )}
+
+        {/* Diamond tip — points DOWN at the map center */}
+        <View style={[s.pinTip, mode === 'destination' && { backgroundColor: T.accent, borderTopColor: T.accent, borderLeftColor: T.accent }]} />
+      </View>
     </View>
   );
 };
 
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
 const MapScreen = () => {
   const navigation = useNavigation<MapScreenNavigationProp>();
   const route = useRoute<MapScreenRouteProp>();
-  const { user } = useAuth();
+  const { user, updateUser, isDriverMode } = useAuth();
+  const insets = useSafeAreaInsets();
 
-  // 🔥 ESTADOS PRINCIPALES
+  // Restricción: MapScreen solo para pasajeros
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isDriverMode) {
+        Alert.alert(
+          'Acceso denegado',
+          'Solo los pasajeros pueden solicitar viajes. Cambia a modo pasajero en tu perfil.',
+          [
+            {
+              text: 'Ir a perfil',
+              onPress: () => navigation.navigate('Profile'),
+            },
+          ],
+        );
+        // Redirigir a DriverHome
+        (navigation as any).navigate('DriverHome');
+      }
+    }, [isDriverMode, navigation]),
+  );
+
+  // 🔒 BackHandler que responde a cambios de rideRequested
+  useEffect(() => {
+    let backPressCount = 0;
+    let backPressTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const onBackPress = () => {
+      // Si hay solicitud activa (modal visible), pedir confirmación
+      if (rideRequested) {
+        Alert.alert(
+          'Solicitud activa',
+          'Tienes una solicitud en curso. ¿Deseas cancelarla?',
+          [
+            { text: 'No, continuar', style: 'cancel' },
+            {
+              text: 'Sí, cancelar',
+              style: 'destructive',
+              onPress: async () => {
+                if (activeRideId) {
+                  await ridesService
+                    .cancelRide(
+                      activeRideId,
+                      'Cancelado por pasajero',
+                      'passenger',
+                    )
+                    .catch(() => { });
+                }
+                setRideRequested(false);
+                setRequestTimeLeft(120);
+                setActiveRideId(null);
+                if (requestTimerRef.current)
+                  clearInterval(requestTimerRef.current);
+                StorageHelper.removeItem('activeRideState');
+                console.log(
+                  '🗑️ [MapScreen] Estado de solicitud limpiado (via back button)',
+                );
+              },
+            },
+          ],
+        );
+        return true; // Bloquear el back nativo
+      }
+
+      // Si NO hay solicitud activa, comportamiento de "double back para salir"
+      backPressCount++;
+
+      if (backPressCount === 1) {
+        Alert.alert('Salir', 'Presiona otra vez para cerrar la app');
+
+        backPressTimeout = setTimeout(() => {
+          backPressCount = 0;
+        }, 2000);
+
+        return true;
+      } else if (backPressCount === 2) {
+        if (backPressTimeout) clearTimeout(backPressTimeout);
+        BackHandler.exitApp();
+        return true;
+      }
+
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      onBackPress,
+    );
+
+    return () => {
+      subscription.remove();
+      if (backPressTimeout) clearTimeout(backPressTimeout);
+    };
+  }, []);
+
   const [pickupLocation, setPickupLocation] = useState<LatLng | null>(null);
-  const [pickupAddress, setPickupAddress] = useState<string>('');
-  const [tempPickupAddress, setTempPickupAddress] = useState<string>('');
+  const [pickupAddress, setPickupAddress] = useState('');
+  const [tempPickupAddress, setTempPickupAddress] = useState('');
   const [destinationLocation, setDestinationLocation] = useState<LatLng | null>(
     null,
   );
-  const [destinationAddress, setDestinationAddress] = useState<string>('');
+  const [destinationAddress, setDestinationAddress] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
-  const [isMapReady, setIsMapReady] = useState(false);
   const [showMarker, setShowMarker] = useState(true);
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
-  const [initialLocationLoaded, setInitialLocationLoaded] = useState(false);
+  const [initialLocationLoaded, setInitialLocationLoaded] = useState(false); // ── ESTADO DEL MAPA Y UBICACIÓN ──
+  const [pickingMode, setPickingMode] = useState<'origin' | 'destination' | null>(null);
   const [mapCenterLocation, setMapCenterLocation] = useState<LatLng | null>(
     null,
   );
   const [searchingAddress, setSearchingAddress] = useState(false);
-  const [destinationInput, setDestinationInput] = useState('');
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [showRoute, setShowRoute] = useState(true);
+  const [isCreatingRide, setIsCreatingRide] = useState(false);
   const [suggestedFare, setSuggestedFare] = useState<number | null>(null);
-  const FARE_STEP = 0.5;
   const [showClientMenu, setShowClientMenu] = useState(false);
   const [rideRequested, setRideRequested] = useState(false);
-  const [requestTimeLeft, setRequestTimeLeft] = useState(120); // 2 minutos
+  const [requestTimeLeft, setRequestTimeLeft] = useState(120);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
+  const [driverOffers, setDriverOffers] = useState<any[]>([]);
+  const [showOffersOverlay, setShowOffersOverlay] = useState(false);
+  const [selectedVehicleType, setSelectedVehicleType] =
+    useState<string>('taxi');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<string>('cash');
+  const [, setRenderTrigger] = useState(0);
+  const [mapWrapDimensions, setMapWrapDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
+  const [fareSettings, setFareSettings] = useState<{
+    baseFare: number;
+    farePerKm: number;
+    farePerMinute: number;
+  }>({
+    baseFare: 12,
+    farePerKm: 0.5,
+    farePerMinute: 0.58,
+  });
 
   const mapRef = useRef<MapView>(null);
-  const lastRegionChangeTime = useRef<number>(0);
+  const lastRegionChangeTime = useRef(0);
   const requestTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const watchId = useRef<number | null>(null);
+  const autoExpireCalledRef = useRef(false);
 
-  // 🔥 TEMPORIZADOR PARA SOLICITUD DE VIAJE (2 minutos)
+  const renderTriggerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchId = useRef<number | null>(null);
+  const isManualCenteringRef = useRef(false);
+
+  // ── EFFECTS ──────────────────────────────────────────────────────────────
+
+  // Monitor de cambios en user.rating
+  useEffect(() => {
+    if (user?.rating !== undefined) {
+      console.log('📊 [MapScreen] user.rating cambió:', user.rating);
+    }
+  }, [user?.rating]);
+
+  // Cargar configuración de tarifas según coordenadas
+  const loadFareSettings = useCallback(async (lat: number, lng: number) => {
+    console.log(`📍 [MapScreen] Buscando tarifas para: lat=${lat.toFixed(5)}, lng=${lng.toFixed(5)}`);
+    const settings = await ridesService.getFareSettings(lat, lng);
+    if (settings) {
+      setFareSettings({
+        baseFare: settings.baseFare,
+        farePerKm: settings.farePerKm,
+        farePerMinute: settings.farePerMinute,
+      });
+      console.log(`💰 [MapScreen] Tarifas recibidas - Zona: "${settings.zoneName ?? 'Global (sin zona)'}"`);
+      console.log(`   Base fare:       Bs ${settings.baseFare}`);
+      console.log(`   Por km:          Bs ${settings.farePerKm} / km`);
+      console.log(`   Por minuto:      Bs ${settings.farePerMinute} / min`);
+    }
+  }, []);
+
+  // Refrescar tarifas cuando el origen cambia
+  useEffect(() => {
+    if (pickupLocation) {
+      loadFareSettings(pickupLocation.latitude, pickupLocation.longitude);
+    }
+  }, [pickupLocation, loadFareSettings]);
+
+  // Refrescar tarifas cuando el centro del mapa cambia (sin pickup confirmado)
+  // Solo cuando no hay pickup, y con un debounce de 1s para no saturar la API
+  useEffect(() => {
+    if (pickupLocation || !mapCenterLocation) return;
+    const id = setTimeout(() => {
+      loadFareSettings(mapCenterLocation.latitude, mapCenterLocation.longitude);
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [mapCenterLocation, pickupLocation, loadFareSettings]);
+
+  // Refrescar datos del usuario cuando abres el modal
+  useEffect(() => {
+    if (showClientMenu) {
+      console.log(
+        '🔄 [MapScreen] Abriendo modal - refrescando datos del usuario...',
+      );
+      authService.fetchCurrentUser().then(updatedUser => {
+        if (updatedUser) {
+          console.log('✅ [MapScreen] Datos refrescados:', {
+            rating: updatedUser.rating,
+            totalTrips: updatedUser.totalTrips,
+          });
+          // Actualizar contexto de Auth
+          console.log('🔄 [MapScreen] Actualizando contexto de Auth...');
+          updateUser(updatedUser);
+        }
+      });
+    }
+  }, [showClientMenu, updateUser]);
+
+  // 🔄 Restaurar solicitud al montar el componente (app startup)
+  useEffect(() => {
+    // Restaurar solicitud activa UNA SOLA VEZ al montar la pantalla.
+    // Si el usuario cerró el app mientras tenía un viaje pendiente,
+    // aquí se recupera el estado para que el timer y el polling continúen.
+    const savedRideState = StorageHelper.getItem('activeRideState');
+    if (!savedRideState) return;
+
+    try {
+      const {
+        rideRequested: isRequested,
+        activeRideId: rideId,
+        expiresAt,
+      } = JSON.parse(savedRideState);
+
+      if (!isRequested || !rideId) return;
+
+      const timeLeftInSeconds = expiresAt
+        ? Math.max(0, (new Date(expiresAt).getTime() - Date.now()) / 1000)
+        : 120;
+
+      // Si el viaje ya expiró mientras el app estaba cerrado, limpiar storage
+      // y no restaurar — evita llamar handleAutoExpireRide sobre un viaje muerto.
+      if (timeLeftInSeconds <= 0) {
+        StorageHelper.removeItem('activeRideState');
+        console.log(
+          '🗑️ [MapScreen] Solicitud restaurada ya expirada, descartando.',
+        );
+        return;
+      }
+
+      console.log('♻️ [MapScreen] Restaurando solicitud activa:', {
+        rideId,
+        timeLeftInSeconds: timeLeftInSeconds.toFixed(1),
+      });
+      setRideRequested(true);
+      setActiveRideId(rideId);
+      setRequestTimeLeft(timeLeftInSeconds);
+      // 🔌 Re-unirse al room del viaje restaurado
+      socketService.joinRide(rideId);
+    } catch (e) {
+      console.error('❌ [MapScreen] Error restaurando estado de solicitud:', e);
+      StorageHelper.removeItem('activeRideState');
+    }
+  }, []); // Ejecutar SOLO al montar
+
   useEffect(() => {
     if (rideRequested && requestTimeLeft > 0) {
       requestTimerRef.current = setInterval(() => {
         setRequestTimeLeft(prev => {
-          const newTime = prev - 1;
-          console.log('⏱️ Tiempo restante para solicitud:', newTime);
-          return newTime;
+          if (prev - 0.1 <= 0) {
+            if (!autoExpireCalledRef.current) {
+              autoExpireCalledRef.current = true;
+              // Limpiar el intervalo antes de llamar para evitar más ticks
+              if (requestTimerRef.current) {
+                clearInterval(requestTimerRef.current);
+                requestTimerRef.current = null;
+              }
+              handleAutoExpireRide();
+            }
+            return 0;
+          }
+          return Math.max(0, prev - 0.1);
         });
-      }, 1000);
+      }, 100);
+    }
+    return () => {
+      if (requestTimerRef.current) clearInterval(requestTimerRef.current);
+    };
+  }, [rideRequested]);
+
+  useEffect(() => {
+    if (!rideRequested || !activeRideId) {
+      setShowOffersOverlay(false);
+      setDriverOffers([]);
+      return;
     }
 
+    // Carga inicial: por si hay ofertas previas (ej. app restaurada desde background)
+    const fetchOffers = async () => {
+      try {
+        const offers = await ridesService.getCounterOffers(activeRideId);
+        const now = Date.now();
+        const valid = (offers || []).filter((o: any) => {
+          if (o.rejected) return false;
+          if (o.isExpired) return false;
+          if (o.timeLeftInSeconds !== undefined) {
+            // Ocultar la burbuja cuando quedan ≤5 s (25 s desde creación),
+            // así el pasajero nunca puede tocar una oferta a punto de expirar.
+            return o.timeLeftInSeconds > 5;
+          }
+          const t =
+            typeof o.createdAt === 'string'
+              ? new Date(o.createdAt).getTime()
+              : o.createdAt || now;
+          return (now - t) / 1000 < 25;
+        });
+        if (valid.length > 0) {
+          setDriverOffers(valid);
+          setShowOffersOverlay(true);
+        } else {
+          setShowOffersOverlay(false);
+          setDriverOffers([]);
+        }
+      } catch { }
+    };
+    fetchOffers();
+
+    // 🔌 Nuevas ofertas en tiempo real via WebSocket
+    const handleNewOffer = (data: any) => {
+      if (!data?.offer || data.rideId !== activeRideId) return;
+      const offer = data.offer;
+      const timeLeft = offer.expiresAt
+        ? Math.max(0, (new Date(offer.expiresAt).getTime() - Date.now()) / 1000)
+        : 30;
+      if (timeLeft <= 5) return;
+      setDriverOffers(prev => {
+        const exists = prev.some((o: any) => o.offerId === offer.offerId);
+        if (exists) return prev;
+        return [...prev, { ...offer, timeLeftInSeconds: timeLeft }];
+      });
+      setShowOffersOverlay(true);
+    };
+    socketService.on('offer:new', handleNewOffer);
+
     return () => {
+      socketService.off('offer:new', handleNewOffer);
+    };
+  }, [rideRequested, activeRideId]);
+
+  // 🔌 Socket: conductor aceptó el viaje directamente (sin contraoferta)
+  useEffect(() => {
+    if (!rideRequested || !activeRideId) return;
+
+    const handleRideAccepted = (data: any) => {
+      if (data?.rideId !== activeRideId) return;
+      const acceptedRideId = activeRideId;
+
+      // Limpiar todo el estado de solicitud
+      setRideRequested(false);
+      setActiveRideId(null);
+      setRequestTimeLeft(120);
+      setShowOffersOverlay(false);
+      setDriverOffers([]);
       if (requestTimerRef.current) {
         clearInterval(requestTimerRef.current);
+        requestTimerRef.current = null;
       }
-    };
-  }, [rideRequested, requestTimeLeft]);
+      StorageHelper.removeItem('activeRideState');
 
-  // 🔥 LIMPIAR CACHÉ EXPIRADO AL MONTAR
+      Alert.alert(
+        '¡Conductor en camino!',
+        `${data.driverName || 'Un conductor'} aceptó tu solicitud.`,
+        [
+          {
+            text: 'Ver detalles',
+            onPress: () =>
+              navigation.navigate('ActiveRide' as any, {
+                rideId: acceptedRideId,
+              }),
+          },
+        ],
+      );
+    };
+
+    socketService.on('ride:accepted', handleRideAccepted);
+    return () => {
+      socketService.off('ride:accepted', handleRideAccepted);
+    };
+  }, [rideRequested, activeRideId]);
+
+  useEffect(() => {
+    if (!showOffersOverlay) {
+      if (renderTriggerRef.current) clearInterval(renderTriggerRef.current);
+      return;
+    }
+    renderTriggerRef.current = setInterval(
+      () => setRenderTrigger(p => p + 1),
+      50,
+    );
+    return () => {
+      if (renderTriggerRef.current) clearInterval(renderTriggerRef.current);
+    };
+  }, [showOffersOverlay]);
+
+  // 🔒 BackHandler que responde a cambios de rideRequested
+  useEffect(() => {
+    let backPressCount = 0;
+    let backPressTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const onBackPress = () => {
+      // Si hay solicitud activa (modal visible), pedir confirmación
+      if (rideRequested) {
+        Alert.alert(
+          'Solicitud activa',
+          'Tienes una solicitud en curso. ¿Deseas cancelarla?',
+          [
+            { text: 'No, continuar', style: 'cancel' },
+            {
+              text: 'Sí, cancelar',
+              style: 'destructive',
+              onPress: async () => {
+                if (activeRideId) {
+                  await ridesService
+                    .cancelRide(
+                      activeRideId,
+                      'Cancelado por pasajero',
+                      'passenger',
+                    )
+                    .catch(() => { });
+                }
+                setRideRequested(false);
+                setRequestTimeLeft(120);
+                setActiveRideId(null);
+                if (requestTimerRef.current)
+                  clearInterval(requestTimerRef.current);
+                StorageHelper.removeItem('activeRideState');
+                console.log(
+                  '🗑️ [MapScreen] Estado de solicitud limpiado (via back button)',
+                );
+              },
+            },
+          ],
+        );
+        return true; // Bloquear el back nativo
+      }
+
+      // Si NO hay solicitud activa, comportamiento de "double back para salir"
+      backPressCount++;
+
+      if (backPressCount === 1) {
+        Alert.alert('Salir', 'Presiona otra vez para cerrar la app');
+
+        backPressTimeout = setTimeout(() => {
+          backPressCount = 0;
+        }, 2000);
+
+        return true;
+      } else if (backPressCount === 2) {
+        if (backPressTimeout) clearTimeout(backPressTimeout);
+        BackHandler.exitApp();
+        return true;
+      }
+
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      onBackPress,
+    );
+
+    return () => {
+      subscription.remove();
+      if (backPressTimeout) clearTimeout(backPressTimeout);
+    };
+  }, [rideRequested, activeRideId]);
+
   useEffect(() => {
     cleanExpiredCache();
   }, []);
 
-  // 🔥 EFECTO PARA RECIBIR DATOS DEL SEARCHSCREEN
   useEffect(() => {
-    if (route.params) {
-      const reset = (route.params as any).reset;
-
-      // Si recibimos el flag reset, resetear completamente
-      if (reset) {
-        console.log('RESET COMPLETO - Volviendo a estado inicial');
-        setPickupLocation(null);
-        setPickupAddress('');
-        setTempPickupAddress('');
-        setDestinationLocation(null);
-        setDestinationAddress('');
-        setShowMarker(true);
-        setRouteInfo(null);
-        setRouteCoordinates([]);
-        setDestinationInput('');
-        setSuggestedFare(null);
-        return;
-      }
-
-      const {
-        pickupLocation: routePickupLocation,
-        destinationLocation: routeDestinationLocation,
-        pickupAddress: routePickupAddress,
-        destinationAddress: routeDestinationAddress,
-      } = route.params;
-
-      if (routePickupLocation) {
-        setPickupLocation(routePickupLocation);
-        setShowMarker(false);
-        setTempPickupAddress(routePickupAddress || '');
-      }
-
-      if (routeDestinationLocation) {
-        setDestinationLocation(routeDestinationLocation);
-        setDestinationAddress(routeDestinationAddress || '');
-      } else {
-        // Si no hay destino en los parámetros, limpiar el destino
-        setDestinationLocation(null);
-        setDestinationAddress('');
-      }
-
-      if (routePickupAddress) {
-        setPickupAddress(routePickupAddress);
-        setTempPickupAddress(routePickupAddress);
-      }
-
-      if (routeDestinationAddress) {
-        setDestinationAddress(routeDestinationAddress);
-      }
+    if (!route.params) return;
+    const p = route.params as any;
+    if (p.reset) {
+      resetAll();
+      setPickingMode(null);
+      return;
     }
+
+    if (p.pickingMode) {
+      setPickingMode(p.pickingMode);
+      setPickupLocation(p.pickupLocation || null);
+      if (p.pickupAddress) setPickupAddress(p.pickupAddress);
+      setDestinationLocation(p.destinationLocation || null);
+      if (p.destinationAddress) setDestinationAddress(p.destinationAddress);
+      setRouteInfo(null);
+      setRouteCoordinates([]);
+      setSuggestedFare(null);
+      setShowMarker(true);
+      return;
+    }
+
+    if (p.pickupLocation) {
+      setPickupLocation(p.pickupLocation);
+      setShowMarker(false);
+      setTempPickupAddress(p.pickupAddress || '');
+    }
+    if (p.destinationLocation) {
+      setDestinationLocation(p.destinationLocation);
+      setDestinationAddress(p.destinationAddress || '');
+    } else {
+      setDestinationLocation(null);
+      setDestinationAddress('');
+    }
+    if (p.pickupAddress) {
+      setPickupAddress(p.pickupAddress);
+      setTempPickupAddress(p.pickupAddress);
+    }
+    if (p.destinationAddress) setDestinationAddress(p.destinationAddress);
   }, [route.params]);
 
-  // 🔥 EFECTO PARA CALCULAR RUTA CUANDO HAY AMBAS UBICACIONES
   const calculateRouteMemo = useCallback(() => {
-    if (pickupLocation && destinationLocation) {
-      calculateRoute();
-      setShowRoute(true);
-    } else {
+    if (pickupLocation && destinationLocation) calculateRoute();
+    else {
       setRouteInfo(null);
       setRouteCoordinates([]);
     }
   }, [pickupLocation, destinationLocation]);
-
   useEffect(() => {
     calculateRouteMemo();
   }, [calculateRouteMemo]);
 
-  // Calcular tarifa sugerida cuando cambia la ruta
   useEffect(() => {
     if (!routeInfo) {
       setSuggestedFare(null);
       return;
     }
-
     const km = routeInfo.distance / 1000;
     const mins = routeInfo.duration / 60;
-    const base = 3.0;
-    const perKm = 1.2;
-    const perMin = 0.15;
-    let fare = base + perKm * km + perMin * mins;
-    fare = Math.max(1.0, Math.round(fare / FARE_STEP) * FARE_STEP);
-    setSuggestedFare(parseFloat(fare.toFixed(2)));
 
-    // 🔥 LOG: Mostrar conversión exacta de tiempo
-    const displayMinutes = Math.floor((routeInfo.duration % 3600) / 60);
-    console.log('⏱️ [MapScreen] Cálculo de duración:', {
-      rawSeconds: routeInfo.duration,
-      displayMinutes: `${displayMinutes} min (usando Math.floor)`,
-      minutesDecimal: mins.toFixed(2),
-      fare: `Bs ${fare.toFixed(2)}`,
-    });
-  }, [routeInfo]);
+    const distanceFare = fareSettings.farePerKm * km;
+    const timeFare = fareSettings.farePerMinute * mins;
+    const rawFare = fareSettings.baseFare + distanceFare + timeFare;
+    const roundedFare = Math.max(1.0, Math.round(rawFare / FARE_STEP) * FARE_STEP);
 
-  // 🔥 EFECTO PARA OBTENER DIRECCIÓN CUANDO SE MUEVE EL MAPA
+    console.log('🧾e [MapScreen] Cálculo de tarifa:');
+    console.log(`   Distancia:       ${km.toFixed(2)} km`);
+    console.log(`   Duración:        ${mins.toFixed(1)} min`);
+    console.log(`   Base fare:       Bs ${fareSettings.baseFare}`);
+    console.log(`   Por distancia:   Bs ${distanceFare.toFixed(2)}  (${km.toFixed(2)} km x ${fareSettings.farePerKm})`);
+    console.log(`   Por tiempo:      Bs ${timeFare.toFixed(2)}  (${mins.toFixed(1)} min x ${fareSettings.farePerMinute})`);
+    console.log(`   Subtotal raw:    Bs ${rawFare.toFixed(2)}`);
+    console.log(`   ✨ Tarifa final:  Bs ${roundedFare.toFixed(2)}  (redondeado al step de ${FARE_STEP})`);
+
+    setSuggestedFare(parseFloat(roundedFare.toFixed(2)));
+  }, [routeInfo, fareSettings]);
+
   useEffect(() => {
-    const updateAddressFromMapCenter = async () => {
-      if (mapCenterLocation && !pickupLocation) {
-        try {
-          setSearchingAddress(true);
-          const address = await getExactAddressWithLocationIQ(
-            mapCenterLocation,
-          );
-          setTempPickupAddress(address);
-        } catch (error) {
-          console.error('Error obteniendo dirección:', error);
-          setTempPickupAddress('Ubicación no disponible');
-        } finally {
-          setSearchingAddress(false);
-        }
+    if (!mapCenterLocation || pickupLocation) return;
+    const id = setTimeout(async () => {
+      try {
+        setSearchingAddress(true);
+        setTempPickupAddress(await getExactAddress(mapCenterLocation));
+      } catch {
+      } finally {
+        setSearchingAddress(false);
       }
-    };
-
-    const timeoutId = setTimeout(updateAddressFromMapCenter, 1000);
-    return () => clearTimeout(timeoutId);
+    }, 800);
+    return () => clearTimeout(id);
   }, [mapCenterLocation, pickupLocation]);
 
-  // 🔥 MANEJAR BOTÓN ATRÁS NATIVO DEL DISPOSITIVO
   useFocusEffect(
     useCallback(() => {
-      const onBackPress = () => {
-        // Si hay pickup o destino, resetear completamente
+      const onBack = () => {
         if (pickupLocation || destinationLocation) {
-          console.log('Botón atrás nativo - Reset completo');
-          setPickupLocation(null);
-          setPickupAddress('');
-          setTempPickupAddress('');
-          setDestinationLocation(null);
-          setDestinationAddress('');
-          setShowMarker(true);
-          setRouteInfo(null);
-          setRouteCoordinates([]);
-          setDestinationInput('');
-          setSuggestedFare(null);
-          return true; // Evitar comportamiento por defecto
+          resetAll();
+          return true;
         }
-        return false; // Permitir comportamiento por defecto si no hay estado
+        return false;
       };
-
-      const subscription = BackHandler.addEventListener(
-        'hardwareBackPress',
-        onBackPress,
-      );
-
-      return () => {
-        subscription.remove();
-      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      return () => sub.remove();
     }, [pickupLocation, destinationLocation]),
   );
 
-  // 🔥 MANEJAR FINAL DE MOVIMIENTO DEL MAPA
+  useEffect(() => {
+    if (!initialLocationLoaded)
+      centerToUserLocation(false).then(loc => {
+        if (loc) setMapCenterLocation(loc);
+        setInitialLocationLoaded(true);
+      });
+    watchId.current = Geolocation.watchPosition(
+      p =>
+        setCurrentLocation({
+          latitude: p.coords.latitude,
+          longitude: p.coords.longitude,
+        }),
+      () => { },
+      {
+        enableHighAccuracy: true,
+        distanceFilter: 10,
+        interval: 5000,
+        fastestInterval: 2000,
+      },
+    );
+    return () => {
+      if (watchId.current !== null) Geolocation.clearWatch(watchId.current);
+    };
+  }, []);
+
+  // ── HELPERS ──────────────────────────────────────────────────────────────
+
   const handleRegionChangeComplete = async (region: Region) => {
     const now = Date.now();
-
-    if (now - lastRegionChangeTime.current > 300) {
-      const newCenter: LatLng = {
-        latitude: region.latitude,
-        longitude: region.longitude,
-      };
-
-      setMapCenterLocation(newCenter);
-      lastRegionChangeTime.current = now;
-
-      if (!pickupLocation) {
-        try {
-          setSearchingAddress(true);
-          const address = await getExactAddressWithLocationIQ(newCenter);
-          setTempPickupAddress(address);
-        } catch (error) {
-          console.error('Error obteniendo dirección:', error);
-        } finally {
-          setSearchingAddress(false);
-        }
+    if (now - lastRegionChangeTime.current < 300) return;
+    if (isManualCenteringRef.current) return;
+    lastRegionChangeTime.current = now;
+    const center = { latitude: region.latitude, longitude: region.longitude };
+    setMapCenterLocation(center);
+    if (!pickupLocation || pickingMode !== null) {
+      try {
+        setSearchingAddress(true);
+        setTempPickupAddress(await getExactAddress(center));
+      } catch {
+      } finally {
+        setSearchingAddress(false);
       }
     }
   };
 
-  // 🔥 FUNCIÓN PARA CONFIRMAR UBICACIÓN ACTUAL COMO PUNTO DE PARTIDA
-  const confirmCurrentLocationAsPickup = async () => {
-    if (!mapCenterLocation) return;
-
+  const getExactAddress = async (coord: LatLng): Promise<string> => {
     try {
-      setLocationLoading(true);
-      const address = await getExactAddressWithLocationIQ(mapCenterLocation);
-
-      setPickupLocation(mapCenterLocation);
-      setPickupAddress(address);
-      setShowMarker(false);
-
-      Alert.alert('Punto de partida establecido', address);
-    } catch (error) {
-      console.error('Error confirmando ubicación:', error);
-      Alert.alert('Error', 'No se pudo establecer el punto de partida');
-    } finally {
-      setLocationLoading(false);
+      const cached = await cacheLocationManager.getLocation(coord);
+      if (cached) return cached.address;
+      const r = await fetch(
+        `${LOCATIONIQ_BASE_URL}/reverse.php?key=${LOCATIONIQ_API_KEY}&lat=${coord.latitude}&lon=${coord.longitude}&format=json&normalizeaddress=1&addressdetails=1&zoom=18`,
+      );
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      const a = d.address || {};
+      const parts: string[] = [];
+      if (a.road && a.house_number) parts.push(`${a.road} ${a.house_number}`);
+      else if (a.road) parts.push(a.road);
+      if (a.neighbourhood || a.suburb) parts.push(a.neighbourhood || a.suburb);
+      if (a.city || a.town) parts.push(a.city || a.town);
+      const addr =
+        parts.length > 0
+          ? parts.join(', ')
+          : (d.display_name || '').split(',').slice(0, 2).join(',');
+      await cacheLocationManager.saveLocation(coord, addr);
+      return addr;
+    } catch {
+      return `${coord.latitude.toFixed(4)}, ${coord.longitude.toFixed(4)}`;
     }
   };
 
-  // 🔥 FUNCIÓN PARA IR AL SEARCHSCREEN
-  const goToSearchScreen = async () => {
-    if (!pickupLocation) {
-      // Si no hay pickup confirmado, usar la ubicación del marcador
-      if (!mapCenterLocation) return;
-
-      try {
-        setLocationLoading(true);
-        const address = await getExactAddressWithLocationIQ(mapCenterLocation);
-
-        // Establecer pickup automáticamente y abrir search screen
-        setPickupLocation(mapCenterLocation);
-        setPickupAddress(address);
-        setShowMarker(false);
-
-        setLocationLoading(false);
-
-        navigation.navigate('Search', {
-          pickupLocation: mapCenterLocation,
-          pickupAddress: address,
-        });
-      } catch (error) {
-        console.error('Error al obtener dirección:', error);
-        setLocationLoading(false);
-        navigation.navigate('Search', {
-          pickupLocation: mapCenterLocation,
-          pickupAddress: tempPickupAddress,
-        });
-      }
-      return;
-    }
-
-    navigation.navigate('Search', {
-      pickupLocation: pickupLocation,
-      pickupAddress: pickupAddress,
-    });
-  };
-
-  // 🔥 SOLICITAR PERMISOS DE UBICACIÓN
   const requestLocationPermission = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Permiso de Ubicación',
-            message:
-              'Esta app necesita acceso a tu ubicación para funcionar correctamente',
-            buttonNeutral: 'Preguntar después',
-            buttonNegative: 'Cancelar',
-            buttonPositive: 'OK',
-          },
-        );
-
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          setHasLocationPermission(true);
-          return true;
-        } else {
-          Alert.alert(
-            'Permiso denegado',
-            'Necesitas permitir el acceso a la ubicación para usar esta función',
-          );
-          return false;
-        }
-      } catch (err) {
-        console.warn(err);
-        return false;
-      }
-    } else {
+    if (Platform.OS !== 'android') {
       setHasLocationPermission(true);
       return true;
     }
+    const g = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      {
+        title: 'Permiso de Ubicación',
+        message: 'Necesitamos acceder a tu ubicación',
+        buttonNeutral: 'Después',
+        buttonNegative: 'No',
+        buttonPositive: 'OK',
+      },
+    );
+    if (g === PermissionsAndroid.RESULTS.GRANTED) {
+      setHasLocationPermission(true);
+      return true;
+    }
+    return false;
   };
 
-  // 🔥 OBTENER UBICACIÓN ACTUAL DEL USUARIO
-  const getCurrentLocation = (): Promise<LatLng> => {
-    const getPosition = (options: any) =>
-      new Promise<LatLng>((resolve, reject) => {
-        Geolocation.getCurrentPosition(
-          position => {
-            const { latitude, longitude } = position.coords;
-            resolve({ latitude, longitude });
-          },
-          error => {
-            reject(error);
-          },
-          options,
+  const getCurrentLocation = (): Promise<LatLng> =>
+    new Promise(async (resolve, reject) => {
+      const get = (opts: any) =>
+        new Promise<LatLng>((res, rej) =>
+          Geolocation.getCurrentPosition(
+            p =>
+              res({
+                latitude: p.coords.latitude,
+                longitude: p.coords.longitude,
+              }),
+            rej,
+            opts,
+          ),
         );
-      });
-
-    return new Promise(async (resolve, reject) => {
       try {
-        // 🔥 INTENTO PRINCIPAL: Alta precisión con timeout corto (más rápido)
-        const primary = await getPosition({
-          enableHighAccuracy: true,
-          timeout: 8000, // Reducido de 20s a 8s
-          maximumAge: 0, // Usar ubicación actual siempre
-        });
-        resolve(primary);
-        return;
-      } catch (err: any) {
-        // Solo mostrar warning si es error real, no timeout
-        if (err?.code !== 3) {
-          console.warn('Primary location attempt failed:', err);
-        }
-
-        // 🔥 INTENTO FALLBACK: Baja precisión, más tolerante
-        if (err && (err.code === 3 || err.code === 2)) {
-          try {
-            const fallback = await getPosition({
+        resolve(
+          await get({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }),
+        );
+      } catch (e: any) {
+        try {
+          resolve(
+            await get({
               enableHighAccuracy: false,
-              timeout: 10000, // Reducido de 25s a 10s
-              maximumAge: 60000, // Hasta 1 minuto de antigüedad
-            });
-            resolve(fallback);
-            return;
-          } catch (err2: any) {
-            // Usar ubicación cached si está disponible
-            if (currentLocation) {
-              console.log('Using cached location');
-              resolve(currentLocation);
-              return;
-            }
-
-            // Error silencioso en fallback
-            if (err2?.code !== 3) {
-              console.warn('Fallback location attempt failed:', err2);
-            }
-            reject(err2);
-            return;
-          }
+              timeout: 10000,
+              maximumAge: 60000,
+            }),
+          );
+        } catch {
+          if (currentLocation) resolve(currentLocation);
+          else reject(e);
         }
-
-        reject(err);
       }
     });
-  };
 
-  // 🔥 FUNCIÓN PARA CENTRAR EN UBICACIÓN ACTUAL
-  const centerToUserLocation = async (
-    showAlert: boolean = true,
-  ): Promise<LatLng | null> => {
+  const centerToUserLocation = async (showAlert = true) => {
     setLocationLoading(true);
-
     try {
-      // 🔥 VERIFICAR Y SOLICITAR PERMISOS (siempre, no confiar en estado)
-      let canAccessLocation = hasLocationPermission;
-
-      if (!canAccessLocation && Platform.OS === 'android') {
-        canAccessLocation = await requestLocationPermission();
-      } else if (Platform.OS === 'ios') {
-        canAccessLocation = true; // En iOS los permisos se solicitan automáticamente
-      }
-
-      if (!canAccessLocation) {
-        setLocationLoading(false);
-        if (showAlert) {
-          Alert.alert(
-            'Error',
-            'Se requieren permisos de ubicación para continuar',
-          );
+      if (!hasLocationPermission && Platform.OS === 'android')
+        if (!(await requestLocationPermission())) {
+          setLocationLoading(false);
+          return null;
         }
-        return null;
-      }
-
-      const userLocation = await getCurrentLocation();
-
-      setCurrentLocation(userLocation);
-      setMapCenterLocation(userLocation);
+      const loc = await getCurrentLocation();
+      setCurrentLocation(loc);
+      setMapCenterLocation(loc);
       setShowMarker(true);
-
-      // 🔥 CENTRAR MAPA INMEDIATAMENTE (no esperar dirección)
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(
-          {
-            latitude: userLocation.latitude,
-            longitude: userLocation.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          },
-          500, // Reducir tiempo de animación a 500ms
-        );
-      }
-
+      isManualCenteringRef.current = true;
+      mapRef.current?.animateToRegion(
+        { ...loc, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+        500,
+      );
+      setTimeout(() => {
+        isManualCenteringRef.current = false;
+      }, 600);
       setLocationLoading(false);
-
-      // 🔥 OBTENER DIRECCIÓN EN BACKGROUND (sin esperar)
-      getExactAddressWithLocationIQ(userLocation)
-        .then(address => {
-          setTempPickupAddress(address);
-        })
-        .catch(error => {
-          console.error('Error obteniendo dirección:', error);
+      getExactAddress(loc)
+        .then(setTempPickupAddress)
+        .catch(() =>
           setTempPickupAddress(
-            `${userLocation.latitude.toFixed(
-              4,
-            )}, ${userLocation.longitude.toFixed(4)}`,
-          );
-        });
-
-      return userLocation;
-    } catch (error) {
-      console.error('Error obteniendo ubicación actual:', error);
-      setLocationLoading(false);
-
-      if (showAlert) {
-        Alert.alert(
-          'Error de ubicación',
-          'No se pudo obtener tu ubicación actual. Verifica que el GPS esté activado y los permisos otorgados.',
+            `${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}`,
+          ),
         );
-      }
+      return loc;
+    } catch {
+      setLocationLoading(false);
+      isManualCenteringRef.current = false;
+      if (showAlert)
+        Alert.alert('Error de ubicación', 'Verifica que el GPS esté activado.');
       return null;
     }
   };
 
-  // 🔥 INICIALIZAR APP CON UBICACIÓN REAL
-  useEffect(() => {
-    const initApp = async () => {
-      if (!initialLocationLoaded) {
-        const userLocation = await centerToUserLocation(false); // No mostrar alertas en inicialización
-        if (userLocation) {
-          setMapCenterLocation(userLocation);
-        }
-        setInitialLocationLoaded(true);
-      }
-    };
-
-    initApp();
-
-    if (Platform.OS === 'android' || Platform.OS === 'ios') {
-      watchId.current = Geolocation.watchPosition(
-        position => {
-          const { latitude, longitude } = position.coords;
-          const newLocation: LatLng = { latitude, longitude };
-          setCurrentLocation(newLocation);
-        },
-        error => console.error('Error watching location:', error),
-        {
-          enableHighAccuracy: true,
-          distanceFilter: 10,
-          interval: 5000,
-          fastestInterval: 2000,
-        },
-      );
-    }
-
-    return () => {
-      if (watchId.current !== null) {
-        Geolocation.clearWatch(watchId.current);
-      }
-    };
-  }, []);
-
-  // 🔥 OBTENER DIRECCIÓN EXACTA CON LOCATIONIQ
-  const getExactAddressWithLocationIQ = async (
-    coordinate: LatLng,
-  ): Promise<string> => {
-    try {
-      const { latitude, longitude } = coordinate;
-
-      // 🔥 VERIFICAR CACHÉ PRIMERO
-      const cachedLocation = await cacheLocationManager.getLocation(coordinate);
-      if (cachedLocation) {
-        console.log('📍 Dirección obtenida del caché');
-        return cachedLocation.address;
-      }
-
-      const response = await fetch(
-        `${LOCATIONIQ_BASE_URL}/reverse.php?key=${LOCATIONIQ_API_KEY}&lat=${latitude}&lon=${longitude}&format=json&normalizeaddress=1&addressdetails=1&zoom=18`,
-      );
-
-      if (!response.ok) {
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const address =
-        data.display_name || data.address
-          ? formatLocationIQAddress(data)
-          : `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-
-      // 🔥 GUARDAR EN CACHÉ
-      await cacheLocationManager.saveLocation(coordinate, address);
-
-      return address;
-    } catch (error) {
-      console.error('Error obteniendo dirección exacta con LocationIQ:', error);
-      return `${coordinate.latitude.toFixed(6)}, ${coordinate.longitude.toFixed(
-        6,
-      )}`;
-    }
-  };
-
-  // 🔥 FORMATAR DIRECCIÓN DE LOCATIONIQ
-  const formatLocationIQAddress = (data: any): string => {
-    const address = data.address || {};
-    const addressParts = [];
-
-    if (address.road && address.house_number) {
-      addressParts.push(`${address.road} ${address.house_number}`);
-    } else if (address.road) {
-      addressParts.push(address.road);
-    }
-
-    if (address.neighbourhood) {
-      addressParts.push(address.neighbourhood);
-    } else if (address.suburb) {
-      addressParts.push(address.suburb);
-    }
-
-    if (address.city) {
-      addressParts.push(address.city);
-    } else if (address.town) {
-      addressParts.push(address.town);
-    }
-
-    if (address.state) {
-      addressParts.push(address.state);
-    }
-
-    if (address.country) {
-      addressParts.push(address.country);
-    }
-
-    if (addressParts.length === 0 && data.display_name) {
-      const displayName = data.display_name;
-      if (displayName.length > 60) {
-        const parts = displayName.split(',');
-        return `${parts[0]}, ${parts[1]}`;
-      }
-      return displayName;
-    }
-
-    const result = addressParts.join(', ');
-    return result.length > 60 ? result.substring(0, 57) + '...' : result;
-  };
-
-  // 🔥 CALCULAR RUTA ENTRE PUNTO DE PARTIDA Y DESTINO
   const calculateRoute = useCallback(async () => {
     if (!pickupLocation || !destinationLocation) return;
-
     setRouteLoading(true);
-
     try {
-      const { latitude: startLat, longitude: startLon } = pickupLocation;
-      const { latitude: endLat, longitude: endLon } = destinationLocation;
-
-      // 🔥 VERIFICAR CACHÉ DE RUTAS
-      const cachedRoute = await cacheRouteManager.getRoute(
+      const cached = await cacheRouteManager.getRoute(
         pickupLocation,
         destinationLocation,
       );
-      if (cachedRoute) {
-        console.log('📍 Ruta obtenida del caché');
+      if (cached) {
         setRouteInfo({
-          distance: cachedRoute.distance,
-          duration: cachedRoute.duration,
-          coordinates: cachedRoute.coordinates,
+          distance: cached.distance,
+          duration: cached.duration,
+          coordinates: cached.coordinates,
         });
-        setRouteCoordinates(cachedRoute.coordinates);
-
-        if (mapRef.current && cachedRoute.coordinates.length > 0) {
-          setTimeout(() => {
-            mapRef.current?.fitToCoordinates(cachedRoute.coordinates, {
-              edgePadding: { top: 100, right: 100, bottom: 300, left: 100 },
+        setRouteCoordinates(cached.coordinates);
+        setTimeout(
+          () =>
+            mapRef.current?.fitToCoordinates(cached.coordinates, {
+              edgePadding: { top: 120, right: 60, bottom: 320, left: 60 },
               animated: true,
-            });
-          }, 500);
-        }
-
-        setRouteLoading(false);
+            }),
+          500,
+        );
         return;
       }
-
-      const response = await fetch(
-        `${LOCATIONIQ_BASE_URL}/directions/driving/${startLon},${startLat};${endLon},${endLat}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false&steps=true`,
+      const { latitude: sLat, longitude: sLon } = pickupLocation;
+      const { latitude: eLat, longitude: eLon } = destinationLocation;
+      const r = await fetch(
+        `${LOCATIONIQ_BASE_URL}/directions/driving/${sLon},${sLat};${eLon},${eLat}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false`,
       );
-
-      if (!response.ok) {
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        const coordinates = decodePolyline(route.geometry);
-
-        // 🔥 GUARDAR RUTA EN CACHÉ
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      if (d.routes?.length > 0) {
+        const rt = d.routes[0];
+        const coords = decodePolyline(rt.geometry);
+        const rawDuration = rt.duration;
+        const correctedDuration = Math.round(rawDuration * TRAFFIC_CORRECTION_FACTOR);
+        console.log(`🕰️ [calculateRoute] Duración LocationIQ: ${rawDuration}s (${(rawDuration / 60).toFixed(1)} min) → Corregida: ${correctedDuration}s (${(correctedDuration / 60).toFixed(1)} min)`);
         await cacheRouteManager.saveRoute(pickupLocation, destinationLocation, {
-          pickupLat: startLat,
-          pickupLon: startLon,
-          destLat: endLat,
-          destLon: endLon,
-          distance: route.distance,
-          duration: route.duration,
-          coordinates: coordinates,
-          fare: 0, // Se calcula después
+          pickupLat: sLat,
+          pickupLon: sLon,
+          destLat: eLat,
+          destLon: eLon,
+          distance: rt.distance,
+          duration: correctedDuration,
+          coordinates: coords,
+          fare: 0,
           timestamp: Date.now(),
         });
-
         setRouteInfo({
-          distance: route.distance,
-          duration: route.duration,
-          coordinates: coordinates,
+          distance: rt.distance,
+          duration: correctedDuration,
+          coordinates: coords,
         });
-
-        setRouteCoordinates(coordinates);
-
-        if (mapRef.current && coordinates.length > 0) {
-          setTimeout(() => {
-            mapRef.current?.fitToCoordinates(coordinates, {
-              edgePadding: { top: 100, right: 100, bottom: 300, left: 100 },
+        setRouteCoordinates(coords);
+        setTimeout(
+          () =>
+            mapRef.current?.fitToCoordinates(coords, {
+              edgePadding: { top: 120, right: 60, bottom: 320, left: 60 },
               animated: true,
-            });
-          }, 500);
-        }
+            }),
+          500,
+        );
       }
-    } catch (error) {
-      console.error('Error calculando ruta:', error);
-      createStraightLineRoute();
+    } catch {
+      createFallbackRoute();
     } finally {
       setRouteLoading(false);
     }
   }, [pickupLocation, destinationLocation]);
 
-  // 🔥 DECODIFICAR POLYLINE
-  const decodePolyline = (encoded: string): LatLng[] => {
-    const points: LatLng[] = [];
-    let index = 0,
-      len = encoded.length;
-    let lat = 0,
+  const decodePolyline = (enc: string): LatLng[] => {
+    const pts: LatLng[] = [];
+    let i = 0,
+      lat = 0,
       lng = 0;
-
-    while (index < len) {
+    while (i < enc.length) {
       let b,
-        shift = 0,
-        result = 0;
+        sh = 0,
+        r = 0;
       do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
+        b = enc.charCodeAt(i++) - 63;
+        r |= (b & 0x1f) << sh;
+        sh += 5;
       } while (b >= 0x20);
-      const dlat = result & 1 ? ~(result >> 1) : result >> 1;
-      lat += dlat;
-
-      shift = 0;
-      result = 0;
+      lat += r & 1 ? ~(r >> 1) : r >> 1;
+      sh = 0;
+      r = 0;
       do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
+        b = enc.charCodeAt(i++) - 63;
+        r |= (b & 0x1f) << sh;
+        sh += 5;
       } while (b >= 0x20);
-      const dlng = result & 1 ? ~(result >> 1) : result >> 1;
-      lng += dlng;
-
-      points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+      lng += r & 1 ? ~(r >> 1) : r >> 1;
+      pts.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
     }
-
-    return points;
+    return pts;
   };
 
-  // 🔥 CREAR RUTA DE LÍNEA RECTA (FALLBACK)
-  const createStraightLineRoute = () => {
-    if (!pickupLocation || !destinationLocation) return;
+  const calcDist = (a: LatLng, b: LatLng) => {
+    const R = 6371e3,
+      φ1 = (a.latitude * Math.PI) / 180,
+      φ2 = (b.latitude * Math.PI) / 180;
+    const Δφ = ((b.latitude - a.latitude) * Math.PI) / 180,
+      Δλ = ((b.longitude - a.longitude) * Math.PI) / 180;
+    const x =
+      Math.sin(Δφ / 2) ** 2 +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  };
 
-    const coordinates = [
+  const createFallbackRoute = () => {
+    if (!pickupLocation || !destinationLocation) return;
+    const coords = [
       pickupLocation,
       {
         latitude: (pickupLocation.latitude + destinationLocation.latitude) / 2,
@@ -816,1072 +1166,1215 @@ const MapScreen = () => {
       },
       destinationLocation,
     ];
-
-    const distance = calculateDistance(pickupLocation, destinationLocation);
-    const duration = distance / 10;
-
-    setRouteInfo({
-      distance,
-      duration,
-      coordinates,
-    });
-
-    setRouteCoordinates(coordinates);
+    const d = calcDist(pickupLocation, destinationLocation);
+    setRouteInfo({ distance: d, duration: d / 10, coordinates: coords });
+    setRouteCoordinates(coords);
   };
 
-  // 🔥 CALCULAR DISTANCIA ENTRE DOS PUNTOS
-  const calculateDistance = (point1: LatLng, point2: LatLng): number => {
-    const R = 6371e3;
-    const φ1 = (point1.latitude * Math.PI) / 180;
-    const φ2 = (point2.latitude * Math.PI) / 180;
-    const Δφ = ((point2.latitude - point1.latitude) * Math.PI) / 180;
-    const Δλ = ((point2.longitude - point1.longitude) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
+  const fmtDist = (m: number) =>
+    m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+  const fmtTime = (sec: number) => {
+    const h = Math.floor(sec / 3600),
+      m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m} min`;
+  };
+  const fmtTimer = (sec: number) => {
+    const roundedSec = Math.round(sec);
+    return `${Math.floor(roundedSec / 60)}:${String(roundedSec % 60).padStart(
+      2,
+      '0',
+    )}`;
   };
 
-  // 🔥 FORMATAR DISTANCIA Y TIEMPO
-  const formatDistance = (meters: number): string => {
-    if (meters < 1000) {
-      return `${Math.round(meters)} m`;
+  const resetAll = () => {
+    setPickupLocation(null);
+    setPickupAddress('');
+    setTempPickupAddress('');
+    setDestinationLocation(null);
+    setDestinationAddress('');
+    setShowMarker(true);
+    setRouteInfo(null);
+    setRouteCoordinates([]);
+    setSuggestedFare(null);
+  };
+
+  const goToSearchScreen = async () => {
+    if (!pickupLocation) {
+      if (!mapCenterLocation) return;
+      setLocationLoading(true);
+      const addr = await getExactAddress(mapCenterLocation).catch(
+        () => tempPickupAddress,
+      );
+      setPickupLocation(mapCenterLocation);
+      setPickupAddress(addr);
+      setShowMarker(false);
+      setLocationLoading(false);
+      navigation.navigate('Search', {
+        pickupLocation: mapCenterLocation,
+        pickupAddress: addr,
+      });
+      return;
     }
-    return `${(meters / 1000).toFixed(1)} km`; // ✅ Usar 1 decimal para claridad
+    navigation.navigate('Search', { pickupLocation, pickupAddress });
   };
 
-  const formatDuration = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60); // ✅ Usar FLOOR para consistencia
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes} min`;
-  };
-
-  // 🔥 MANEJAR CUANDO EL MAPA ESTÁ LISTO
-  const handleMapReady = () => {
-    setIsMapReady(true);
-
-    if (currentLocation && !initialLocationLoaded) {
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(
-          {
-            latitude: currentLocation.latitude,
-            longitude: currentLocation.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          },
-          1000,
-        );
-      }
-    }
-  };
-
-  // 🔥 CONFIRMAR VIAJE
   const confirmTrip = () => {
-    if (!pickupLocation || !destinationLocation) {
-      Alert.alert(
-        'Información incompleta',
-        'Necesitas tener un punto de partida y un destino confirmados.',
-      );
+    if (!pickupLocation || !destinationLocation || !routeInfo) {
+      Alert.alert('Información incompleta', 'Selecciona origen y destino.');
       return;
     }
+    if (isCreatingRide) return; // evitar doble tap
 
-    if (!routeInfo) {
-      Alert.alert(
-        'Ruta no disponible',
-        'Espera a que se calcule la ruta o inténtalo de nuevo.',
+    // Crear viaje directamente sin alerts de confirmación
+    (async () => {
+      setIsCreatingRide(true);
+      try {
+        const res = await ridesService.createRide({
+          pickupLocation: { ...pickupLocation, address: pickupAddress },
+          dropoffLocation: {
+            ...destinationLocation,
+            address: destinationAddress,
+          },
+          distance: routeInfo.distance,
+          duration: Math.round(routeInfo.duration),
+          fare: suggestedFare || 0,
+          vehicleTypeRequested: selectedVehicleType,
+          paymentMethod: selectedPaymentMethod,
+        });
+        if (pickupLocation && destinationLocation)
+          await cacheTripHistoryManager.addTrip({
+            pickupLocation,
+            pickupAddress,
+            destinationLocation,
+            destinationAddress,
+            distance: routeInfo.distance,
+            duration: routeInfo.duration,
+            fare: suggestedFare || 0,
+          });
+        autoExpireCalledRef.current = false;
+        setRideRequested(true);
+        // Calcular tiempo restante desde expiresAt del backend
+        const timeLeftInSeconds = res.expiresAt
+          ? Math.max(0, (new Date(res.expiresAt).getTime() - Date.now()) / 1000)
+          : 120; // Fallback a 120 si no hay expiresAt
+        setRequestTimeLeft(timeLeftInSeconds);
+        setActiveRideId(res.id);
+
+        // 🔌 Socket: unirse al room del viaje y notificar a conductores cercanos
+        socketService.joinRide(res.id);
+        socketService.notifyRideCreated(res.id);
+
+        // 💾 Guardar estado para persistencia (incluyendo expiresAt)
+        StorageHelper.setItem(
+          'activeRideState',
+          JSON.stringify({
+            rideRequested: true,
+            activeRideId: res.id,
+            expiresAt: res.expiresAt,
+          }),
+        );
+        console.log('💾 [MapScreen] Estado de solicitud guardado:', {
+          rideId: res.id,
+          expiresAt: res.expiresAt,
+          timeLeftInSeconds: timeLeftInSeconds.toFixed(1),
+          now: new Date().toISOString(),
+          expiresAtObject: res.expiresAt
+            ? new Date(res.expiresAt).toISOString()
+            : 'N/A',
+        });
+      } catch (e: any) {
+        // El API client lanza { status, data } en lugar de un Error estándar
+        const serverMsg: string | undefined =
+          e?.data?.error ?? e?.data?.message ?? e?.message;
+
+        if (e?.status === 422 && e?.data?.code === 'OUT_OF_SERVICE_AREA') {
+          Alert.alert(
+            'Fuera de cobertura',
+            'El punto de recogida está fuera de nuestras zonas de servicio.',
+          );
+        } else {
+          Alert.alert(
+            'No se pudo crear el viaje',
+            serverMsg ?? 'Verifica tu conexión e intenta de nuevo.',
+          );
+        }
+      } finally {
+        setIsCreatingRide(false);
+      }
+    })();
+  };
+
+  const handleAutoExpireRide = async () => {
+    if (activeRideId)
+      await ridesService
+        .cancelRide(activeRideId, 'Expirada', 'system')
+        .catch(() => { });
+    setRideRequested(false);
+    setRequestTimeLeft(120);
+    setActiveRideId(null);
+    if (requestTimerRef.current) clearInterval(requestTimerRef.current);
+
+    // 🗑️ Limpiar estado de storage
+    StorageHelper.removeItem('activeRideState');
+    console.log('🗑️ [MapScreen] Estado de solicitud limpiado (expirada)');
+
+    Alert.alert('Sin conductor', 'No se encontró conductor. Intenta de nuevo.');
+  };
+
+  const handleCancelRide = () => {
+    Alert.alert('¿Cancelar solicitud?', 'Se cancelará tu solicitud de viaje.', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Cancelar',
+        style: 'destructive',
+        onPress: async () => {
+          if (activeRideId)
+            await ridesService
+              .cancelRide(activeRideId, 'Cancelado por pasajero', 'passenger')
+              .catch(() => { });
+          setRideRequested(false);
+          setRequestTimeLeft(120);
+          setActiveRideId(null);
+          if (activeRideId) socketService.leaveRide(activeRideId);
+          if (requestTimerRef.current) clearInterval(requestTimerRef.current);
+
+          // 🗑️ Limpiar estado de storage
+          StorageHelper.removeItem('activeRideState');
+          console.log(
+            '🗑️ [MapScreen] Estado de solicitud limpiado (cancelada)',
+          );
+        },
+      },
+    ]);
+  };
+
+  const handleRejectOffer = async (offerId: string) => {
+    if (!activeRideId) return;
+    await ridesService
+      .rejectCounterOffer(activeRideId, offerId)
+      .catch(() => { });
+    setDriverOffers(p => p.filter(o => o.offerId !== offerId));
+  };
+
+  const handleAcceptOffer = async (offer: any) => {
+    if (!activeRideId) return;
+    try {
+      await ridesService.acceptCounterOffer(
+        activeRideId,
+        offer.offerId,
+        offer.proposedPrice || offer.fare,
       );
-      return;
+      setShowOffersOverlay(false);
+      setDriverOffers([]);
+      setRideRequested(false);
+      setActiveRideId(null);
+      if (requestTimerRef.current) clearInterval(requestTimerRef.current);
+
+      // 🗑️ Limpiar estado de storage
+      StorageHelper.removeItem('activeRideState');
+      console.log(
+        '🗑️ [MapScreen] Estado de solicitud limpiado (oferta aceptada)',
+      );
+
+      Alert.alert('¡Conductor asignado!', 'Tu viaje está confirmado.', [
+        {
+          text: 'Ver detalles',
+          onPress: () =>
+            navigation.navigate('ActiveRide' as any, { rideId: activeRideId }),
+        },
+      ]);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message);
     }
-
-    Alert.alert(
-      'Solicitar Viaje',
-      `Desde: ${pickupAddress.split(',')[0]}\nHacia: ${
-        destinationAddress.split(',')[0]
-      }\n\nDistancia: ${formatDistance(
-        routeInfo.distance,
-      )}\nTiempo: ${formatDuration(routeInfo.duration)}${
-        suggestedFare !== null ? `\nTarifa: Bs ${suggestedFare.toFixed(2)}` : ''
-      }\n\n¿Confirmar viaje?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar',
-          onPress: async () => {
-            try {
-              console.log('🚀 [confirmTrip] Creando solicitud de viaje...');
-
-              // 🔥 CREAR SOLICITUD EN EL BACKEND
-              const rideData = {
-                pickupLocation: {
-                  latitude: pickupLocation.latitude,
-                  longitude: pickupLocation.longitude,
-                  address: pickupAddress,
-                },
-                dropoffLocation: {
-                  latitude: destinationLocation.latitude,
-                  longitude: destinationLocation.longitude,
-                  address: destinationAddress,
-                },
-                distance: routeInfo.distance,
-                duration: Math.round(routeInfo.duration), // ✅ Convertir a entero
-                fare: suggestedFare || 0,
-              };
-
-              // 🔥 DEBUG: Log detallado de qué se envía
-              console.log('🚀 [confirmTrip] Enviando al backend:', {
-                distance: {
-                  value: rideData.distance,
-                  type: typeof rideData.distance,
-                },
-                duration: {
-                  value: rideData.duration,
-                  type: typeof rideData.duration,
-                },
-                fare: {
-                  value: rideData.fare,
-                  type: typeof rideData.fare,
-                  isNumber: typeof rideData.fare === 'number',
-                },
-              });
-
-              const response = await ridesService.createRide(rideData);
-              console.log(
-                '✅ [confirmTrip] Solicitud creada exitosamente:',
-                response.id,
-              );
-
-              // 🔥 GUARDAR VIAJE EN HISTORIAL LOCAL
-              if (pickupLocation && destinationLocation && routeInfo) {
-                await cacheTripHistoryManager.addTrip({
-                  pickupLocation,
-                  pickupAddress,
-                  destinationLocation,
-                  destinationAddress,
-                  distance: routeInfo.distance,
-                  duration: routeInfo.duration,
-                  fare: suggestedFare || 0,
-                });
-                console.log('✅ Viaje guardado en historial local');
-              }
-
-              // 🔥 NAVEGAR A PANTALLA DE ESPERA
-              console.log('📍 [confirmTrip] Navegando a WaitingForDriver:', {
-                rideId: response.id,
-                pickupAddress,
-                fare: suggestedFare,
-              });
-
-              navigation.navigate('WaitingForDriver', {
-                rideId: response.id,
-                pickupAddress: pickupAddress,
-                fare: suggestedFare || 0,
-              });
-            } catch (error: any) {
-              console.error('❌ [confirmTrip] Error creando viaje:', error);
-              Alert.alert(
-                'Error',
-                error?.message || 'No se pudo procesar la solicitud del viaje',
-              );
-            }
-          },
-        },
-      ],
-    );
   };
 
-  // 🔥 CANCELAR SOLICITUD DE VIAJE
-  const handleCancelRideRequest = () => {
-    Alert.alert(
-      '¿Cancelar solicitud?',
-      'El conductor no ha aceptado aún. ¿Deseas cancelar la solicitud?',
-      [
-        { text: 'No, esperar', style: 'cancel' },
-        {
-          text: 'Sí, cancelar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('❌ Cancelando solicitud:', activeRideId);
+  const progress = requestTimeLeft / 120;
 
-              // 🔥 CANCELAR EN EL BACKEND
-              if (activeRideId) {
-                await ridesService.cancelRide(
-                  activeRideId,
-                  'Cancelado por pasajero',
-                  'passenger',
-                );
-                console.log('✅ Solicitud cancelada en BD');
-              }
-
-              // Limpiar estado del frontend INMEDIATAMENTE
-              setRideRequested(false);
-              setRequestTimeLeft(120);
-              setActiveRideId(null);
-
-              if (requestTimerRef.current) {
-                clearInterval(requestTimerRef.current);
-              }
-
-              Alert.alert(
-                'Solicitud cancelada',
-                'Tu solicitud ha sido cancelada exitosamente.',
-              );
-            } catch (error: any) {
-              console.error('❌ Error cancelando solicitud:', error);
-              Alert.alert(
-                'Error',
-                error?.message || 'No se pudo cancelar la solicitud.',
-              );
-            }
-          },
-        },
-      ],
-    );
-  };
-
+  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
-      {/* HEADER MINIMALISTA */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoCircle} />
-            <Text style={styles.logoText}>línea lila</Text>
-          </View>
-          <Text style={styles.tagline}>Conducido por mujeres</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setShowClientMenu(!showClientMenu)}
-        >
-          <Text style={styles.menuIcon}>☰</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* MENÚ SANDWICH DE CLIENTE */}
-      {showClientMenu && (
-        <View style={styles.clientMenuOverlay}>
-          <TouchableOpacity
-            style={styles.menuBackdrop}
-            onPress={() => setShowClientMenu(false)}
-          />
-          <View style={styles.clientMenuPanel}>
-            {/* DATOS DEL CLIENTE */}
-            <View style={styles.clientMenuHeader}>
-              <View style={styles.clientAvatar}>
-                <Text style={styles.avatarEmoji}>👩</Text>
-              </View>
-              <View style={styles.clientInfoContainer}>
-                <Text style={styles.clientName}>{user?.name || 'Usuario'}</Text>
-                <Text style={styles.clientRating}>
-                  ⭐ {user?.rating || 4.8}
-                </Text>
-              </View>
-            </View>
-
-            {/* DIVIDER */}
-            <View style={styles.menuDivider} />
-
-            {/* OPCIONES DE MENÚ */}
-            <TouchableOpacity
-              style={styles.menuOption}
-              onPress={() => {
-                setShowClientMenu(false);
-                navigation.navigate('Profile' as never);
-              }}
-            >
-              <Text style={styles.menuOptionIcon}>👤</Text>
-              <Text style={styles.menuOptionText}>Mi Perfil</Text>
-              <Text style={styles.menuOptionArrow}>›</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuOption}
-              onPress={() => {
-                setShowClientMenu(false);
-                navigation.navigate('ClientRideHistory' as never);
-              }}
-            >
-              <Text style={styles.menuOptionIcon}>📋</Text>
-              <Text style={styles.menuOptionText}>Mis Viajes</Text>
-              <Text style={styles.menuOptionArrow}>›</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.menuOption}
-              onPress={() => {
-                setShowClientMenu(false);
-                navigation.navigate('ClientRideDetails', {
-                  rideId: 'demo',
-                } as never);
-              }}
-            >
-              <Text style={styles.menuOptionIcon}>🚕</Text>
-              <Text style={styles.menuOptionText}>Viaje Actual</Text>
-              <Text style={styles.menuOptionArrow}>›</Text>
-            </TouchableOpacity>
-
-            {/* DIVIDER */}
-            <View style={styles.menuDivider} />
-
-            {/* CERRAR MENÚ */}
-            <TouchableOpacity
-              style={styles.menuCloseButton}
-              onPress={() => setShowClientMenu(false)}
-            >
-              <Text style={styles.menuCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* BOTÓN PRINCIPAL CUANDO NO HAY SELECCIÓN */}
-      {!pickupLocation && !destinationLocation && (
-        <View style={styles.mainActionContainer}>
-          <TouchableOpacity
-            style={styles.mainActionButton}
-            onPress={goToSearchScreen}
-            activeOpacity={0.9}
-          >
-            <View style={styles.actionIconContainer}>
-              <View style={styles.actionIcon} />
-            </View>
-            <Text style={styles.mainActionText}>¿A dónde vamos?</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* OVERLAY DE CARGA */}
-      {locationLoading && (
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#A78BFA" />
-            <Text style={styles.loadingText}>Localizando...</Text>
-          </View>
-        </View>
-      )}
-
-      {/* OVERLAY DE BÚSQUEDA DE DIRECCIÓN */}
-      {searchingAddress && (
-        <View style={styles.searchingOverlay}>
-          <View style={styles.searchingBox}>
-            <ActivityIndicator size="small" color="#A78BFA" />
-            <Text style={styles.searchingText}>Buscando dirección</Text>
-          </View>
-        </View>
-      )}
-
-      {/* OVERLAY DE CÁLCULO DE RUTA */}
-      {routeLoading && (
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#A78BFA" />
-            <Text style={styles.loadingText}>Calculando ruta</Text>
-          </View>
-        </View>
-      )}
-
-      {/* MAPA */}
-      <View style={styles.mapContainer}>
+    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+      {/* MAP CONTAINER — pin is a sibling of MapView so it never scrolls */}
+      <View
+        style={[
+          s.mapWrap,
+          {
+            paddingBottom:
+              Platform.OS === 'android'
+                ? Math.max(insets.bottom, 100)
+                : insets.bottom,
+          },
+        ]}
+        onLayout={e => {
+          setMapWrapDimensions({
+            width: e.nativeEvent.layout.width,
+            height: e.nativeEvent.layout.height,
+          });
+        }}
+      >
         <MapView
           ref={mapRef}
-          style={styles.map}
-          showsUserLocation={true}
+          style={s.map}
+          showsUserLocation
           showsMyLocationButton={false}
           showsCompass={false}
-          zoomEnabled={true}
-          scrollEnabled={true}
-          rotateEnabled={true}
           mapType="standard"
-          onMapReady={handleMapReady}
+          onMapReady={() => { }}
           onRegionChangeComplete={handleRegionChangeComplete}
         >
-          {/* LÍNEA DE RUTA */}
-          {showRoute && routeCoordinates.length > 0 && (
+          {routeCoordinates.length > 0 && (
             <Polyline
               coordinates={routeCoordinates}
-              strokeColor="#A78BFA"
-              strokeWidth={4}
+              strokeColor={T.accent}
+              strokeWidth={3.5}
               lineCap="round"
               lineJoin="round"
             />
           )}
-
-          {/* PUNTO DE PARTIDA */}
           {pickupLocation && (
             <Marker coordinate={pickupLocation} title="Origen">
-              <View style={styles.originMarker}>
-                <View style={styles.originMarkerInner} />
+              <View style={s.dotGray}>
+                <View style={s.dotGrayInner} />
               </View>
             </Marker>
           )}
-
-          {/* PUNTO DE DESTINO */}
           {destinationLocation && (
             <Marker coordinate={destinationLocation} title="Destino">
-              <View style={styles.destinationMarker}>
-                <View style={styles.destinationMarkerInner} />
+              <View style={s.dotBlue}>
+                <View style={s.dotBlueInner} />
               </View>
             </Marker>
-          )}
-
-          {/* UBICACIÓN ACTUAL */}
-          {currentLocation && !pickupLocation && (
-            <Marker
-              coordinate={currentLocation}
-              title="Tu ubicación"
-              pinColor="#A78BFA"
-            />
           )}
         </MapView>
 
-        {/* MARCADOR FLOTANTE */}
-        <FloatingMarker
-          visible={showMarker && !pickupLocation}
+        {/* ── FLOATING PIN — rendered over the map, stationary ── */}
+        <FloatingPin
+          visible={showMarker && (pickingMode !== null || !pickupLocation)}
           address={tempPickupAddress}
+          loading={searchingAddress}
+          containerWidth={mapWrapDimensions.width}
+          containerHeight={mapWrapDimensions.height}
+          mode={pickingMode || 'origin'}
         />
 
-        {/* BOTÓN DE CENTRAR UBICACIÓN */}
-        <TouchableOpacity
-          style={styles.centerButton}
-          onPress={() => centerToUserLocation(true)} // Mostrar alertas cuando usuario presiona
-          activeOpacity={0.9}
-        >
-          <View style={styles.centerButtonIcon} />
-        </TouchableOpacity>
+        {/* ── TOP BAR ── */}
+        {pickingMode === null && !rideRequested && (
+          <View style={[s.topBar, { top: 20 }]}>
+            <TouchableOpacity
+              style={s.iconBtn}
+              onPress={() => setShowClientMenu(true)}
+              activeOpacity={0.8}
+            >
+              <Icon.Menu size={30} color={T.accent} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── MY LOCATION ── */}
+        {pickingMode === null && !rideRequested && (
+          <TouchableOpacity
+            style={[
+              s.locBtn,
+              {
+                bottom: destinationLocation
+                  ? Platform.OS === 'android'
+                    ? 10
+                    : 370 + insets.bottom
+                  : Platform.OS === 'android'
+                    ? 115
+                    : insets.bottom + 24,
+              },
+            ]}
+            onPress={() => centerToUserLocation(true)}
+            activeOpacity={0.8}
+          >
+            {locationLoading ? (
+              <ActivityIndicator size="small" color={T.accent} />
+            ) : (
+              <Icon.MyLocation size={30} color={T.accent} />
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* ── SEARCH BAR ── */}
+        {!destinationLocation && pickingMode === null && (
+          <TouchableOpacity
+            style={[
+              s.searchBar,
+              {
+                bottom: Platform.OS === 'android' ? 30 : insets.bottom,
+              },
+            ]}
+            onPress={goToSearchScreen}
+            activeOpacity={0.9}
+          >
+            <View style={s.searchIcon}>
+              <Icon.Search size={25} color={T.white} />
+            </View>
+            <Text style={s.searchPlaceholder}>¿A dónde vamos?</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* PANEL INFERIOR */}
-      <View style={styles.bottomPanel}>
-        {pickupLocation ? (
-          <>
-            {destinationLocation ? (
-              <>
-                {/* INFORMACIÓN DE RUTA */}
-                {routeInfo && (
-                  <View style={styles.tripDetails}>
-                    <View style={styles.tripStats}>
-                      <View style={styles.statItem}>
-                        <Text style={styles.statValue}>
-                          {formatDistance(routeInfo.distance)}
+      {/* BOTTOM PANEL */}
+      {pickingMode !== null ? (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            bottom: Math.max(insets.bottom, 24) + 16,
+            alignSelf: 'center',
+            backgroundColor: T.accent,
+            paddingHorizontal: 48,
+            paddingVertical: 16,
+            borderRadius: 28,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: 6,
+          }}
+          onPress={() => {
+            if (pickingMode === 'origin') {
+              navigation.navigate('Search' as any, {
+                pickupLocation: mapCenterLocation,
+                pickupAddress: tempPickupAddress,
+                destinationLocation,
+                destinationAddress,
+              });
+            } else {
+              navigation.navigate('Search' as any, {
+                pickupLocation,
+                pickupAddress,
+                destinationLocation: mapCenterLocation,
+                destinationAddress: tempPickupAddress,
+              });
+            }
+            setPickingMode(null);
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: T.white, fontSize: 17, fontWeight: '700', letterSpacing: 0.3 }}>
+            Hecho
+          </Text>
+        </TouchableOpacity>
+      ) : destinationLocation ? (
+        <View style={s.panel}>
+          {rideRequested ? (
+            <View style={s.timerWrap}>
+              <View style={s.timerInfo}>
+                <View style={s.timerDot} />
+                <Text style={s.timerLabel}>Buscando conductor</Text>
+                <Text style={s.timerVal}>{fmtTimer(requestTimeLeft)}</Text>
+              </View>
+              <View style={s.progressTrack}>
+                <View
+                  style={[
+                    s.progressFill,
+                    { width: `${progress * 100}%` as any },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : null}
+
+          <View style={s.routePill}>
+            <View style={s.routeAddr}>
+              <View style={[s.routeDot, { backgroundColor: T.success }]} />
+              <Text style={s.routeAddrText} numberOfLines={1}>
+                {pickupAddress || tempPickupAddress}
+              </Text>
+            </View>
+            <View style={s.routeConnector}>
+              <View style={s.routeLine} />
+            </View>
+            <View style={s.routeAddr}>
+              <View style={[s.routeDot, { backgroundColor: T.accent }]} />
+              <Text
+                style={[s.routeAddrText, { color: T.ink, fontWeight: '600' }]}
+                numberOfLines={1}
+              >
+                {destinationAddress}
+              </Text>
+            </View>
+          </View>
+
+          {suggestedFare != null && (
+            <View style={s.fareRow}>
+              <Text style={s.fareLabel}>Ajustar tarifa</Text>
+              <View style={s.fareControls}>
+                <TouchableOpacity
+                  style={s.fareBtn}
+                  onPress={() =>
+                    setSuggestedFare(p =>
+                      p ? Math.max(0.5, +(p - FARE_STEP).toFixed(2)) : p,
+                    )
+                  }
+                >
+                  <Icon.Minus size={24} color={T.inkMid} />
+                </TouchableOpacity>
+                <Text style={s.fareValue}>BS {suggestedFare.toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={s.fareBtn}
+                  onPress={() =>
+                    setSuggestedFare(p => (p ? +(p + FARE_STEP).toFixed(2) : p))
+                  }
+                >
+                  <Icon.Plus size={24} color={T.inkMid} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {routeInfo && (
+            <View style={s.statsRow}>
+              <View style={s.stat}>
+                <Icon.Distance size={14} color={T.inkLight} />
+                <Text style={s.statVal}>{fmtDist(routeInfo.distance)}</Text>
+              </View>
+              <View style={s.statDiv} />
+              <View style={s.stat}>
+                <Icon.Clock size={14} color={T.inkLight} />
+                <Text style={s.statVal}>{fmtTime(routeInfo.duration)}</Text>
+              </View>
+              <View style={s.statDiv} />
+              <View style={s.stat}>
+                <Icon.Money size={14} color={T.inkLight} />
+                <Text
+                  style={[s.statVal, { color: T.accent, fontWeight: '700' }]}
+                >
+                  {suggestedFare != null
+                    ? `Bs ${suggestedFare.toFixed(2)}`
+                    : '—'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {!rideRequested && (
+            <>
+              <View style={s.selectorsContainer}>
+                <View style={s.selectorRow}>
+                  <Text style={s.selectorLabel}>Vehículo:</Text>
+                  <View style={s.optionsWrap}>
+                    {[
+                      { id: 'taxi', label: 'Taxi' },
+                      { id: 'minibus', label: 'Minibús' },
+                      { id: 'motorcycle', label: 'Moto' },
+                      { id: 'bus', label: 'Bus' },
+                    ].map(type => (
+                      <TouchableOpacity
+                        key={type.id}
+                        style={[
+                          s.optionChip,
+                          selectedVehicleType === type.id && s.optionChipActive,
+                        ]}
+                        onPress={() => setSelectedVehicleType(type.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            s.optionText,
+                            selectedVehicleType === type.id &&
+                            s.optionTextActive,
+                          ]}
+                        >
+                          {type.label}
                         </Text>
-                        <Text style={styles.statLabel}>Distancia</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <View style={s.selectorRow}>
+                  <Text style={s.selectorLabel}>Pago:</Text>
+                  <View style={s.optionsWrap}>
+                    {[
+                      { id: 'cash', label: 'Efectivo' },
+                      { id: 'qr', label: 'QR' },
+                    ].map(method => (
+                      <TouchableOpacity
+                        key={method.id}
+                        style={[
+                          s.optionChip,
+                          selectedPaymentMethod === method.id &&
+                          s.optionChipActive,
+                        ]}
+                        onPress={() => setSelectedPaymentMethod(method.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            s.optionText,
+                            selectedPaymentMethod === method.id &&
+                            s.optionTextActive,
+                          ]}
+                        >
+                          {method.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              <View style={s.ctaRow}>
+                <TouchableOpacity
+                  style={s.ghostBtn}
+                  onPress={resetAll}
+                  activeOpacity={0.8}
+                >
+                  <Icon.Close size={16} color={T.inkMid} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.ctaBtn, isCreatingRide && { opacity: 0.7 }]}
+                  onPress={confirmTrip}
+                  activeOpacity={0.85}
+                  disabled={isCreatingRide}
+                >
+                  {routeLoading || isCreatingRide ? (
+                    <ActivityIndicator size="small" color={T.white} />
+                  ) : (
+                    <>
+                      <Icon.Car size={18} color={T.white} />
+                      <Text style={s.ctaBtnText}>Solicitar viaje</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {rideRequested && (
+            <TouchableOpacity
+              style={s.cancelBtn}
+              onPress={handleCancelRide}
+              activeOpacity={0.8}
+            >
+              <Icon.Close size={16} color={T.danger} />
+              <Text style={s.cancelBtnText}>Cancelar solicitud</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : null}
+
+      {/* DRIVER OFFERS - FLOATING BUBBLES */}
+      {showOffersOverlay && driverOffers.length > 0 && (
+        <View style={s.offersBubblesContainer} pointerEvents="box-none">
+          <View style={s.offersBubbles} pointerEvents="box-none">
+            {driverOffers.map((offer, i) => {
+              const created =
+                typeof offer.createdAt === 'string'
+                  ? new Date(offer.createdAt).getTime()
+                  : offer.createdAt || Date.now();
+              // Siempre calcular rem desde createdAt para animación suave y continua.
+              // timeLeftInSeconds del backend se usa solo para filtrar, no para animar.
+              const rem = Math.max(0, 30 - (Date.now() - created) / 1000);
+              // Ocultar la burbuja cuando quedan ≤5 s para evitar que el pasajero
+              // intente aceptar una oferta que expirará antes de llegar al servidor.
+              if (rem <= 5) return null;
+              return (
+                <View
+                  key={offer.offerId || i}
+                  style={s.offerBubble}
+                  pointerEvents="auto"
+                >
+                  <View style={s.offerTopBar}>
+                    <View
+                      style={[
+                        s.offerProgressFill,
+                        { width: `${Math.max(0, (rem - 5) / 25) * 100}%` as any },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={s.offerContent}>
+                    <View style={s.offerHeader}>
+                      {offer.driverProfilePicture ? (
+                        <Image
+                          source={{ uri: offer.driverProfilePicture }}
+                          style={s.offerAvatar}
+                        />
+                      ) : (
+                        <View style={s.offerAvatar}>
+                          <Icon.Car size={24} color={'#9CA3AF'} />
+                        </View>
+                      )}
+
+                      <View style={s.offerInfo}>
+                        <Text style={s.offerVehicleText} numberOfLines={1}>
+                          {offer.vehicleModel || 'Vehículo'}
+                        </Text>
+                        <Text style={s.offerDriverName} numberOfLines={1}>
+                          {offer.driverName || 'Conductor'}
+                        </Text>
+                        <View style={s.offerRatingRow}>
+                          <Icon.Star size={14} color="#F59E0B" />
+                          <Text style={s.offerRatingText}>
+                            {offer.driverRating || '5.0'}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.statItem}>
-                        <Text style={styles.statValue}>
-                          {formatDuration(routeInfo.duration)}
+
+                      <View style={s.offerRightStats}>
+                        <Text style={s.offerPrice}>
+                          Bs {(offer.proposedPrice || offer.fare || 0).toFixed(2)}
                         </Text>
-                        <Text style={styles.statLabel}>Tiempo</Text>
-                      </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.statItem}>
-                        <Text style={styles.statValue}>
-                          {suggestedFare !== null
-                            ? `Bs ${suggestedFare.toFixed(2)}`
-                            : '--'}
-                        </Text>
-                        <Text style={styles.statLabel}>Tarifa</Text>
+                        <Text style={s.offerStatText}>{Math.round(rem)}s</Text>
                       </View>
                     </View>
 
-                    {/* AJUSTAR TARIFA */}
-                    {suggestedFare !== null && (
-                      <View style={styles.fareAdjust}>
-                        <TouchableOpacity
-                          style={styles.fareAdjustButton}
-                          onPress={() =>
-                            setSuggestedFare(prev =>
-                              prev
-                                ? Math.max(0.5, +(prev - FARE_STEP).toFixed(2))
-                                : prev,
-                            )
-                          }
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.fareAdjustText}>−</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.fareAdjustLabel}>
-                          Ajustar tarifa
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.fareAdjustButton}
-                          onPress={() =>
-                            setSuggestedFare(prev =>
-                              prev ? +(prev + FARE_STEP).toFixed(2) : prev,
-                            )
-                          }
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.fareAdjustText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-
-                    {/* BOTÓN CONFIRMAR VIAJE O CANCELAR */}
-                    {rideRequested ? (
-                      <>
-                        {/* 🔥 MOSTRAR TEMPORIZADOR Y BOTÓN CANCELAR */}
-                        <View style={styles.timerContainer}>
-                          <Text style={styles.timerText}>
-                            ⏱️ Buscando conductor...
-                          </Text>
-                          <Text style={styles.timerValue}>
-                            {Math.floor(requestTimeLeft / 60)}:
-                            {String(requestTimeLeft % 60).padStart(2, '0')}s
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          style={[styles.confirmButton, styles.cancelButton]}
-                          onPress={handleCancelRideRequest}
-                          activeOpacity={0.9}
-                        >
-                          <Text style={styles.confirmButtonText}>
-                            Cancelar solicitud
-                          </Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
+                    <View style={s.offerActions}>
                       <TouchableOpacity
-                        style={styles.confirmButton}
-                        onPress={confirmTrip}
-                        activeOpacity={0.9}
+                        style={s.offerRejectBtn}
+                        onPress={() => handleRejectOffer(offer.offerId)}
+                        activeOpacity={0.7}
                       >
-                        <Text style={styles.confirmButtonText}>
-                          Solicitar viaje
-                        </Text>
+                        <Text style={s.offerRejectText}>Rechazar</Text>
                       </TouchableOpacity>
-                    )}
+                      <TouchableOpacity
+                        style={s.offerAcceptBtn}
+                        onPress={() => handleAcceptOffer(offer)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={s.offerAcceptText}>Aceptar</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                )}
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </View>
-    </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      <SlideUpMenu
+        visible={showClientMenu}
+        onClose={() => setShowClientMenu(false)}
+        user={user}
+        menuItems={[
+          {
+            icon: <Icon.User size={20} color={T.inkMid} />,
+            label: 'Mi Perfil',
+            onPress: () => navigation.navigate('Profile'),
+          },
+          {
+            icon: <Icon.History size={20} color={T.inkMid} />,
+            label: 'Mis Viajes',
+            onPress: () => navigation.navigate('RideHistory'),
+          },
+          {
+            icon: <Icon.Settings size={20} color={T.inkMid} />,
+            label: 'Ajustes',
+            onPress: () => navigation.navigate('Profile'),
+          },
+          {
+            icon: <Icon.Bell size={20} color={T.inkMid} />,
+            label: 'Notificaciones',
+            onPress: () => navigation.navigate('Profile'),
+          },
+          {
+            icon: <Icon.HelpCircle size={20} color={T.inkMid} />,
+            label: 'Ayuda',
+            onPress: () => navigation.navigate('Profile'),
+          },
+          {
+            icon: <Icon.MessageCircle size={20} color={T.inkMid} />,
+            label: 'Soporte',
+            onPress: () => navigation.navigate('Profile'),
+          },
+        ]}
+        closeButton={{
+          label: 'Modo Conductor',
+          onPress: () => navigation.navigate('Profile'),
+          backgroundColor: T.accent,
+          textColor: T.white,
+        }}
+        theme={{
+          primary: T.accent,
+          accent: T.accent,
+          text: T.ink,
+          textMuted: T.inkMid,
+          border: T.border,
+          bg: T.bg,
+          white: T.white,
+          overlay: 'rgba(0,0,0,0.4)',
+          avatarBg: T.accentSoft,
+        }}
+      />
+    </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: T.bg },
+  mapWrap: { flex: 1 },
+  map: { ...StyleSheet.absoluteFillObject }, // map fills the container
+
+  // ── FLOATING PIN ──────────────────────────────────────────────────────────
+  pinAnchor: {
+    position: 'absolute',
   },
 
-  // HEADER PREMIUM
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+  pinStack: {
+    width: 240,
+    alignItems: 'center',
+  },
+
+  pinBubble: {
+    backgroundColor: T.white,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    marginBottom: 8,
+    maxWidth: 240,
+    minWidth: 100,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  pinBubbleText: {
+    fontSize: 12,
+    color: T.ink,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  pinBody: {
+    width: PIN_BODY_SIZE,
+    height: PIN_BODY_SIZE,
+    borderRadius: PIN_BODY_SIZE / 2,
+    backgroundColor: T.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: T.accent,
+    shadowColor: T.accent,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  pinCenter: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: T.accent,
+  },
+  // Diamond tip pointing DOWN
+  pinTip: {
+    width: PIN_TIP_SIZE,
+    height: PIN_TIP_SIZE,
+    backgroundColor: T.white,
+    marginTop: -(PIN_TIP_SIZE / 2), // overlap the circle bottom by half
+    transform: [{ rotate: '45deg' }],
+    borderBottomWidth: 2.5,
+    borderRightWidth: 2.5,
+    borderColor: T.accent,
+  },
+
+  // ── MAP CONTROLS ──────────────────────────────────────────────────────────
+  topBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
-  headerContent: {
+  iconBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 22,
+    backgroundColor: T.white,
     alignItems: 'center',
-    flex: 1,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  logoContainer: {
+  locBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 57,
+    height: 57,
+    borderRadius: 32,
+    backgroundColor: T.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  searchBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: T.accent,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  logoCircle: {
+  searchIcon: { marginRight: 16 },
+  searchPlaceholder: { fontSize: 18, color: T.white, letterSpacing: 0.1 },
+
+  // ── MAP MARKERS ───────────────────────────────────────────────────────────
+  dotGray: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: T.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: T.inkLight,
+  },
+  dotGrayInner: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#A78BFA',
-    marginRight: 10,
+    backgroundColor: T.inkLight,
   },
-  logoText: {
-    fontSize: 24,
-    fontWeight: '300',
-    color: '#1A1A1A',
-    letterSpacing: 2,
-  },
-  tagline: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontWeight: '500',
-  },
-
-  // BOTÓN PRINCIPAL
-  mainActionContainer: {
-    position: 'absolute',
-    top: 160,
-    left: 24,
-    right: 24,
-    zIndex: 10,
-  },
-  mainActionButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  actionIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F3F4F6',
+  dotBlue: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: T.white,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    borderWidth: 2,
+    borderColor: T.accent,
   },
-  actionIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#A78BFA',
-  },
-  mainActionText: {
-    fontSize: 18,
-    color: '#1A1A1A',
-    fontWeight: '400',
-    letterSpacing: 0.3,
+  dotBlueInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: T.accent,
   },
 
-  // OVERLAYS
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(250, 250, 250, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  loadingBox: {
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: '#6B7280',
-    fontWeight: '400',
-    letterSpacing: 0.3,
-  },
-  searchingOverlay: {
-    position: 'absolute',
-    top: 140,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+  // ── BOTTOM PANEL ──────────────────────────────────────────────────────────
+  panel: {
+    backgroundColor: T.white,
+    paddingTop: 20,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 1002,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  searchingBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchingText: {
-    marginLeft: 10,
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-
-  // MAPA
-  mapContainer: {
-    flex: 1,
-  },
-  map: {
-    flex: 1,
-  },
-
-  // MARCADORES
-  floatingMarkerContainer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -28,
-    marginTop: -56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 999,
-  },
-  floatingMarker: {
-    alignItems: 'center',
-  },
-  markerTop: {
-    backgroundColor: '#FFFFFF',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#A78BFA',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    borderWidth: 2,
-    borderColor: '#A78BFA',
-  },
-  markerDragging: {
-    borderColor: '#8B5CF6',
-    transform: [{ scale: 1.1 }],
-  },
-  markerInner: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#A78BFA',
-  },
-  markerBottom: {
-    width: 16,
-    height: 16,
-    backgroundColor: '#FFFFFF',
-    transform: [{ rotate: '45deg' }],
-    marginTop: -8,
-    borderWidth: 2,
-    borderColor: '#A78BFA',
-  },
-  addressBubble: {
-    position: 'absolute',
-    top: -90,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    minWidth: 200,
-    maxWidth: 280,
-  },
-  addressBubbleDragging: {
-    backgroundColor: '#F9FAFB',
-  },
-  addressBubbleText: {
-    fontSize: 13,
-    color: '#374151',
-    textAlign: 'center',
-    fontWeight: '400',
-    lineHeight: 18,
-  },
-  originMarker: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  originMarkerInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#A78BFA',
-  },
-  destinationMarker: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  destinationMarkerInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#8B5CF6',
-  },
-
-  // BOTÓN CENTRAR
-  centerButton: {
-    position: 'absolute',
-    bottom: 32,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  centerButtonIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#A78BFA',
-  },
-
-  // PANEL INFERIOR
-  bottomPanel: {
-    backgroundColor: '#FFFFFF',
+    paddingBottom: 20,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 24,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 12,
   },
-
-  // DETALLES DEL VIAJE
-  tripDetails: {
-    marginTop: 8,
+  routePill: {
+    backgroundColor: T.bg,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
   },
-  tripStats: {
+  routeAddr: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  routeDot: { width: 8, height: 8, borderRadius: 4 },
+  routeAddrText: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
+  routeConnector: { paddingLeft: 3, paddingVertical: 3 },
+  routeLine: {
+    width: 1.5,
+    height: 10,
+    backgroundColor: T.border,
+    marginLeft: 3,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.bg,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
+  stat: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  statVal: { fontSize: 13, fontWeight: '600', color: T.ink },
+  statDiv: { width: 1, height: 20, backgroundColor: T.border },
+  fareRow: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  fareLabel: {
+    fontSize: 12,
+    color: T.inkLight,
+    fontWeight: '500',
+    marginBottom: -12,
+  },
+  fareControls: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
   },
-  statItem: {
+  fareBtn: {
+    width: 45,
+    height: 45,
+    borderRadius: 21,
+    backgroundColor: T.bg,
     alignItems: 'center',
-    flex: 1,
+    justifyContent: 'center',
   },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#1A1A1A',
-    marginBottom: 4,
+  fareValue: {
+    fontSize: 25,
+    fontWeight: '800',
+    color: T.accent,
+    minWidth: 120,
+    textAlign: 'center',
   },
-  statLabel: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontWeight: '500',
+  timerWrap: { gap: 10 },
+  timerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: T.warn },
+  timerLabel: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
+  timerVal: { fontSize: 15, fontWeight: '700', color: T.warn },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: T.border,
+    overflow: 'hidden',
+    marginHorizontal: 2,
   },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#E5E7EB',
-  },
-
-  // AJUSTAR TARIFA
-  fareAdjust: {
+  progressFill: { height: '100%', backgroundColor: T.accent, borderRadius: 2 },
+  cancelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: T.danger,
   },
-  fareAdjustButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F3F4F6',
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: T.danger },
+
+  // ── SELECTORS ─────────────────────────────────────────────────────────────
+  selectorsContainer: {
+    marginBottom: 16,
+    gap: 12,
+  },
+  selectorRow: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  selectorLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: T.inkMid,
+  },
+  optionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: T.bg,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  optionChipActive: {
+    backgroundColor: T.accent + '15',
+    borderColor: T.accent,
+  },
+  optionText: {
+    fontSize: 13,
+    color: T.inkMid,
+    fontWeight: '500',
+  },
+  optionTextActive: {
+    color: T.accent,
+    fontWeight: '700',
+  },
+
+  ctaRow: { flexDirection: 'row', gap: 10 },
+  ghostBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: T.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fareAdjustText: {
-    fontSize: 20,
-    color: '#6B7280',
-    fontWeight: '400',
-  },
-  fareAdjustLabel: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginHorizontal: 20,
-    fontWeight: '500',
-  },
-
-  // BOTÓN CONFIRMAR
-  confirmButton: {
-    backgroundColor: '#A78BFA',
-    borderRadius: 16,
-    paddingVertical: 18,
+  ctaBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: T.accent,
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#A78BFA',
+    justifyContent: 'center',
+    gap: 10,
+    shadowColor: T.accent,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
   },
-  confirmButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+  ctaBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: T.white,
+    letterSpacing: 0.2,
   },
-  // 🔥 TEMPORIZADOR
-  timerContainer: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FBBF24',
-  },
-  timerText: {
-    fontSize: 14,
-    color: '#92400E',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  timerValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#F59E0B',
-  },
-  // 🔥 BOTÓN CANCELAR
-  cancelButton: {
-    backgroundColor: '#EF4444',
-    shadowColor: '#EF4444',
-  },
-  // MENU SANDWICH
-  menuButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F0E6FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  menuIcon: {
-    fontSize: 24,
-    color: '#7C3AED',
-    fontWeight: '600',
-  },
-  clientMenuOverlay: {
+
+  // ── OFFERS BUBBLES ──────────────────────────────────────────────────────────
+  offersBubblesContainer: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 500,
-  },
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  clientMenuPanel: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    maxHeight: '70%',
-  },
-  clientMenuHeader: {
-    flexDirection: 'row',
+    top: 140, // Move down slightly from the top bar so it hovers cleanly over the map
+    left: 16,
+    right: 16,
     alignItems: 'center',
+    justifyContent: 'flex-start',
+    zIndex: 999,
+    pointerEvents: 'box-none',
+  },
+  offersBubbles: {
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    pointerEvents: 'box-none',
+    gap: 12,
+  },
+  offerBubble: {
+    width: '100%',
+    backgroundColor: T.white,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  offerTopBar: {
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    width: '100%',
+  },
+  offerProgressFill: {
+    height: '100%',
+    backgroundColor: T.accent,
+  },
+  offerContent: {
+    padding: 16,
+  },
+  offerHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginBottom: 16,
   },
-  clientAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F0E6FF',
-    justifyContent: 'center',
+  offerAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
-    marginRight: 12,
+    justifyContent: 'center',
+    marginRight: 14,
   },
-  avatarEmoji: {
-    fontSize: 28,
-  },
-  clientInfoContainer: {
+  offerInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
-  clientName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2D2D2D',
+  offerVehicleText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 2,
+  },
+  offerDriverName: {
+    fontSize: 13,
+    color: '#6B7280',
     marginBottom: 4,
   },
-  clientRating: {
-    fontSize: 13,
-    color: '#666',
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-    marginVertical: 12,
-  },
-  menuOption: {
+  offerRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    marginVertical: 4,
-    borderRadius: 10,
-    backgroundColor: '#FAFAFA',
+    gap: 4,
   },
-  menuOptionIcon: {
-    fontSize: 22,
-    marginRight: 12,
-  },
-  menuOptionText: {
-    flex: 1,
-    fontSize: 14,
+  offerRatingText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#2D2D2D',
+    color: '#9CA3AF',
   },
-  menuOptionArrow: {
-    fontSize: 18,
-    color: '#C0C0C0',
+  offerRightStats: {
+    alignItems: 'flex-end',
   },
-  menuCloseButton: {
+  offerPrice: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: T.accent,
+    marginBottom: 4,
+  },
+  offerStatText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  offerActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  offerRejectBtn: {
+    flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: '#F0E6FF',
-    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center',
   },
-  menuCloseText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#7C3AED',
+  offerRejectText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#EF4444',
   },
+  offerAcceptBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offerAcceptText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: T.white,
+  },
+  offersHint: {
+    fontSize: 11,
+    color: T.inkLight,
+    textAlign: 'center',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+
+  // ── MENU ──────────────────────────────────────────────────────────────────
 });
 
 export default MapScreen;

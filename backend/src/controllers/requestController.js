@@ -32,16 +32,30 @@ const registerDriver = async (req, res) => {
       vehicleType,
       vehiclePlate,
       vehicleYear,
+      vehicleColor,
+      vehiclePassengerCapacity,
+      licenseExpiryDate,
+      vehicleBrand,
+      vehicleModel,
     } = req.body;
 
     // Validate required fields
-    if (!ciNumber || !vehicleType || !vehiclePlate || !vehicleYear) {
+    if (
+      !ciNumber ||
+      !vehicleType ||
+      !vehiclePlate ||
+      !vehicleYear ||
+      !vehicleColor ||
+      !vehiclePassengerCapacity ||
+      !licenseExpiryDate
+    ) {
       return res.status(400).json({
-        error: 'Los datos del vehículo y cédula de identidad son requeridos.',
+        error:
+          'Los datos del vehículo, licencia y cédula de identidad son requeridos.',
       });
     }
 
-    const validVehicleTypes = ['sedan', 'suv', 'van', 'motorcycle'];
+    const validVehicleTypes = ['taxi', 'minibus', 'bus', 'motorcycle'];
     const normalizedVehicleType = vehicleType.toLowerCase();
     if (!validVehicleTypes.includes(normalizedVehicleType)) {
       return res.status(400).json({
@@ -62,6 +76,11 @@ const registerDriver = async (req, res) => {
         vehicleType: normalizedVehicleType,
         vehiclePlate,
         vehicleYear,
+        vehicleColor,
+        vehiclePassengerCapacity,
+        licenseExpiryDate,
+        vehicleBrand,
+        vehicleModel,
       },
     });
 
@@ -75,6 +94,8 @@ const registerDriver = async (req, res) => {
         'profilePhoto',
         'ciFront',
         'ciBack',
+        'licenseFront',
+        'licenseBack',
         'antecedentsPhoto',
         'carFront',
         'carBack',
@@ -180,9 +201,12 @@ const getRequestStatus = async (req, res) => {
 
     const documents = {};
     files.forEach(file => {
+      const BASE_URL =
+        process.env.API_BASE_URL ||
+        `http://localhost:${process.env.PORT || 3000}`;
       documents[file.fileType] = {
         filename: file.filename,
-        url: `http://192.168.100.133:3000/uploads/drivers/${file.filename}`,
+        url: `${BASE_URL}/uploads/drivers/${file.filename}`,
         status: file.status,
         uploadedAt: file.uploadedAt,
       };
@@ -240,13 +264,33 @@ const resubmitDocuments = async (req, res) => {
       });
     }
 
+    // Merge updated metadata fields if provided by the user
+    const { licenseExpiryDate, vehicleColor, vehiclePassengerCapacity } =
+      req.body;
+
+    const updatedMetadata = {
+      ...(latestRequest.metadata || {}),
+      ...(licenseExpiryDate !== undefined && licenseExpiryDate !== ''
+        ? { licenseExpiryDate }
+        : {}),
+      ...(vehicleColor !== undefined && vehicleColor !== ''
+        ? { vehicleColor }
+        : {}),
+      ...(vehiclePassengerCapacity !== undefined &&
+      vehiclePassengerCapacity !== ''
+        ? { vehiclePassengerCapacity }
+        : {}),
+    };
+
+    console.log('Updated metadata for new request version:', updatedMetadata);
+
     // Create new request version
     const newRequest = await DriverRequest.create({
       userId,
       driverId: latestRequest.driverId, // Mantener mismo driverId (null si aún no aprobado)
       version: latestRequest.version + 1,
       status: 'pending',
-      metadata: latestRequest.metadata,
+      metadata: updatedMetadata,
     });
 
     console.log(`Created new request version: ${newRequest.version}`);
@@ -273,6 +317,8 @@ const resubmitDocuments = async (req, res) => {
         'profilePhoto',
         'ciFront',
         'ciBack',
+        'licenseFront',
+        'licenseBack',
         'antecedentsPhoto',
         'carFront',
         'carBack',
@@ -364,11 +410,10 @@ const resubmitDocuments = async (req, res) => {
       }
     }
 
-    // Update request to pending status
-    await latestRequest.update({
-      status: 'pending',
-      rejectionReason: null,
-    });
+    // ⚠️ NO actualizamos latestRequest aquí.
+    // La versión rechazada (latestRequest) debe permanecer con status='rejected'
+    // en la BD para mantener el historial correcto.
+    // La nueva versión (newRequest) ya tiene status='pending' por defecto.
 
     res.json({
       message: 'Documentos reenviados correctamente',

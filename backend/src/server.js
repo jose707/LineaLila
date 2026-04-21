@@ -1,31 +1,40 @@
 // LineaLila Backend - PostgreSQL + Sequelize
-// src/server.js
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 const path = require('path');
+
+// Cargar variables de entorno PRIMERO (independiente del cwd)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 const sequelize = require('./config/database');
 
-// Importar modelos ANTES de sincronizar
-const User = require('./models/User');
-const Driver = require('./models/Driver');
-const Ride = require('./models/Ride');
-const DriverRequest = require('./models/DriverRequest');
-const RequestFile = require('./models/RequestFile');
+// Importar modelos e inicializar asociaciones (todo en uno, desde index.js)
+// models/index.js llama setupAssociations() internamente — no repetir aquí
+require('./models');
 
-// Importar y configurar asociaciones
-const setupAssociations = require('./models/associations');
-setupAssociations();
+// Inicializar Firebase Admin SDK (para push notifications)
+require('./config/firebase').getFirebaseApp();
 
-// Cargar variables de entorno
-dotenv.config();
+const { initializeSocket } = require('./socket');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware de seguridad
 app.use(helmet());
+
+// Log simple de requests para depurar conexiones desde el móvil
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - startedAt;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+  });
+  next();
+});
 
 // CORS
 app.use(
@@ -64,7 +73,13 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/requests', require('./routes/requests')); // Nuevo: manejar requests versionadas
 app.use('/api/drivers', require('./routes/drivers'));
 app.use('/api/rides', require('./routes/rides'));
+app.use('/api/ratings', require('./routes/ratings'));
+app.use('/api/vehicles', require('./routes/vehicles'));
+app.use('/api/ride-offers', require('./routes/rideOffers'));
+app.use('/api/driver-locations', require('./routes/driverLocations'));
+app.use('/api/payments', require('./routes/payments'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -84,6 +99,28 @@ app.use((req, res) => {
 
 // Manejo de errores global
 app.use((err, req, res, next) => {
+  // Errores de Multer (subida de archivos)
+  if (err && err.name === 'MulterError') {
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      console.warn(`⚠️  Multer: campo inesperado "${err.field}"`);
+      return res.status(400).json({
+        error: `Campo de archivo no permitido: "${err.field}". Verifica que los nombres de los campos coincidan con los esperados.`,
+      });
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      console.warn(
+        `⚠️  Multer: archivo demasiado grande en campo "${err.field}"`,
+      );
+      return res.status(400).json({
+        error: 'El archivo excede el tamaño máximo permitido (10 MB).',
+      });
+    }
+    console.warn('⚠️  Multer error:', err.code, err.message);
+    return res.status(400).json({
+      error: err.message || 'Error al procesar los archivos.',
+    });
+  }
+
   console.error('Error global:', err);
   res.status(err.status || 500).json({
     error: err.message || 'Error interno del servidor',
@@ -93,17 +130,19 @@ app.use((err, req, res, next) => {
 // Sincronizar base de datos y iniciar servidor
 const startServer = async () => {
   try {
-    // Sincronizar base de datos - usar alter: true para actualizar tablas
+    console.log('🔄 Sincronizando base de datos...');
+
     const syncOptions = {
-      alter: true, // Permite alterar/crear tablas sin perder datos
-      logging: console.log, // Log para debug
+      alter: false,
+      logging: false,
     };
 
-    console.log('🔄 Sincronizando base de datos...');
     await sequelize.sync(syncOptions);
     console.log('✅ Base de datos sincronizada correctamente\n');
 
-    app.listen(PORT, () => {
+    const httpServer = http.createServer(app);
+    initializeSocket(httpServer);
+    httpServer.listen(PORT, () => {
       console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
       console.log(`Entorno: ${process.env.NODE_ENV || 'development'}`);
     });

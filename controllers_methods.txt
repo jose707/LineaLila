@@ -1,0 +1,113 @@
+admin:
+  + getAllUsers
+  + getAllDrivers
+  + approveDriver
+  + rejectDriver
+  + getPendingDriverRequests
+  + getAllRides
+  + getAllPayments
+  + getAnalytics
+  + getAnalyticsExtended
+  + getRidesByDay
+  + getRevenueByDay
+  + getUserSegmentation
+  + getRideFunnel
+  + getUnitEconomics
+  + getTopRoutes
+  + createPromoCode
+  + deleteDriver
+  + deleteUser
+  + enableUser
+  + requireRuatVerification
+  + toggleSuspendDriver
+  + approveVehicleRuat
+  + rejectVehicleRuat
+
+auth:
+  + signup
+  + login
+  + getCurrentUser
+  + refreshToken
+  + googleAuth
+  + checkFirebaseUser
+  + verifyPhoneOTP
+  + buildUserResponseObject
+
+driver:
+  + registerDriver
+  + getDriverStatus
+  + resubmitDocuments
+  + updateDriverLocation
+  + submitRuat
+
+driverLocation:
+  + updateLocation
+  + getDriverLocation
+  + getNearbyDrivers
+  + getOnlineDrivers
+  + setDriverOnlineStatus
+
+payment:
+  + createPayment
+  + getPaymentByRide
+  + getPaymentById
+  + getPaymentsByPassenger
+  + updatePaymentStatus
+  + processRefund
+  + deletePayment
+
+ratings:
+  + createRating
+  + getDriverRatings
+  + getDriverAverageRating
+  + checkRatingExists
+  + getMyRating
+
+request:
+  + registerDriver
+  + getRequestStatus
+  + resubmitDocuments
+
+ride:
+  + getCancellationReasons
+  + createRide
+  + getRideById
+  + getActiveRide
+  + getRideHistory
+  + getRideRequests
+  + acceptRide
+  + arrivedRide
+  + passengerReady
+  + startRide
+  + completeRide
+  + cancelRide
+  + submitCounterOffer
+  + getCounterOffers
+  + acceptCounterOffer
+  + rejectCounterOffer
+  + getFareSettings
+
+rideOffer:
+  + createOffer
+  + getOfferById
+  + getOffersByRide
+  + getOffersByDriver
+  + updateOfferStatus
+  + rejectOffer
+  + deletePendingOffers
+
+user:
+  + getUserProfile
+  + updateUserProfile
+  + updateProfilePhoto
+  + verifyPhone
+  + updateCurrentMode
+
+vehicle:
+  + createVehicle
+  + getVehicleById
+  + getVehiclesByDriver
+  + updateVehicle
+  + deleteVehicle
+  + getAllVehicles
+

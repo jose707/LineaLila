@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,55 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
+  Dimensions,
+  Image,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  RouteProp,
+  useFocusEffect,
+  CommonActions,
+} from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../hooks/useAuth';
 import { ridesService } from '../services/rides.service';
-import { COLORS } from '../theme/colors';
+import { authService } from '../services/auth.service';
+import { ratingsService } from '../services/ratings.service';
+
+const { width } = Dimensions.get('window');
+
+const COLORS = {
+  primary: '#7514C5',
+  primaryLight: '#9B45E4',
+  primaryUltraLight: '#F3E8FF',
+  primaryMuted: '#EDE0FA',
+  black: '#0A0A0A',
+  gray900: '#1A1A1A',
+  gray600: '#6B6B6B',
+  gray400: '#A0A0A0',
+  gray200: '#E8E8E8',
+  gray100: '#F7F7F7',
+  white: '#FFFFFF',
+  gold: '#F59E0B',
+  success: '#10B981',
+};
 
 interface CompletedRide {
   rideId: string;
+  driverId: string;
+  passengerId: string;
+  driverName: string;
+  driverRating: number;
+  driverProfilePicture?: string;
+  vehicleModel?: string;
+  vehicleColor?: string;
+  licensePlate?: string;
+  passengerName: string;
+  passengerRating: number;
+  passengerProfilePicture?: string;
   otherUserName: string;
   otherUserRating: number;
   pickupLocation: string;
@@ -31,10 +70,24 @@ interface CompletedRide {
   completedAt: string;
 }
 
+const StarIcon = ({
+  filled,
+  size = 28,
+}: {
+  filled: boolean;
+  size?: number;
+}) => (
+  <Text
+    style={{ fontSize: size, color: filled ? COLORS.gold : COLORS.gray200 }}
+  >
+    ★
+  </Text>
+);
+
 const RideCompletedScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'RideCompleted'>>();
-  const { user, isDriverMode } = useAuth();
+  const { user, isDriverMode, updateUser } = useAuth();
 
   const { rideId } = route.params || { rideId: 'demo' };
 
@@ -46,51 +99,161 @@ const RideCompletedScreen = () => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
+  // 🔥 RESETEAR NAVEGACIÓN AL IR A INICIO
+  const goToHome = useCallback(() => {
+    const destination = isDriverMode ? 'DriverHome' : 'Map';
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: destination as any }],
+      }),
+    );
+  }, [isDriverMode, navigation]);
+
+  // 🔥 MANEJAR BOTÓN ATRÁS NATIVO DEL DISPOSITIVO
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        goToHome();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress,
+      );
+      return () => subscription.remove();
+    }, [goToHome]),
+  );
+
   useEffect(() => {
     loadRideDetails();
   }, []);
 
   const loadRideDetails = async () => {
     try {
-      // 🔥 TODO: Conectar con backend para obtener detalles finales del viaje
+      setIsLoading(true);
+      const rideData: any = await ridesService.getRideById(rideId);
+      if (!rideData) {
+        Alert.alert('Error', 'No se pudo cargar el viaje');
+        return;
+      }
+      const otherUser = isDriverMode
+        ? rideData.passenger
+        : rideData.driver?.User;
+      const otherUserRating = isDriverMode
+        ? rideData.passenger?.rating ?? 5
+        : rideData.driverRatingValue ?? rideData.driver?.rating ?? 5;
+
       setRide({
-        rideId: rideId || 'RIDE_001',
-        otherUserName: isDriverMode ? 'Juan Rodríguez' : 'María García',
-        otherUserRating: isDriverMode ? 4.7 : 4.9,
-        pickupLocation: 'Plaza Murillo, La Paz',
-        dropoffLocation: 'Centro Comercial Alalay, La Paz',
-        fare: 25.5,
-        distance: 3.2,
-        duration: 12,
-        totalTime: '14 min',
-        paymentMethod: 'Efectivo',
-        completedAt: new Date().toISOString(),
+        rideId: rideData.id,
+        driverId: rideData.driverId || '',
+        passengerId: rideData.passengerId || '',
+        driverName: rideData.driver?.User?.name || 'Conductor',
+        driverRating:
+          rideData.driverRatingValue ?? rideData.driver?.rating ?? 5,
+        driverProfilePicture: rideData.driver?.User?.profilePhoto,
+        vehicleModel: rideData.driver?.vehicleModel,
+        vehicleColor: rideData.driver?.vehicleColor,
+        licensePlate: rideData.driver?.vehiclePlate,
+        passengerName: rideData.passenger?.name || 'Pasajero',
+        passengerRating:
+          rideData.passengerRatingValue ?? rideData.passenger?.rating ?? 5,
+        passengerProfilePicture: rideData.passenger?.profilePhoto,
+        otherUserName: otherUser?.name || 'Usuario',
+        otherUserRating,
+        pickupLocation:
+          rideData.pickupLocation?.address || 'Ubicación de recogida',
+        dropoffLocation:
+          rideData.dropoffLocation?.address || 'Ubicación de destino',
+        fare: rideData.finalFare || rideData.totalFare || 0,
+        distance: (rideData.distance || 0) / 1000,
+        duration: Math.floor((rideData.duration || 0) / 60),
+        totalTime: `${Math.floor((rideData.duration || 0) / 60)} min`,
+        paymentMethod: rideData.paymentMethod || 'Efectivo',
+        completedAt: rideData.completedAt || new Date().toISOString(),
       });
     } catch (error) {
       console.error('Error loading ride details:', error);
+      Alert.alert('Error', 'No se pudo cargar los detalles del viaje');
     } finally {
       setIsLoading(false);
     }
   };
-
   const handleSubmitReview = async () => {
     if (selectedRating === 0) {
-      Alert.alert('Error', 'Por favor selecciona una calificación');
+      Alert.alert('', 'Por favor selecciona una calificación');
       return;
     }
-
     setIsSubmittingReview(true);
-
     try {
-      // 🔥 TODO: Conectar con backend para guardar la reseña
-      await new Promise(resolve => setTimeout(() => resolve(undefined), 1500));
+      // 🔥 NUEVO FLUJO: Usar el nuevo endpoint de ratings
+      // Si soy PASAJERO (!isDriverMode) → califico al CONDUCTOR
+      // Si soy CONDUCTOR (isDriverMode) → califico al PASAJERO
+
+      let driverId: string;
+      let passengerId: string;
+
+      if (!isDriverMode) {
+        // Pasajero: yo califico al conductor
+        driverId = ride?.driverId || '';
+        passengerId = user?.id || '';
+      } else {
+        // Conductor: yo califico al pasajero
+        // ride.driverId = drivers.id (FK correcto), NO user.id (users.id)
+        driverId = ride?.driverId || '';
+        passengerId = ride?.passengerId || '';
+      }
+
+      console.log('📤 [RideCompleted] Enviando calificación:', {
+        rideId,
+        driverId,
+        passengerId,
+        rating: selectedRating,
+        comment: reviewText,
+        isDriverMode,
+      });
+
+      await ratingsService.submitRating(
+        rideId,
+        driverId,
+        passengerId,
+        selectedRating,
+        reviewText,
+        isDriverMode ? 'driver' : 'passenger',
+      );
+
+      // Refrescar datos del usuario para obtener el nuevo rating
+      console.log('🔄 [RideCompleted] Refrescando datos del usuario...');
+      const updatedUser = await authService.fetchCurrentUser();
+      console.log('🔄 [RideCompleted] Usuario obtenido del servidor:', {
+        id: updatedUser?.id,
+        name: updatedUser?.name,
+        rating: updatedUser?.rating,
+        totalTrips: updatedUser?.totalTrips,
+      });
+
+      if (updatedUser) {
+        try {
+          console.log(
+            '🔄 [RideCompleted] Llamando updateUser con:',
+            updatedUser,
+          );
+          updateUser(updatedUser);
+          console.log('✅ [RideCompleted] Usuario actualizado en contexto');
+        } catch (updateError) {
+          console.warn(
+            '⚠️ [RideCompleted] Error actualizando contexto:',
+            updateError,
+          );
+        }
+      }
+
       setReviewSubmitted(true);
       setShowReviewModal(false);
-
-      setTimeout(() => {
-        navigation.navigate('Map' as never);
-      }, 2000);
+      setTimeout(() => goToHome(), 2000);
     } catch (error: any) {
+      console.error('❌ [RideCompleted] Error al enviar calificación:', error);
       Alert.alert('Error', error?.message || 'No se pudo enviar la reseña');
     } finally {
       setIsSubmittingReview(false);
@@ -103,23 +266,19 @@ const RideCompletedScreen = () => {
       {
         text: 'Omitir',
         onPress: () => {
-          navigation.navigate('Map' as never);
+          goToHome();
         },
         style: 'destructive',
       },
     ]);
   };
 
-  const handleRatingPress = (rating: number) => {
-    setSelectedRating(rating);
-  };
-
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
+      <SafeAreaView style={s.container}>
+        <View style={s.centered}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Finalizando viaje...</Text>
+          <Text style={s.loadingText}>Finalizando viaje…</Text>
         </View>
       </SafeAreaView>
     );
@@ -127,14 +286,11 @@ const RideCompletedScreen = () => {
 
   if (!ride) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>No se pudo cargar el viaje</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={loadRideDetails}
-          >
-            <Text style={styles.retryButtonText}>Reintentar</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.centered}>
+          <Text style={s.errorText}>No se pudo cargar el viaje</Text>
+          <TouchableOpacity style={s.retryBtn} onPress={loadRideDetails}>
+            <Text style={s.retryBtnText}>Reintentar</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -143,783 +299,747 @@ const RideCompletedScreen = () => {
 
   if (reviewSubmitted) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.successContainer}>
-          <View style={styles.successIcon}>
-            <Text style={styles.successIconText}>✓</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.centered}>
+          <View style={s.successRing}>
+            <View style={s.successCircle}>
+              <Text style={s.successCheck}>✓</Text>
+            </View>
           </View>
-          <Text style={styles.successTitle}>¡Viaje completado!</Text>
-          <Text style={styles.successSubtitle}>
-            Tu reseña fue enviada exitosamente
-          </Text>
-          <TouchableOpacity
-            style={styles.homeButton}
-            onPress={() => navigation.navigate('Map' as never)}
-          >
-            <Text style={styles.homeButtonText}>Ir a inicio</Text>
+          <Text style={s.successTitle}>¡Viaje completado!</Text>
+          <Text style={s.successSub}>Tu reseña fue enviada exitosamente</Text>
+          <TouchableOpacity style={s.primaryBtn} onPress={goToHome}>
+            <Text style={s.primaryBtnText}>Ir a inicio</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
+  const ratingLabels = [
+    '',
+    'Malo',
+    'Regular',
+    'Bueno',
+    'Muy bueno',
+    'Excelente',
+  ];
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={s.container}>
       <ScrollView
-        style={styles.content}
+        style={s.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={s.scrollContent}
       >
-        {/* CABECERA */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Viaje completado</Text>
-          <Text style={styles.headerSubtitle}>¡Gracias por tu confianza!</Text>
+        {/* HERO HEADER */}
+        <View style={s.hero}>
+          <View style={s.heroBadge}>
+            <Text style={s.heroBadgeText}>COMPLETADO</Text>
+          </View>
+          <Text style={s.heroFare}>Bs. {ride.fare}</Text>
+          <Text style={s.heroLabel}>Total pagado</Text>
         </View>
 
-        {/* INFORMACIÓN DEL VIAJE */}
-        <View style={styles.rideCard}>
-          {/* USUARIO */}
-          <View style={styles.userSection}>
-            <View style={styles.userInfo}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {isDriverMode ? '👤' : '🚗'}
-                </Text>
-              </View>
-              <View style={styles.userDetails}>
-                <Text style={styles.userName}>{ride.otherUserName}</Text>
-                <View style={styles.ratingSection}>
-                  <Text style={styles.ratingText}>
-                    ⭐ {ride.otherUserRating}
-                  </Text>
-                </View>
-              </View>
+        {/* ROUTE CARD */}
+        <View style={s.card}>
+          <View style={s.routeRow}>
+            <View style={s.routeDots}>
+              <View style={s.dotOrigin} />
+              <View style={s.routeLine} />
+              <View style={s.dotDest} />
             </View>
-          </View>
-
-          {/* UBICACIONES */}
-          <View style={styles.locationsSection}>
-            <View style={styles.locationItem}>
-              <Text style={styles.locationIcon}>📍</Text>
-              <View style={styles.locationContent}>
-                <Text style={styles.locationLabel}>Origen</Text>
-                <Text style={styles.locationAddress} numberOfLines={2}>
+            <View style={s.routeAddresses}>
+              <View style={s.routeAddress}>
+                <Text style={s.routeAddressLabel}>Origen</Text>
+                <Text style={s.routeAddressText} numberOfLines={1}>
                   {ride.pickupLocation}
                 </Text>
               </View>
-            </View>
-
-            <View style={styles.routeSeparator} />
-
-            <View style={styles.locationItem}>
-              <Text style={styles.locationIcon}>🎯</Text>
-              <View style={styles.locationContent}>
-                <Text style={styles.locationLabel}>Destino</Text>
-                <Text style={styles.locationAddress} numberOfLines={2}>
+              <View style={s.routeAddress}>
+                <Text style={s.routeAddressLabel}>Destino</Text>
+                <Text style={s.routeAddressText} numberOfLines={1}>
                   {ride.dropoffLocation}
                 </Text>
               </View>
             </View>
           </View>
 
-          {/* DETALLES DEL VIAJE */}
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Distancia</Text>
-              <Text style={styles.detailValue}>{ride.distance} km</Text>
+          <View style={s.divider} />
+
+          {/* STATS ROW */}
+          <View style={s.statsRow}>
+            <View style={s.stat}>
+              <Text style={s.statValue}>{ride.distance.toFixed(1)}</Text>
+              <Text style={s.statUnit}>km</Text>
+              <Text style={s.statLabel}>Distancia</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Tiempo</Text>
-              <Text style={styles.detailValue}>{ride.totalTime}</Text>
+            <View style={s.statSep} />
+            <View style={s.stat}>
+              <Text style={s.statValue}>{ride.duration}</Text>
+              <Text style={s.statUnit}>min</Text>
+              <Text style={s.statLabel}>Tiempo</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Pago</Text>
-              <Text style={styles.detailValue}>{ride.paymentMethod}</Text>
+            <View style={s.statSep} />
+            <View style={s.stat}>
+              <Text style={s.statValue}>
+                {ride.paymentMethod === 'Efectivo' ? '💵' : '💳'}
+              </Text>
+              <Text style={s.statUnit}> </Text>
+              <Text style={s.statLabel}>{ride.paymentMethod}</Text>
             </View>
           </View>
         </View>
 
-        {/* RESUMEN DE TARIFA */}
-        <View style={styles.fareCard}>
-          <View style={styles.fareItem}>
-            <Text style={styles.fareLabel}>Tarifa base</Text>
-            <Text style={styles.fareValue}>Bs. {ride.fare}</Text>
+        {/* OTHER USER CARD */}
+        <View style={s.card}>
+          <View style={s.userRow}>
+            <View style={s.userAvatar}>
+              {isDriverMode ? (
+                ride.passengerProfilePicture ? (
+                  <Image
+                    source={{ uri: ride.passengerProfilePicture }}
+                    style={s.userAvatarImage}
+                  />
+                ) : (
+                  <Text style={s.userAvatarEmoji}>👤</Text>
+                )
+              ) : ride.driverProfilePicture ? (
+                <Image
+                  source={{ uri: ride.driverProfilePicture }}
+                  style={s.userAvatarImage}
+                />
+              ) : (
+                <Text style={s.userAvatarEmoji}>🚗</Text>
+              )}
+            </View>
+            <View style={s.userInfo}>
+              <Text style={s.userName}>
+                {isDriverMode ? ride.passengerName : ride.driverName}
+              </Text>
+              <Text style={s.personRole}>
+                {isDriverMode ? 'Pasajero' : 'Conductor'}
+              </Text>
+              <View style={s.userRatingRow}>
+                <Text style={s.userRating}>
+                  ⭐{' '}
+                  {isDriverMode
+                    ? ride.passengerRating.toFixed(1)
+                    : ride.driverRating.toFixed(1)}
+                </Text>
+              </View>
+            </View>
           </View>
-          <View style={styles.fareItem}>
-            <Text style={styles.fareLabel}>Distancia ({ride.distance} km)</Text>
-            <Text style={styles.fareValue}>Bs. 0.00</Text>
-          </View>
-          <View style={styles.farreSeparator} />
-          <View style={styles.fareItem}>
-            <Text style={styles.fareTotalLabel}>Total pagado</Text>
-            <Text style={styles.fareTotalValue}>Bs. {ride.fare}</Text>
-          </View>
+          {!isDriverMode &&
+            (ride.vehicleModel || ride.vehicleColor || ride.licensePlate) && (
+              <View style={s.vehicleSection}>
+                {(ride.vehicleModel || ride.vehicleColor) && (
+                  <Text style={s.vehicleText}>
+                    {ride.vehicleModel} {ride.vehicleColor}
+                  </Text>
+                )}
+                {ride.licensePlate && (
+                  <View style={s.plateBadge}>
+                    <Text style={s.plateText}>
+                      {ride.licensePlate.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
         </View>
 
-        {/* INFORMACIÓN DE RESEÑA */}
-        <View style={styles.reviewPromptCard}>
-          <Text style={styles.reviewPromptTitle}>
-            ¿Cómo fue tu experiencia?
-          </Text>
-          <Text style={styles.reviewPromptSubtitle}>
-            Tu opinión nos ayuda a mejorar
-          </Text>
-
-          {/* ESTRELLAS */}
-          <View style={styles.ratingStars}>
+        {/* RATING CARD */}
+        <View style={s.card}>
+          <Text style={s.ratingTitle}>¿Cómo fue tu viaje?</Text>
+          {selectedRating > 0 && (
+            <Text style={s.ratingLabelText}>
+              {ratingLabels[selectedRating]}
+            </Text>
+          )}
+          <View style={s.starsRow}>
             {[1, 2, 3, 4, 5].map(star => (
               <TouchableOpacity
                 key={star}
-                onPress={() => handleRatingPress(star)}
-                style={styles.starButton}
+                onPress={() => setSelectedRating(star)}
+                style={s.starBtn}
               >
-                <Text
-                  style={[
-                    styles.star,
-                    selectedRating >= star && styles.starSelected,
-                  ]}
-                >
-                  ★
-                </Text>
+                <StarIcon filled={selectedRating >= star} size={36} />
               </TouchableOpacity>
             ))}
           </View>
         </View>
       </ScrollView>
 
-      {/* FOOTER CON BOTONES */}
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkipReview}>
-          <Text style={styles.skipButtonText}>Omitir</Text>
+      {/* FOOTER */}
+      <View style={s.footer}>
+        <TouchableOpacity style={s.ghostBtn} onPress={handleSkipReview}>
+          <Text style={s.ghostBtnText}>Omitir</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[
-            styles.submitButton,
-            selectedRating === 0 && styles.buttonDisabled,
+            s.primaryBtn,
+            s.footerPrimary,
+            selectedRating === 0 && s.btnDisabled,
           ]}
           onPress={() => setShowReviewModal(true)}
           disabled={selectedRating === 0}
         >
-          <Text style={styles.submitButtonText}>Enviar reseña</Text>
+          <Text style={s.primaryBtnText}>Continuar</Text>
         </TouchableOpacity>
       </View>
 
-      {/* MODAL DE RESEÑA */}
+      {/* REVIEW MODAL */}
       <Modal
         visible={showReviewModal}
         transparent
         animationType="slide"
         onRequestClose={() => setShowReviewModal(false)}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowReviewModal(false)}>
-                <Text style={styles.modalClose}>✕</Text>
+        <View style={s.modalOverlay}>
+          <View style={s.modalSheet}>
+            {/* HANDLE */}
+            <View style={s.modalHandle} />
+
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Tu reseña</Text>
+              <TouchableOpacity
+                onPress={() => setShowReviewModal(false)}
+                style={s.closeBtn}
+              >
+                <Text style={s.closeBtnText}>✕</Text>
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>Tu reseña</Text>
-              <View style={styles.modalHeaderPlaceholder} />
             </View>
 
-            <ScrollView style={styles.modalBody}>
-              {/* INFORMACIÓN DEL USUARIO */}
-              <View style={styles.modalUserSection}>
-                <View style={styles.modalAvatar}>
-                  <Text style={styles.modalAvatarText}>
-                    {isDriverMode ? '👤' : '🚗'}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={styles.modalUserName}>{ride.otherUserName}</Text>
-                  <Text style={styles.modalUserRole}>
-                    {isDriverMode ? 'Pasajero' : 'Conductor'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* RATING */}
-              <View style={styles.modalRatingSection}>
-                <Text style={styles.modalRatingLabel}>Calificación</Text>
-                <View style={styles.modalRatingStars}>
+            <ScrollView
+              style={s.modalBody}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* STARS */}
+              <View style={s.modalStarsSection}>
+                <View style={s.modalStarsRow}>
                   {[1, 2, 3, 4, 5].map(star => (
                     <TouchableOpacity
                       key={star}
-                      onPress={() => handleRatingPress(star)}
-                      style={styles.modalStarButton}
+                      onPress={() => setSelectedRating(star)}
+                      style={s.starBtn}
                     >
-                      <Text
-                        style={[
-                          styles.modalStar,
-                          selectedRating >= star && styles.modalStarSelected,
-                        ]}
-                      >
-                        ★
-                      </Text>
+                      <StarIcon filled={selectedRating >= star} size={40} />
                     </TouchableOpacity>
                   ))}
                 </View>
+                {selectedRating > 0 && (
+                  <Text style={s.modalRatingLabel}>
+                    {ratingLabels[selectedRating]}
+                  </Text>
+                )}
               </View>
 
-              {/* TEXTO DE RESEÑA */}
-              <View style={styles.modalReviewSection}>
-                <Text style={styles.modalReviewLabel}>
-                  Comenta tu experiencia (opcional)
-                </Text>
-                <TextInput
-                  style={styles.modalReviewInput}
-                  placeholder="Tu opinión es importante para nosotros..."
-                  placeholderTextColor="#999"
-                  multiline
-                  numberOfLines={4}
-                  value={reviewText}
-                  onChangeText={setReviewText}
-                  maxLength={250}
-                />
-                <Text style={styles.modalReviewCharCount}>
-                  {reviewText.length}/250
-                </Text>
-              </View>
-
-              {/* CATEGORÍAS DE RESEÑA */}
-              <View style={styles.categoriesSection}>
-                <Text style={styles.categoriesTitle}>¿Qué fue lo mejor?</Text>
-                {[
-                  { label: 'Seguridad', icon: '🔒' },
-                  { label: 'Amabilidad', icon: '😊' },
-                  { label: 'Limpieza', icon: '🧹' },
-                  { label: 'Puntualidad', icon: '⏰' },
-                ].map((category, index) => (
-                  <TouchableOpacity key={index} style={styles.categoryItem}>
-                    <Text style={styles.categoryIcon}>{category.icon}</Text>
-                    <Text style={styles.categoryLabel}>{category.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {/* TEXT INPUT */}
+              <Text style={s.sectionLabel}>Comentario</Text>
+              <TextInput
+                style={s.reviewInput}
+                placeholder="Cuéntanos más sobre tu experiencia…"
+                placeholderTextColor={COLORS.gray400}
+                multiline
+                numberOfLines={4}
+                value={reviewText}
+                onChangeText={setReviewText}
+                maxLength={250}
+              />
+              <Text style={s.charCount}>{reviewText.length}/250</Text>
             </ScrollView>
 
-            {/* MODAL FOOTER */}
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => setShowReviewModal(false)}
-              >
-                <Text style={styles.modalCancelButtonText}>Atrás</Text>
-              </TouchableOpacity>
-
+            <View style={s.modalFooter}>
               <TouchableOpacity
                 style={[
-                  styles.modalConfirmButton,
-                  isSubmittingReview && styles.buttonDisabled,
+                  s.primaryBtn,
+                  s.modalConfirmBtn,
+                  isSubmittingReview && s.btnDisabled,
                 ]}
                 onPress={handleSubmitReview}
                 disabled={isSubmittingReview}
               >
                 {isSubmittingReview ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color={COLORS.white} />
                 ) : (
-                  <Text style={styles.modalConfirmButtonText}>
-                    Enviar reseña
-                  </Text>
+                  <Text style={s.primaryBtnText}>Enviar reseña</Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  loadingContainer: {
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.gray100 },
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
+
   loadingText: {
-    fontSize: 16,
-    color: '#666',
     marginTop: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontSize: 15,
+    color: COLORS.gray600,
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   errorText: {
-    fontSize: 16,
-    color: '#F44336',
-    marginBottom: 16,
+    fontSize: 15,
+    color: '#EF4444',
+    marginBottom: 20,
+    textAlign: 'center',
   },
-  retryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+
+  retryBtn: {
+    paddingHorizontal: 28,
+    paddingVertical: 13,
     backgroundColor: COLORS.primary,
-    borderRadius: 8,
+    borderRadius: 14,
   },
-  retryButtonText: {
-    color: 'white',
+  retryBtnText: {
+    color: COLORS.white,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  successContainer: {
+
+  // SUCCESS
+  successRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: COLORS.primaryMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  successCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successCheck: { fontSize: 32, color: COLORS.white, fontWeight: '700' },
+  successTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: COLORS.black,
+    marginTop: 20,
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  successSub: {
+    fontSize: 14,
+    color: COLORS.gray600,
+    marginBottom: 36,
+    textAlign: 'center',
+  },
+
+  // SCROLL
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 110 },
+
+  // HERO
+  hero: {
+    backgroundColor: COLORS.primary,
+    paddingTop: 36,
+    paddingBottom: 44,
+    alignItems: 'center',
+  },
+  heroBadge: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 18,
+  },
+  heroBadgeText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  heroFare: {
+    fontSize: 52,
+    fontWeight: '800',
+    color: COLORS.white,
+    letterSpacing: -1,
+  },
+  heroLabel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+
+  // CARD
+  card: {
+    backgroundColor: COLORS.white,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: COLORS.black,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+
+  // ROUTE
+  routeRow: { flexDirection: 'row', alignItems: 'stretch' },
+  routeDots: { alignItems: 'center', marginRight: 14, paddingVertical: 4 },
+  dotOrigin: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+  },
+  routeLine: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+    width: 2,
+    backgroundColor: COLORS.gray200,
+    marginVertical: 4,
+    minHeight: 24,
   },
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#E8F5E9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
+  dotDest: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: COLORS.black,
   },
-  successIconText: {
-    fontSize: 40,
+  routeAddresses: { flex: 1, justifyContent: 'space-between' },
+  routeAddress: { paddingVertical: 4 },
+  routeAddressLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.gray400,
+    letterSpacing: 1,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  routeAddressText: { fontSize: 14, color: COLORS.black, fontWeight: '600' },
+
+  divider: { height: 1, backgroundColor: COLORS.gray200, marginVertical: 18 },
+
+  // STATS
+  statsRow: { flexDirection: 'row', alignItems: 'center' },
+  stat: { flex: 1, alignItems: 'center' },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.black,
+    letterSpacing: -0.5,
+  },
+  statUnit: {
+    fontSize: 12,
     color: COLORS.primary,
     fontWeight: '700',
+    marginTop: -2,
   },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
-    textAlign: 'center',
+  statLabel: {
+    fontSize: 11,
+    color: COLORS.gray400,
+    marginTop: 4,
+    fontWeight: '500',
   },
-  successSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 32,
-    textAlign: 'center',
-  },
-  homeButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    backgroundColor: COLORS.primary,
-    borderRadius: 8,
-  },
-  homeButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    backgroundColor: 'white',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-  },
-  rideCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 16,
-  },
-  userSection: {
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#E8F5E9',
+  statSep: { width: 1, height: 36, backgroundColor: COLORS.gray200 },
+
+  // PERSON
+  personRow: { flexDirection: 'row', alignItems: 'center' },
+  personAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: COLORS.primaryUltraLight,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
-  avatarText: {
-    fontSize: 28,
+  personAvatarEmoji: { fontSize: 26 },
+  personInfo: { flex: 1 },
+  personName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 3,
   },
-  userDetails: {
+  personRole: { fontSize: 12, color: COLORS.gray400, fontWeight: '500' },
+  personRating: {
+    backgroundColor: COLORS.primaryUltraLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  personRatingValue: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+
+  // USER CARDS
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 14,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.primaryUltraLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  userAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
+  },
+  userAvatarEmoji: {
+    fontSize: 24,
+  },
+  userInfo: {
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#000',
+    color: COLORS.black,
     marginBottom: 4,
   },
-  ratingSection: {
-    alignSelf: 'flex-start',
-  },
-  ratingText: {
-    fontSize: 13,
-    color: '#F59E0B',
-    fontWeight: '600',
-  },
-  locationsSection: {
-    backgroundColor: '#F9F9F9',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  locationItem: {
+  userRatingRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginVertical: 6,
-  },
-  locationIcon: {
-    fontSize: 18,
-    marginRight: 10,
-    marginTop: 2,
-  },
-  locationContent: {
-    flex: 1,
-  },
-  locationLabel: {
-    fontSize: 11,
-    color: '#999',
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  locationAddress: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
-  },
-  routeSeparator: {
-    height: 8,
-    marginVertical: 4,
-    borderLeftWidth: 2,
-    borderLeftColor: COLORS.primary,
-    marginLeft: 8,
-  },
-  detailsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#F0F4FF',
-    borderRadius: 8,
-    paddingVertical: 10,
-  },
-  detailItem: {
     alignItems: 'center',
   },
-  detailLabel: {
-    fontSize: 11,
-    color: '#666',
-    marginBottom: 4,
+  userRating: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.gray600,
   },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  fareCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
+  vehicleSection: {
     marginTop: 12,
-    borderRadius: 12,
-    padding: 16,
-  },
-  fareItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray200,
     alignItems: 'center',
+  },
+  vehicleText: {
+    fontSize: 13,
+    color: COLORS.gray600,
+    fontWeight: '500',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  plateBadge: {
+    backgroundColor: COLORS.black,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignSelf: 'center',
+  },
+  plateText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.white,
+    letterSpacing: 1,
+  },
+
+  // RATING
+  ratingTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: COLORS.black,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  ratingLabelText: {
+    fontSize: 13,
+    color: COLORS.primary,
+    fontWeight: '600',
+    textAlign: 'center',
     marginBottom: 10,
   },
-  fareLabel: {
-    fontSize: 13,
-    color: '#666',
-  },
-  fareValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#000',
-  },
-  farreSeparator: {
-    height: 1,
-    backgroundColor: '#EEE',
-    marginVertical: 10,
-  },
-  fareTotalLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-  },
-  fareTotalValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  reviewPromptCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
-    marginTop: 12,
-    borderRadius: 12,
-    padding: 16,
-  },
-  reviewPromptTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  reviewPromptSubtitle: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  ratingStars: {
+  starsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: 4,
+    marginTop: 4,
   },
-  starButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  star: {
-    fontSize: 32,
-    color: '#DDD',
-  },
-  starSelected: {
-    color: '#FDB022',
-  },
+  starBtn: { padding: 6 },
+
+  // FOOTER
   footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    paddingBottom: 20,
-    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingBottom: 28,
+    backgroundColor: COLORS.white,
     borderTopWidth: 1,
-    borderTopColor: '#EEE',
+    borderTopColor: COLORS.gray200,
     gap: 10,
   },
-  skipButton: {
+  ghostBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#DDD',
+    paddingVertical: 15,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.gray200,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  skipButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  submitButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
+  ghostBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.gray600 },
+  primaryBtn: {
     backgroundColor: COLORS.primary,
+    paddingVertical: 15,
+    paddingHorizontal: 28,
+    borderRadius: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  submitButtonText: {
+  primaryBtnText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: 'white',
+    fontWeight: '800',
+    color: COLORS.white,
+    letterSpacing: 0.3,
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  // MODAL STYLES
-  modalContainer: {
+  footerPrimary: { flex: 1 },
+  btnDisabled: { opacity: 0.35 },
+
+  // MODAL
+  modalOverlay: {
     flex: 1,
-    backgroundColor: 'white',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  modalContent: {
-    flex: 1,
+  modalSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 34,
+    maxHeight: '90%',
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.gray200,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  modalClose: {
-    fontSize: 24,
-    color: '#666',
+    borderBottomColor: COLORS.gray200,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
+    fontWeight: '800',
+    color: COLORS.black,
+    letterSpacing: -0.3,
   },
-  modalHeaderPlaceholder: {
-    width: 24,
-  },
-  modalBody: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  modalUserSection: {
-    flexDirection: 'row',
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.gray100,
     alignItems: 'center',
-    marginBottom: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  modalAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#E8F5E9',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
   },
-  modalAvatarText: {
-    fontSize: 28,
-  },
-  modalUserName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 2,
-  },
-  modalUserRole: {
-    fontSize: 12,
-    color: '#666',
-  },
-  modalRatingSection: {
-    marginBottom: 24,
-  },
+  closeBtnText: { fontSize: 14, color: COLORS.gray600, fontWeight: '700' },
+
+  modalBody: { paddingHorizontal: 20, paddingTop: 20 },
+
+  modalStarsSection: { alignItems: 'center', marginBottom: 28 },
+  modalStarsRow: { flexDirection: 'row', gap: 4 },
   modalRatingLabel: {
+    marginTop: 8,
     fontSize: 14,
     fontWeight: '700',
-    color: '#000',
+    color: COLORS.primary,
+  },
+
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.gray400,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     marginBottom: 12,
   },
-  modalRatingStars: {
+
+  categoriesWrap: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  modalStarButton: {
-    paddingHorizontal: 6,
-    paddingVertical: 6,
-  },
-  modalStar: {
-    fontSize: 36,
-    color: '#DDD',
-  },
-  modalStarSelected: {
-    color: '#FDB022',
-  },
-  modalReviewSection: {
+    flexWrap: 'wrap',
+    gap: 8,
     marginBottom: 24,
   },
-  modalReviewLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
+  catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 50,
+    borderWidth: 1.5,
+    borderColor: COLORS.gray200,
+    backgroundColor: COLORS.white,
   },
-  modalReviewInput: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#000',
+  catChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryUltraLight,
+  },
+  catIcon: { fontSize: 15, marginRight: 6 },
+  catLabel: { fontSize: 13, fontWeight: '600', color: COLORS.gray600 },
+  catLabelActive: { color: COLORS.primary },
+
+  reviewInput: {
+    borderWidth: 1.5,
+    borderColor: COLORS.gray200,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: COLORS.black,
     textAlignVertical: 'top',
-    marginBottom: 6,
+    minHeight: 100,
+    backgroundColor: COLORS.gray100,
   },
-  modalReviewCharCount: {
+  charCount: {
     fontSize: 11,
-    color: '#999',
+    color: COLORS.gray400,
     textAlign: 'right',
+    marginTop: 6,
+    marginBottom: 20,
   },
-  categoriesSection: {
-    marginBottom: 24,
-  },
-  categoriesTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 12,
-  },
-  categoryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F5',
-  },
-  categoryIcon: {
-    fontSize: 18,
-    marginRight: 10,
-  },
-  categoryLabel: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
-  },
+
   modalFooter: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: '#EEE',
-    gap: 10,
+    borderTopColor: COLORS.gray200,
   },
-  modalCancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#DDD',
-    alignItems: 'center',
-  },
-  modalCancelButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  modalConfirmButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-  },
-  modalConfirmButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-  },
+  modalConfirmBtn: { width: '100%' },
 });
 
 export default RideCompletedScreen;

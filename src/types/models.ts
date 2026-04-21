@@ -37,13 +37,16 @@ export interface User {
   name: string;
   email: string;
   phone: string;
+  isVerified?: boolean;
   role: UserRole;
   roles?: UserRole[];
-  profileImage?: string;
-  profilePicture?: string;
-  photoURL?: string;
+  profilePhoto?: string;
   rating: number;
-  totalRides: number;
+  driverRating?: number;
+  totalRides?: number;
+  totalTrips?: number;
+  totalTripsAsDriver?: number;
+  currentMode?: 'passenger' | 'driver';
   createdAt: string;
   updatedAt: string;
   licenseNumber?: string;
@@ -106,6 +109,8 @@ export interface Ride {
   distance: number; // en km
   duration: number; // en minutos
   scheduledTime?: string;
+  requestedAt?: string;
+  expiresAt?: string;
   startTime?: string;
   endTime?: string;
   notes?: string;

@@ -18,9 +18,13 @@ const syncDatabase = async () => {
   try {
     console.log('🔄 Sincronizando BD con los modelos...');
 
-    // Sincronizar con alter: true para actualizar tablas existentes
+    // ⚠️  ADVERTENCIA: sync({ alter: true }) puede generar constraints UNIQUE
+    //     duplicadas si se ejecuta más de una vez (bug conocido de Sequelize).
+    //     Los modelos ahora usan nombres explícitos de constraint para mitigar
+    //     esto, pero la práctica recomendada es usar SOLO migraciones para
+    //     cambios de esquema en producción y NO correr este script.
     await sequelize.sync({
-      alter: true, // Permite modificar tablas sin perder datos
+      alter: true,
       logging: console.log,
     });
 

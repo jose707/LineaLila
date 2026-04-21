@@ -1,8 +1,5 @@
 import api from './api.client';
 
-// API configuration
-const API_BASE_URL = 'http://192.168.100.133:3000/api';
-
 interface User {
   id: string;
   name: string;
@@ -23,6 +20,10 @@ interface DriverApplication {
   vehicleType: string;
   vehiclePlate: string;
   vehicleYear: number;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  vehicleColor?: string;
+  vehiclePassengerCapacity?: number;
   documentsVerified: boolean;
   backgroundCheckPassed: boolean;
   backgroundCheckDate: string;
@@ -32,6 +33,7 @@ interface DriverApplication {
   rejectionReason?: string;
   verificationNotes: string;
   userId: string;
+  driverRecordId?: string;
   user?: {
     id: string;
     name: string;
@@ -53,6 +55,21 @@ interface DriverApplication {
     >;
     createdAt: string;
     updatedAt: string;
+  };
+  vehicle?: {
+    id: string;
+    /** Archivo RUAT. != null && !ruatVerified → en revisión. != null && ruatVerified → aprobado */
+    ruatFile?: string;
+    ruatFileUrl?: string;
+    ruatVerified: boolean;
+    ruatVerifiedAt?: string;
+    ruatRequired: boolean;
+    ruatRequiredReason?:
+      | 'accident'
+      | 'vehicle_mismatch'
+      | 'suspension_reactivation'
+      | 'criminal_record';
+    ruatRequiredAt?: string;
   };
   approvedDocuments?: Record<string, boolean>;
   documentStatus?: Record<string, 'pending' | 'approved'>;
@@ -153,10 +170,16 @@ export const getAllDrivers = async (
       email: request.User?.email || '',
       phone: request.User?.phone || '',
       licenseNumber: request.metadata?.ciNumber || '',
-      licenseExpiryDate: '',
+      licenseExpiryDate: request.metadata?.licenseExpiryDate || '',
       vehicleType: request.metadata?.vehicleType || '',
       vehiclePlate: request.metadata?.vehiclePlate || '',
       vehicleYear: request.metadata?.vehicleYear || 0,
+      vehicleBrand: request.metadata?.vehicleBrand || '',
+      vehicleModel: request.metadata?.vehicleModel || '',
+      vehicleColor: request.metadata?.vehicleColor || '',
+      vehiclePassengerCapacity: request.metadata?.vehiclePassengerCapacity
+        ? Number(request.metadata.vehiclePassengerCapacity)
+        : 0,
       documentsVerified:
         !!request.files && Object.keys(request.files).length > 0,
       backgroundCheckPassed: false,
@@ -167,6 +190,7 @@ export const getAllDrivers = async (
       rejectionReason: request.rejectionReason || '',
       verificationNotes: '',
       userId: request.userId,
+      driverRecordId: request.driver?.id || null,
       user: request.User,
       currentRequest: {
         id: request.id,
@@ -177,6 +201,7 @@ export const getAllDrivers = async (
         createdAt: request.createdAt,
         updatedAt: request.updatedAt,
       },
+      vehicle: request.vehicle || null,
       documents: {},
       approvedDocuments: {},
       documentStatus: {},
@@ -336,6 +361,69 @@ export const getMyDriverStatus = async (): Promise<{
   }
 };
 
+export const requireRuatVerification = async (
+  driverId: string,
+  reason:
+    | 'accident'
+    | 'vehicle_mismatch'
+    | 'suspension_reactivation'
+    | 'criminal_record',
+  suspend: boolean,
+): Promise<any> => {
+  try {
+    const response = await api.post(`/admin/drivers/${driverId}/require-ruat`, {
+      reason,
+      suspend,
+    });
+    return response;
+  } catch (error: any) {
+    throw new Error(error?.data?.error || 'Error al requerir RUAT');
+  }
+};
+
+export const approveVehicleRuat = async (vehicleId: string): Promise<any> => {
+  try {
+    const response = await api.post(
+      `/admin/vehicles/${vehicleId}/approve-ruat`,
+      {},
+    );
+    return response;
+  } catch (error: any) {
+    throw new Error(error?.data?.error || 'Error al aprobar RUAT');
+  }
+};
+
+export const rejectVehicleRuat = async (
+  vehicleId: string,
+  reason: string,
+): Promise<any> => {
+  try {
+    const response = await api.post(
+      `/admin/vehicles/${vehicleId}/reject-ruat`,
+      { reason },
+    );
+    return response;
+  } catch (error: any) {
+    throw new Error(error?.data?.error || 'Error al rechazar RUAT');
+  }
+};
+
+export const toggleSuspendDriver = async (
+  driverId: string,
+  suspend: boolean,
+): Promise<any> => {
+  try {
+    const response = await api.put(`/admin/drivers/${driverId}/suspend`, {
+      suspend,
+    });
+    return response;
+  } catch (error: any) {
+    throw new Error(
+      error?.data?.error || 'Error al cambiar estado del conductor',
+    );
+  }
+};
+
 export default {
   getPendingDriverRequests,
   getAllDrivers,
@@ -344,4 +432,8 @@ export default {
   rejectDriver,
   getMyDriverStatus,
   getMyRequestStatus,
+  requireRuatVerification,
+  approveVehicleRuat,
+  rejectVehicleRuat,
+  toggleSuspendDriver,
 };

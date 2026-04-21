@@ -13,12 +13,15 @@ const RequestFile = sequelize.define(
       type: DataTypes.UUID,
       allowNull: false,
       // Referencias foráneas se definen en associations.js
+      field: 'request_id',
     },
     fileType: {
       type: DataTypes.ENUM(
         'profilePhoto',
         'ciFront',
         'ciBack',
+        'licenseFront',
+        'licenseBack',
         'antecedentsPhoto',
         'carFront',
         'carBack',
@@ -28,6 +31,7 @@ const RequestFile = sequelize.define(
         'ruatPhoto',
       ),
       allowNull: false,
+      field: 'file_type',
     },
     filename: {
       type: DataTypes.STRING,
@@ -36,14 +40,17 @@ const RequestFile = sequelize.define(
     fileSize: {
       type: DataTypes.INTEGER,
       allowNull: true,
+      field: 'file_size',
     },
     mimeType: {
       type: DataTypes.STRING,
       allowNull: true,
+      field: 'mime_type',
     },
     uploadedAt: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
+      field: 'uploaded_at',
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'rejected'),
@@ -57,7 +64,7 @@ const RequestFile = sequelize.define(
     indexes: [
       {
         unique: true,
-        fields: ['requestId', 'fileType'],
+        fields: ['request_id', 'file_type'],
         name: 'unique_request_file_type',
       },
     ],

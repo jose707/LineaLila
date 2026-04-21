@@ -1,3 +1,4 @@
+// src/screens/AdminDriverRegistrationScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -13,18 +14,57 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Check,
+  X,
+  Clock,
+  Car,
+  FileText,
+  User,
+  AlertCircle,
+  RefreshCw,
+} from 'lucide-react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import * as AdminService from '../services/admin.service';
+import { API_HOST } from '../config/constants';
+import { vehicleTypeLabel } from '../utils/vehicleTypes';
 
-type AdminDriverRegistrationScreenNavigationProp = NativeStackNavigationProp<
+// ─── Tokens ───────────────────────────────────────────────────────────────────
+const C = {
+  primary: '#7514C5',
+  primaryLight: '#F3E8FF',
+  primaryBorder: '#E9D5FF',
+  bg: '#FFFFFF',
+  surface: '#FAFAFA',
+  surfaceHigh: '#F3F3F3',
+  border: '#EBEBEB',
+  text: '#0D0D0D',
+  textSub: '#555555',
+  textMuted: '#ADADAD',
+  success: '#16A34A',
+  successLight: '#DCFCE7',
+  successBorder: '#BBF7D0',
+  warning: '#D97706',
+  warningLight: '#FEF3C7',
+  warningBorder: '#FDE68A',
+  error: '#DC2626',
+  errorLight: '#FEE2E2',
+  errorBorder: '#FECACA',
+  white: '#FFFFFF',
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type NavProp = NativeStackNavigationProp<
   RootStackParamList,
   'AdminDriverRegistration'
 >;
-
-interface AdminDriverRegistrationScreenProps {
-  navigation: AdminDriverRegistrationScreenNavigationProp;
+interface Props {
+  navigation: NavProp;
 }
 
 interface DriverApplication {
@@ -37,6 +77,10 @@ interface DriverApplication {
   vehicleType: string;
   vehiclePlate: string;
   vehicleYear: number;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  vehicleColor?: string;
+  vehiclePassengerCapacity?: number;
   documentsVerified: boolean;
   backgroundCheckPassed: boolean;
   backgroundCheckDate: string;
@@ -46,7 +90,6 @@ interface DriverApplication {
   rejectionReason?: string;
   verificationNotes: string;
   photo?: string;
-  // Nueva estructura con requests versionadas
   currentRequest?: {
     id: string;
     version: number;
@@ -54,71 +97,292 @@ interface DriverApplication {
     rejectionReason?: string;
     files: Record<
       string,
-      {
-        filename: string;
-        url?: string;
-        status: string;
-        uploadedAt: string;
-      }
+      { filename: string; url?: string; status: string; uploadedAt: string }
     >;
     createdAt: string;
     updatedAt: string;
   };
-  // Campos legacy para compatibilidad
   approvedDocuments?: Record<string, boolean>;
   documentStatus?: Record<string, 'pending' | 'approved'>;
-  documents?: {
-    profilePhoto?: string;
-    ciFront?: string;
-    ciBack?: string;
-    antecedentsPhoto?: string;
-    carFront?: string;
-    carBack?: string;
-    carLeft?: string;
-    carRight?: string;
-    soatPhoto?: string;
-    ruatPhoto?: string;
-  };
+  documents?: Record<string, string | undefined>;
 }
 
-const AdminDriverRegistrationScreen: React.FC<
-  AdminDriverRegistrationScreenProps
-> = ({ navigation }) => {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const statusMeta = (status: string) => {
+  switch (status) {
+    case 'approved':
+      return {
+        color: C.success,
+        bg: C.successLight,
+        border: C.successBorder,
+        label: 'Aprobado',
+      };
+    case 'rejected':
+      return {
+        color: C.error,
+        bg: C.errorLight,
+        border: C.errorBorder,
+        label: 'Rechazado',
+      };
+    default:
+      return {
+        color: C.warning,
+        bg: C.warningLight,
+        border: C.warningBorder,
+        label: 'Pendiente',
+      };
+  }
+};
+
+const docKeys: Array<{ key: string; label: string; optional?: boolean }> = [
+  { key: 'profilePhoto', label: 'Foto perfil' },
+  { key: 'ciFront', label: 'CI frente' },
+  { key: 'ciBack', label: 'CI dorso' },
+  { key: 'licenseFront', label: 'Licencia frente' },
+  { key: 'licenseBack', label: 'Licencia dorso' },
+  { key: 'antecedentsPhoto', label: 'Antecedentes' },
+  { key: 'carFront', label: 'Auto frente' },
+  { key: 'carBack', label: 'Auto dorso' },
+  { key: 'carLeft', label: 'Auto izq.' },
+  { key: 'carRight', label: 'Auto der.' },
+  { key: 'soatPhoto', label: 'SOAT' },
+  { key: 'ruatPhoto', label: 'RUAT', optional: true },
+];
+
+// ─── StatusBadge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status, small }: { status: string; small?: boolean }) {
+  const m = statusMeta(status);
+  const Icon =
+    status === 'approved' ? Check : status === 'rejected' ? X : Clock;
+  return (
+    <View
+      style={[
+        sb.wrap,
+        { backgroundColor: m.bg, borderColor: m.border },
+        small && sb.small,
+      ]}
+    >
+      <Icon size={small ? 10 : 12} color={m.color} strokeWidth={2.5} />
+      <Text style={[sb.txt, { color: m.color }, small && sb.txtSmall]}>
+        {m.label}
+      </Text>
+    </View>
+  );
+}
+const sb = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  small: { paddingHorizontal: 8, paddingVertical: 3 },
+  txt: { fontSize: 12, fontWeight: '700' },
+  txtSmall: { fontSize: 10 },
+});
+
+// ─── InitialsAvatar ───────────────────────────────────────────────────────────
+function InitialsAvatar({ name, size = 44 }: { name: string; size?: number }) {
+  const initials = name
+    .split(' ')
+    .slice(0, 2)
+    .map(w => w[0])
+    .join('')
+    .toUpperCase();
+  return (
+    <View
+      style={[ia.wrap, { width: size, height: size, borderRadius: size / 2 }]}
+    >
+      <Text style={[ia.txt, { fontSize: size * 0.35 }]}>{initials}</Text>
+    </View>
+  );
+}
+const ia = StyleSheet.create({
+  wrap: {
+    backgroundColor: C.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.primaryBorder,
+  },
+  txt: { color: C.primary, fontWeight: '800', letterSpacing: -0.5 },
+});
+
+// ─── SectionLabel ─────────────────────────────────────────────────────────────
+function SectionLabel({ text }: { text: string }) {
+  return (
+    <Text
+      style={{
+        fontSize: 10,
+        fontWeight: '700',
+        color: C.textMuted,
+        letterSpacing: 1.2,
+        marginBottom: 10,
+      }}
+    >
+      {text}
+    </Text>
+  );
+}
+
+// ─── DetailRow ────────────────────────────────────────────────────────────────
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={dr.row}>
+      <Text style={dr.label}>{label}</Text>
+      <Text style={dr.value}>{value || '—'}</Text>
+    </View>
+  );
+}
+const dr = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  label: { fontSize: 12, color: C.textMuted, fontWeight: '600' },
+  value: {
+    fontSize: 13,
+    color: C.text,
+    fontWeight: '700',
+    maxWidth: '60%',
+    textAlign: 'right',
+  },
+});
+
+// ─── DocButton ────────────────────────────────────────────────────────────────
+function DocButton({
+  label,
+  docKey,
+  app,
+  docStatus,
+  locked,
+  optional,
+  onPress,
+}: {
+  label: string;
+  docKey: string;
+  app: DriverApplication;
+  docStatus: Record<string, 'pending' | 'approved' | 'rejected'>;
+  locked: boolean;
+  optional?: boolean;
+  onPress: (url: string, key: string) => void;
+}) {
+  const fileData = app.currentRequest?.files?.[docKey] as any;
+  const exists = !!fileData;
+  const url = exists
+    ? fileData.url || `${API_HOST}/uploads/drivers/${fileData.filename}`
+    : '';
+  const status = docStatus[docKey] || 'pending';
+  const m = statusMeta(status);
+
+  // Badge visual para el estado del documento
+  const badgeBg = !exists ? (optional ? '#F3F4F6' : C.surface) : m.bg;
+  const badgeColor = !exists ? (optional ? C.textMuted : C.textMuted) : m.color;
+  const badgeLabel = !exists
+    ? optional
+      ? 'Opcional'
+      : 'Sin enviar'
+    : status === 'approved'
+    ? locked
+      ? '✓ Pre-aprobado'
+      : 'Aprobado'
+    : status === 'rejected'
+    ? 'Rechazado'
+    : 'Pendiente';
+
+  return (
+    <TouchableOpacity
+      style={[
+        db.btn,
+        exists
+          ? { borderColor: m.border }
+          : optional
+          ? db.btnOptional
+          : db.btnMissing,
+        locked && db.btnLocked,
+      ]}
+      onPress={() => exists && onPress(url, docKey)}
+      disabled={!exists}
+      activeOpacity={0.7}
+    >
+      <FileText
+        size={16}
+        color={exists ? m.color : optional ? C.textMuted : C.textMuted}
+        strokeWidth={1.8}
+      />
+      <View style={{ flex: 1 }}>
+        <Text style={[db.label, { color: exists ? C.text : C.textMuted }]}>
+          {label}
+        </Text>
+        {optional && <Text style={db.optionalHint}>Documento opcional</Text>}
+      </View>
+      <View style={[db.badge, { backgroundColor: badgeBg }]}>
+        <Text style={[db.badgeTxt, { color: badgeColor }]}>{badgeLabel}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+const db = StyleSheet.create({
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.white,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  btnMissing: { borderColor: C.border, backgroundColor: C.surface },
+  btnOptional: {
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    borderStyle: 'dashed' as const,
+  },
+  btnLocked: { opacity: 0.75 },
+  label: { fontSize: 13, fontWeight: '600' as const },
+  optionalHint: { fontSize: 10, color: C.textMuted, marginTop: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  badgeTxt: { fontSize: 10, fontWeight: '700' as const },
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<
     'all' | 'pending' | 'approved' | 'rejected'
   >('all');
-  const [selectedApplication, setSelectedApplication] =
-    useState<DriverApplication | null>(null);
+  const [selectedApp, setSelectedApp] = useState<DriverApplication | null>(
+    null,
+  );
   const [modalVisible, setModalVisible] = useState(false);
-  const [rejectionModalVisible, setRejectionModalVisible] = useState(false);
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDocumentImage, setSelectedDocumentImage] = useState<
-    string | null
-  >(null);
-  const [documentImageModalVisible, setDocumentImageModalVisible] =
-    useState(false);
-  const [currentDocumentKey, setCurrentDocumentKey] = useState<string | null>(
-    null,
-  );
-  const [documentApprovalStatus, setDocumentApprovalStatus] = useState<
+  const [docImageUrl, setDocImageUrl] = useState<string | null>(null);
+  const [docImageModal, setDocImageModal] = useState(false);
+  const [currentDocKey, setCurrentDocKey] = useState<string | null>(null);
+  const [docStatus, setDocStatus] = useState<
     Record<string, 'pending' | 'approved' | 'rejected'>
   >({});
-
+  const [lockedDocs, setLockedDocs] = useState<Set<string>>(new Set());
   const [applications, setApplications] = useState<DriverApplication[]>([]);
 
-  // Load driver applications on component mount and when filter changes
   useEffect(() => {
     loadDriverApplications();
   }, []);
-
-  // Recargar conductores cuando la pantalla recibe foco
   useFocusEffect(
     React.useCallback(() => {
-      console.log('AdminDriverRegistrationScreen focused, reloading drivers');
       loadDriverApplications();
     }, []),
   );
@@ -127,995 +391,801 @@ const AdminDriverRegistrationScreen: React.FC<
     setIsLoading(true);
     setError(null);
     try {
-      const response = await AdminService.getAllDrivers(50, 0);
-      console.log('Response from getAllDrivers:', response);
-      if (response && response.data && response.data.length > 0) {
-        const applicationsData = response.data as DriverApplication[];
-        setApplications(applicationsData);
-        // Si hay un application seleccionado, actualizar sus datos del nuevo array
-        if (selectedApplication) {
-          const updated = applicationsData.find(
-            app => app.id === selectedApplication.id,
-          );
-          if (updated) {
-            console.log('Updating selectedApplication with fresh data');
-            setSelectedApplication(updated);
-          }
+      const res = await AdminService.getAllDrivers(50, 0);
+      if (res?.data?.length > 0) {
+        const data = res.data as DriverApplication[];
+        setApplications(data);
+        if (selectedApp) {
+          const updated = data.find(a => a.id === selectedApp.id);
+          if (updated) setSelectedApp(updated);
         }
       } else {
         setApplications([]);
       }
-    } catch (err: any) {
-      console.error('Error loading drivers:', err);
+    } catch {
       setError('Error al cargar los conductores');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const filteredApplications = applications.filter(app => {
-    const matchesSearch =
-      app.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      app.email.toLowerCase().includes(searchText.toLowerCase()) ||
-      app.licenseNumber.toLowerCase().includes(searchText.toLowerCase());
-    const matchesStatus =
+  const filtered = applications.filter(app => {
+    const q = searchText.toLowerCase();
+    const matchSearch =
+      app.name.toLowerCase().includes(q) ||
+      app.email.toLowerCase().includes(q) ||
+      app.licenseNumber.toLowerCase().includes(q);
+    const matchStatus =
       selectedStatus === 'all' || app.status === selectedStatus;
-    return matchesSearch && matchesStatus;
+    return matchSearch && matchStatus;
   });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return '#10B981';
-      case 'pending':
-        return '#F59E0B';
-      case 'rejected':
-        return '#EF4444';
-      default:
-        return '#6B7280';
-    }
+  const counts = {
+    pending: applications.filter(a => a.status === 'pending').length,
+    approved: applications.filter(a => a.status === 'approved').length,
+    rejected: applications.filter(a => a.status === 'rejected').length,
   };
 
-  const getStatusBgColor = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return '#ECFDF5';
-      case 'pending':
-        return '#FFFBEB';
-      case 'rejected':
-        return '#FEF2F2';
-      default:
-        return '#F3F4F6';
-    }
-  };
-
-  const renderDocumentButton = (
-    docPath: string | undefined,
-    docLabel: string,
-    docKey: string,
-  ) => {
-    const status = documentApprovalStatus[docKey] || 'pending';
-    const statusColor =
-      status === 'approved'
-        ? '#10B981'
-        : status === 'rejected'
-        ? '#EF4444'
-        : '#F59E0B';
-
-    // Verificar si el archivo existe en la solicitud actual
-    const fileExists = selectedApplication?.currentRequest?.files?.[docKey];
-
-    // Usar la URL del archivo desde el backend
-    let imageUrl = '';
-    if (fileExists && selectedApplication?.currentRequest?.files) {
-      const file = selectedApplication.currentRequest.files[docKey] as any;
-      console.log(`File data for ${docKey}:`, file);
-      // El backend ahora proporciona la URL completa
-      imageUrl =
-        file.url ||
-        `http://192.168.100.133:3000/uploads/drivers/${file.filename}`;
-      console.log(`Final URL for ${docKey}:`, imageUrl);
-    } else if (docPath) {
-      imageUrl = docPath;
-    }
-
-    // Detectar si es una resubmisión
-    const isResubmission =
-      selectedApplication?.currentRequest?.version &&
-      selectedApplication.currentRequest.version > 1;
-    const isApprovedBefore =
-      isResubmission && status === 'approved' && fileExists;
-
-    const buttonStyles: any[] = [
-      styles.documentButton,
-      { borderColor: statusColor, borderWidth: 2 },
-    ];
-    if (isApprovedBefore) {
-      buttonStyles.push({ opacity: 0.6 });
-    }
-    if (!fileExists) {
-      buttonStyles.push({
-        backgroundColor: '#F3F4F6',
-        borderColor: '#D1D5DB',
-        borderWidth: 1,
-      });
-    }
-
-    const textStyles: any[] = [styles.documentButtonText];
-    if (isApprovedBefore) {
-      textStyles.push({ textDecorationLine: 'line-through' });
-    }
-    if (!fileExists) {
-      textStyles.push({ color: '#999' });
-    }
-
-    return (
-      <TouchableOpacity
-        key={docLabel}
-        style={buttonStyles}
-        onPress={() => {
-          if (imageUrl) {
-            setSelectedDocumentImage(imageUrl);
-            setCurrentDocumentKey(docKey);
-            setDocumentImageModalVisible(true);
-          }
-        }}
-        disabled={!imageUrl}
-      >
-        <Text style={textStyles}>{docLabel}</Text>
-        <Text
-          style={{
-            fontSize: 10,
-            color: !fileExists ? '#999' : statusColor,
-            marginTop: 4,
-          }}
-        >
-          {!fileExists
-            ? 'No enviado'
-            : isApprovedBefore
-            ? '✓ Aprobado (anterior)'
-            : status === 'approved'
-            ? '✓ Aprobado'
-            : status === 'rejected'
-            ? '✗ Rechazado'
-            : 'Pendiente'}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const getApprovedAndRejectedDocs = () => {
-    const approved: string[] = [];
-    const rejected: string[] = [];
-
-    const docMapping: { [key: string]: string } = {
-      profilePhoto: 'Foto Perfil',
-      ciFront: 'CI Frente',
-      ciBack: 'CI Dorso',
-      antecedentsPhoto: 'Antecedentes',
-      carFront: 'Auto Frente',
-      carBack: 'Auto Dorso',
-      carLeft: 'Auto Izquierda',
-      carRight: 'Auto Derecha',
-      soatPhoto: 'SOAT',
-      ruatPhoto: 'RUAT',
-    };
-
-    Object.entries(documentApprovalStatus).forEach(([key, status]) => {
-      const label = docMapping[key];
-      if (label) {
-        if (status === 'approved') {
-          approved.push(label);
-        } else if (status === 'rejected') {
-          rejected.push(label);
-        }
-      }
+  const initDocStatus = (app: DriverApplication) => {
+    const s: Record<string, 'pending' | 'approved' | 'rejected'> = {};
+    const locked = new Set<string>();
+    docKeys.forEach(d => {
+      s[d.key] = 'pending';
     });
-
-    return { approved, rejected };
-  };
-
-  const initializeRejectedDocuments = (app: DriverApplication) => {
-    const newStatus: Record<string, 'pending' | 'approved' | 'rejected'> = {};
-
-    // Siempre inicializar todos los documentos posibles con 'pending' por defecto
-    const allDocKeys = [
-      'profilePhoto',
-      'ciFront',
-      'ciBack',
-      'antecedentsPhoto',
-      'carFront',
-      'carBack',
-      'carLeft',
-      'carRight',
-      'soatPhoto',
-      'ruatPhoto',
-    ];
-
-    allDocKeys.forEach(key => {
-      newStatus[key] = 'pending';
-    });
-
-    // Si tiene currentRequest, usar la nueva estructura (toma prioridad)
-    if (app.currentRequest && app.currentRequest.files) {
-      console.log(
-        'InitializeRejectedDocuments - currentRequest.files:',
-        app.currentRequest.files,
-      );
+    if (app.currentRequest?.files) {
       Object.entries(app.currentRequest.files).forEach(
-        ([docKey, fileInfo]: [string, any]) => {
-          console.log(`Setting ${docKey} to status: ${fileInfo.status}`);
-          newStatus[docKey] = fileInfo.status as
-            | 'pending'
-            | 'approved'
-            | 'rejected';
+        ([k, v]: [string, any]) => {
+          s[k] = v.status;
+          // Documentos aprobados en versiones anteriores (reenvíos) quedan bloqueados:
+          // solo se bloquean si la solicitud es un reenvío (version > 1) y el doc
+          // ya venía aprobado desde la BD (no es un archivo recién enviado).
+          if (
+            v.status === 'approved' &&
+            (app.currentRequest?.version ?? 1) > 1
+          ) {
+            locked.add(k);
+          }
         },
       );
-    } else if (
-      app.documentStatus &&
-      Object.keys(app.documentStatus).length > 0
-    ) {
-      // Fallback a estructura antigua
-      if (app.approvedDocuments) {
-        Object.entries(app.approvedDocuments).forEach(([key, wasApproved]) => {
-          if (wasApproved) {
-            newStatus[key] = 'approved';
-          }
-        });
-      }
-
-      Object.entries(app.documentStatus).forEach(([key, status]) => {
-        if (status === 'pending') {
-          newStatus[key] = 'pending';
-        }
-      });
-    } else if (app.status === 'rejected' && app.rejectionReason) {
-      // Si no tiene documentStatus pero está rechazado, parsear la razón
-      const rejectionText = app.rejectionReason;
-      const rejectionDocsList = rejectionText.includes(
-        'Documentos rechazados que deben ser reenviados',
-      )
-        ? rejectionText
-            .split('Documentos rechazados que deben ser reenviados: ')[1]
-            ?.split(', ')
-        : [];
-
-      const docMapping: { [key: string]: string } = {
-        'Foto Perfil': 'profilePhoto',
-        'CI Frente': 'ciFront',
-        'CI Dorso': 'ciBack',
-        Antecedentes: 'antecedentsPhoto',
-        'Auto Frente': 'carFront',
-        'Auto Dorso': 'carBack',
-        'Auto Izquierda': 'carLeft',
-        'Auto Derecha': 'carRight',
-        SOAT: 'soatPhoto',
-        RUAT: 'ruatPhoto',
-      };
-
-      rejectionDocsList?.forEach(docLabel => {
-        const key = docMapping[docLabel.trim()];
-        if (key) {
-          newStatus[key] = 'rejected';
-        }
-      });
     }
-
-    console.log('Final documentApprovalStatus:', newStatus);
-    setDocumentApprovalStatus(newStatus);
+    setDocStatus(s);
+    setLockedDocs(locked);
   };
 
-  const handleApproveDriver = async () => {
-    if (!selectedApplication) return;
+  const openApp = (app: DriverApplication) => {
+    setSelectedApp(app);
+    initDocStatus(app);
+    setModalVisible(true);
+  };
 
-    // Verificar si hay imágenes rechazadas
-    const rejectedDocuments = Object.entries(documentApprovalStatus)
-      .filter(([_, status]) => status === 'rejected')
-      .map(([key]) => key);
+  const approvedDocs = Object.entries(docStatus)
+    .filter(([, v]) => v === 'approved')
+    .map(([k]) => docKeys.find(d => d.key === k)?.label || k);
+  const rejectedDocs = Object.entries(docStatus)
+    .filter(([, v]) => v === 'rejected')
+    .map(([k]) => docKeys.find(d => d.key === k)?.label || k);
+  // Docs con archivo subido (para distinguir opcionales sin enviar)
+  const docsWithFiles = new Set(
+    Object.keys(selectedApp?.currentRequest?.files || {}),
+  );
 
-    if (rejectedDocuments.length > 0) {
+  const pendingReviewDocs = Object.entries(docStatus).filter(([k, v]) => {
+    if (v !== 'pending') return false;
+    if (lockedDocs.has(k)) return false;
+    const docDef = docKeys.find(d => d.key === k);
+    // Documentos opcionales que el conductor no envió no bloquean la aprobación
+    if (docDef?.optional && !docsWithFiles.has(k)) return false;
+    return true;
+  });
+
+  const handleApprove = async () => {
+    if (!selectedApp) return;
+    if (rejectedDocs.length > 0) {
       Alert.alert(
-        'Documentos Rechazados',
-        'No se puede aprobar la solicitud. Hay documentos rechazados. El solicitante debe reenviar las imágenes rechazadas.',
+        'Documentos rechazados',
+        'No se puede aprobar. Hay documentos rechazados pendientes.',
       );
       return;
     }
-
+    if (pendingReviewDocs.length > 0) {
+      const pendingLabels = pendingReviewDocs
+        .map(([k]) => docKeys.find(d => d.key === k)?.label || k)
+        .join(', ');
+      Alert.alert(
+        'Documentos sin revisar',
+        `Debes revisar estos documentos antes de aprobar:\n\n${pendingLabels}`,
+      );
+      return;
+    }
     setIsSubmitting(true);
     try {
-      // Usar requestId en lugar de driverId
       await AdminService.approveDriver(
-        selectedApplication.currentRequest?.id || selectedApplication.id,
+        selectedApp.currentRequest?.id || selectedApp.id,
       );
-
-      // Update local state
-      setApplications(
-        applications.map(app =>
-          app.id === selectedApplication.id
-            ? { ...app, status: 'approved' }
-            : app,
+      setApplications(prev =>
+        prev.map(a =>
+          a.id === selectedApp.id ? { ...a, status: 'approved' } : a,
         ),
       );
-
       Alert.alert(
-        'Éxito',
-        `${selectedApplication.name} ha sido aprobado como conductor!`,
+        'Aprobado',
+        `${selectedApp.name} ha sido aprobado como conductor.`,
       );
-      setDocumentApprovalStatus({});
+      setDocStatus({});
+      setLockedDocs(new Set());
       setModalVisible(false);
-      setSelectedApplication(null);
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Error al aprobar conductor';
-      Alert.alert('Error', errorMessage);
-      setError(errorMessage);
+      setSelectedApp(null);
+      loadDriverApplications();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Error al aprobar conductor');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRejectDriver = async () => {
-    if (!selectedApplication || !rejectionReason.trim()) {
-      Alert.alert('Error', 'Por favor, proporciona una razón de rechazo');
+  const handleReject = async () => {
+    if (!selectedApp || !rejectionReason.trim()) {
+      Alert.alert('Requerido', 'Ingresa una razón de rechazo');
       return;
     }
-
-    // Mapear claves técnicas a nombres en español
-    const docMapping: { [key: string]: string } = {
-      profilePhoto: 'Foto Perfil',
-      ciFront: 'CI Frente',
-      ciBack: 'CI Dorso',
-      antecedentsPhoto: 'Antecedentes',
-      carFront: 'Auto Frente',
-      carBack: 'Auto Dorso',
-      carLeft: 'Auto Izquierda',
-      carRight: 'Auto Derecha',
-      soatPhoto: 'SOAT',
-      ruatPhoto: 'RUAT',
-    };
-
-    // Obtener lista de documentos rechazados (mapear a nombres en español)
-    const rejectedDocuments = Object.entries(documentApprovalStatus)
-      .filter(([_, status]) => status === 'rejected')
-      .map(([key]) => docMapping[key] || key)
+    const docMap: Record<string, string> = {};
+    docKeys.forEach(d => {
+      docMap[d.key] = d.label;
+    });
+    const rejectedList = Object.entries(docStatus)
+      .filter(([, v]) => v === 'rejected')
+      .map(([k]) => docMap[k] || k)
       .join(', ');
-
     const fullReason =
       rejectionReason.trim() +
-      (rejectedDocuments
-        ? `\n\nDocumentos rechazados que deben ser reenviados: ${rejectedDocuments}`
-        : '');
+      (rejectedList ? `\n\nDocumentos a reenviar: ${rejectedList}` : '');
 
     setIsSubmitting(true);
     try {
-      // Usar requestId en lugar de driverId
       await AdminService.rejectDriver(
-        selectedApplication.currentRequest?.id || selectedApplication.id,
+        selectedApp.currentRequest?.id || selectedApp.id,
         fullReason,
       );
-
-      // Update local state
-      setApplications(
-        applications.map(app =>
-          app.id === selectedApplication.id
-            ? {
-                ...app,
-                status: 'rejected',
-                rejectionReason: fullReason,
-              }
-            : app,
+      setApplications(prev =>
+        prev.map(a =>
+          a.id === selectedApp.id
+            ? { ...a, status: 'rejected', rejectionReason: fullReason }
+            : a,
         ),
       );
-
       Alert.alert(
-        'Solicitud Rechazada',
-        `${selectedApplication.name} ha sido rechazado. Se le ha enviado un mensaje con los documentos que debe reenviar.`,
+        'Rechazado',
+        `Se notificó a ${selectedApp.name} sobre los documentos a corregir.`,
       );
       setRejectionReason('');
-      setDocumentApprovalStatus({});
-      setRejectionModalVisible(false);
+      setDocStatus({});
+      setLockedDocs(new Set());
+      setRejectModalVisible(false);
       setModalVisible(false);
-      setSelectedApplication(null);
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Error al rechazar conductor';
-      Alert.alert('Error', errorMessage);
-      setError(errorMessage);
+      setSelectedApp(null);
+      loadDriverApplications();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Error al rechazar conductor');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const pendingCount = applications.filter(
-    app => app.status === 'pending',
-  ).length;
-  const approvedCount = applications.filter(
-    app => app.status === 'approved',
-  ).length;
-  const rejectedCount = applications.filter(
-    app => app.status === 'rejected',
-  ).length;
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#7C3AED" />
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>‹</Text>
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+          <ChevronLeft size={20} color={C.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Driver Registration</Text>
-        <Text style={styles.headerEmpty} />
+        <Text style={s.headerTitle}>Solicitudes de conductores</Text>
+        <TouchableOpacity onPress={loadDriverApplications} style={s.backBtn}>
+          <RefreshCw size={16} color={C.primary} strokeWidth={2} />
+        </TouchableOpacity>
       </View>
 
+      {/* Stats row */}
+      <View style={s.statsRow}>
+        {[
+          { label: 'Pendientes', count: counts.pending, color: C.warning },
+          { label: 'Aprobados', count: counts.approved, color: C.success },
+          { label: 'Rechazados', count: counts.rejected, color: C.error },
+        ].map(st => (
+          <View key={st.label} style={s.statItem}>
+            <Text style={[s.statNum, { color: st.color }]}>{st.count}</Text>
+            <Text style={s.statLabel}>{st.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Search */}
+      <View style={s.searchWrap}>
+        <Search size={15} color={C.textMuted} strokeWidth={2} />
+        <TextInput
+          style={s.searchInput}
+          placeholder="Buscar por nombre, email o licencia..."
+          placeholderTextColor={C.textMuted}
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+        {searchText.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchText('')}>
+            <X size={15} color={C.textMuted} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Filter chips */}
       <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.filtersRow}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
       >
-        {/* Loading indicator */}
-        {isLoading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#7C3AED" />
-            <Text style={styles.loadingText}>Loading applications...</Text>
-          </View>
-        )}
-
-        {/* Error message */}
-        {error && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{pendingCount}</Text>
-            <Text style={styles.statLabel}>Pending</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statNumber, { color: '#10B981' }]}>
-              {approvedCount}
+        {(
+          [
+            { key: 'all', label: 'Todos' },
+            { key: 'pending', label: `Pendientes (${counts.pending})` },
+            { key: 'approved', label: `Aprobados (${counts.approved})` },
+            { key: 'rejected', label: `Rechazados (${counts.rejected})` },
+          ] as const
+        ).map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[s.chip, selectedStatus === f.key && s.chipActive]}
+            onPress={() => setSelectedStatus(f.key)}
+          >
+            <Text
+              style={[s.chipTxt, selectedStatus === f.key && s.chipTxtActive]}
+            >
+              {f.label}
             </Text>
-            <Text style={styles.statLabel}>Approved</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statNumber, { color: '#EF4444' }]}>
-              {rejectedCount}
-            </Text>
-            <Text style={styles.statLabel}>Rejected</Text>
-          </View>
-        </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name, email, or license..."
-            placeholderTextColor="#999"
-            value={searchText}
-            onChangeText={setSearchText}
-          />
-        </View>
-
-        {/* Status Filters */}
-        <View style={styles.filterSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === 'all' && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus('all')}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === 'all' && styles.filterTextActive,
-                ]}
-              >
-                All
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === 'pending' && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus('pending')}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === 'pending' && styles.filterTextActive,
-                ]}
-              >
-                Pending ({pendingCount})
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === 'approved' && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus('approved')}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === 'approved' && styles.filterTextActive,
-                ]}
-              >
-                Approved ({approvedCount})
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterButton,
-                selectedStatus === 'rejected' && styles.filterButtonActive,
-              ]}
-              onPress={() => setSelectedStatus('rejected')}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedStatus === 'rejected' && styles.filterTextActive,
-                ]}
-              >
-                Rejected ({rejectedCount})
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-
-        {/* Applications List */}
-        <View style={styles.listSection}>
-          <Text style={styles.resultCount}>
-            {filteredApplications.length} application
-            {filteredApplications.length !== 1 ? 's' : ''} found
-          </Text>
-
-          {filteredApplications.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No applications found</Text>
-            </View>
-          ) : (
-            filteredApplications.map(app => (
-              <TouchableOpacity
-                key={app.id}
-                style={styles.applicationCard}
-                onPress={() => {
-                  console.log('Selected app documents:', app.documents);
-                  setSelectedApplication(app);
-                  initializeRejectedDocuments(app);
-                  setModalVisible(true);
-                }}
-              >
-                <View style={styles.cardContent}>
-                  <View style={styles.photoAndInfo}>
-                    <View style={styles.photoAvatar}>
-                      <Text style={styles.photoText}>{app.photo}</Text>
-                    </View>
-                    <View style={styles.appInfo}>
-                      <Text style={styles.appName}>{app.name}</Text>
-                      <Text style={styles.appEmail}>{app.email}</Text>
-                      <View style={styles.appMeta}>
-                        <Text style={styles.appMetaText}>
-                          🚗 {app.vehicleType}
-                        </Text>
-                        <Text style={styles.appMetaText}>
-                          📋 {app.licenseNumber}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: getStatusBgColor(app.status) },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: getStatusColor(app.status) },
-                      ]}
-                    >
-                      {app.status === 'pending'
-                        ? '⏳ Pending'
-                        : app.status === 'approved'
-                        ? '✓ Approved'
-                        : '✕ Rejected'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Verification Indicators */}
-                <View style={styles.verificationRow}>
-                  <View
-                    style={[
-                      styles.verificationCheck,
-                      app.documentsVerified && styles.verificationCheckPassed,
-                    ]}
-                  >
-                    <Text style={styles.verificationCheckText}>
-                      {app.documentsVerified ? '✓' : '○'} Documents
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.verificationCheck,
-                      app.backgroundCheckPassed &&
-                        styles.verificationCheckPassed,
-                    ]}
-                  >
-                    <Text style={styles.verificationCheckText}>
-                      {app.backgroundCheckPassed ? '✓' : '○'} Background
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
+          </TouchableOpacity>
+        ))}
       </ScrollView>
 
-      {/* Application Details Modal */}
-      {selectedApplication && (
-        <Modal visible={modalVisible} animationType="slide" transparent={true}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.closeButton}>‹</Text>
-                </TouchableOpacity>
-                <Text style={styles.modalTitle}>Application Review</Text>
-                <Text style={styles.emptySpace} />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={s.listContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Loading / Error */}
+        {isLoading && (
+          <View style={s.center}>
+            <ActivityIndicator size="large" color={C.primary} />
+            <Text style={s.loadingTxt}>Cargando solicitudes...</Text>
+          </View>
+        )}
+        {error && !isLoading && (
+          <View style={s.errorBanner}>
+            <AlertCircle size={14} color={C.error} strokeWidth={2} />
+            <Text style={s.errorTxt}>{error}</Text>
+          </View>
+        )}
+
+        {/* Result count */}
+        {!isLoading && (
+          <Text style={s.resultCount}>
+            {filtered.length} resultado{filtered.length !== 1 ? 's' : ''}
+          </Text>
+        )}
+
+        {/* Empty */}
+        {!isLoading && filtered.length === 0 && (
+          <View style={s.center}>
+            <User size={32} color={C.textMuted} strokeWidth={1.5} />
+            <Text style={s.emptyTxt}>Sin solicitudes</Text>
+          </View>
+        )}
+
+        {/* List */}
+        {filtered.map(app => {
+          const m = statusMeta(app.status);
+          return (
+            <TouchableOpacity
+              key={app.id}
+              style={s.card}
+              onPress={() => openApp(app)}
+              activeOpacity={0.7}
+            >
+              <View style={s.cardTop}>
+                <InitialsAvatar name={app.name} size={44} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardName}>{app.name}</Text>
+                  <Text style={s.cardEmail}>{app.email}</Text>
+                  <View style={s.cardMeta}>
+                    <Car size={11} color={C.primary} strokeWidth={2} />
+                    <Text style={s.cardMetaTxt}>
+                      {vehicleTypeLabel(app.vehicleType)}
+                    </Text>
+                    <Text style={s.cardMetaDot}>·</Text>
+                    <Text style={s.cardMetaTxt}>{app.vehiclePlate}</Text>
+                  </View>
+                </View>
+                <StatusBadge status={app.status} small />
               </View>
 
-              <ScrollView style={styles.modalBody}>
-                {/* Header with Status */}
-                <View style={styles.modalHeaderSection}>
-                  <View style={styles.largeAvatar}>
-                    <Text style={styles.largeAvatarText}>
-                      {selectedApplication.photo}
-                    </Text>
-                  </View>
-                  <Text style={styles.modalUserName}>
-                    {selectedApplication.name}
+              {/* Verification pills */}
+              <View style={s.cardBottom}>
+                <View style={[s.pill, app.documentsVerified && s.pillOk]}>
+                  {app.documentsVerified ? (
+                    <Check size={10} color={C.success} strokeWidth={2.5} />
+                  ) : (
+                    <Clock size={10} color={C.textMuted} strokeWidth={2} />
+                  )}
+                  <Text
+                    style={[s.pillTxt, app.documentsVerified && s.pillTxtOk]}
+                  >
+                    Documentos
                   </Text>
-                  <View
+                </View>
+                <View style={[s.pill, app.backgroundCheckPassed && s.pillOk]}>
+                  {app.backgroundCheckPassed ? (
+                    <Check size={10} color={C.success} strokeWidth={2.5} />
+                  ) : (
+                    <Clock size={10} color={C.textMuted} strokeWidth={2} />
+                  )}
+                  <Text
                     style={[
-                      styles.largeStatusBadge,
-                      {
-                        backgroundColor: getStatusBgColor(
-                          selectedApplication.status,
-                        ),
-                      },
+                      s.pillTxt,
+                      app.backgroundCheckPassed && s.pillTxtOk,
                     ]}
                   >
-                    <Text
+                    Antecedentes
+                  </Text>
+                </View>
+                <ChevronRight
+                  size={14}
+                  color={C.textMuted}
+                  strokeWidth={2}
+                  style={{ marginLeft: 'auto' }}
+                />
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* ── Detail Modal ──────────────────────────────────────────────────────── */}
+      {selectedApp && (
+        <Modal
+          visible={modalVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <SafeAreaView style={s.container}>
+            <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+
+            {/* Modal header */}
+            <View style={s.header}>
+              <TouchableOpacity
+                onPress={() => {
+                  setModalVisible(false);
+                  setSelectedApp(null);
+                }}
+                style={s.backBtn}
+              >
+                <ChevronLeft size={20} color={C.text} strokeWidth={2} />
+              </TouchableOpacity>
+              <Text style={s.headerTitle}>Revisión de solicitud</Text>
+              <View style={{ width: 36 }} />
+            </View>
+
+            <ScrollView
+              contentContainerStyle={s.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Identity */}
+              <View style={s.modalHero}>
+                <InitialsAvatar name={selectedApp.name} size={64} />
+                <Text style={s.heroName}>{selectedApp.name}</Text>
+                <StatusBadge status={selectedApp.status} />
+              </View>
+
+              {/* Resubmission notice */}
+              {selectedApp.currentRequest &&
+                selectedApp.currentRequest.version > 1 && (
+                  <View style={s.resubBanner}>
+                    <RefreshCw size={13} color={C.warning} strokeWidth={2} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.resubTitle}>
+                        Reenvío v{selectedApp.currentRequest.version} — Revisión
+                        parcial
+                      </Text>
+                      <Text style={s.resubSub}>
+                        {lockedDocs.size > 0
+                          ? `${lockedDocs.size} doc${
+                              lockedDocs.size !== 1 ? 's' : ''
+                            } ya aprobado${
+                              lockedDocs.size !== 1 ? 's' : ''
+                            } · ${pendingReviewDocs.length} pendiente${
+                              pendingReviewDocs.length !== 1 ? 's' : ''
+                            } de revisión`
+                          : 'Revisa solo los documentos marcados como Pendiente'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+              {/* Info sections */}
+              <View style={s.section}>
+                <SectionLabel text="INFORMACIÓN PERSONAL" />
+                <DetailRow label="Email" value={selectedApp.email} />
+                <DetailRow label="Teléfono" value={selectedApp.phone} />
+                <DetailRow
+                  label="Fecha de solicitud"
+                  value={selectedApp.applicationDate}
+                />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="LICENCIA" />
+                <DetailRow label="Número" value={selectedApp.licenseNumber} />
+                <DetailRow
+                  label="Vencimiento"
+                  value={selectedApp.licenseExpiryDate}
+                />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="VEHÍCULO" />
+                <DetailRow
+                  label="Marca"
+                  value={selectedApp.vehicleBrand || '—'}
+                />
+                <DetailRow
+                  label="Modelo"
+                  value={selectedApp.vehicleModel || '—'}
+                />
+                <DetailRow
+                  label="Tipo"
+                  value={vehicleTypeLabel(selectedApp.vehicleType)}
+                />
+                <DetailRow label="Placa" value={selectedApp.vehiclePlate} />
+                <DetailRow
+                  label="Año"
+                  value={selectedApp.vehicleYear?.toString()}
+                />
+                <DetailRow
+                  label="Color"
+                  value={selectedApp.vehicleColor || ''}
+                />
+                <DetailRow
+                  label="Capacidad pasajeros"
+                  value={
+                    selectedApp.vehiclePassengerCapacity
+                      ? String(selectedApp.vehiclePassengerCapacity)
+                      : ''
+                  }
+                />
+              </View>
+
+              {/* Documents */}
+              {selectedApp.currentRequest && (
+                <View style={s.section}>
+                  <SectionLabel
+                    text={`DOCUMENTOS — VERSIÓN ${selectedApp.currentRequest.version}`}
+                  />
+                  {docKeys.map(d => (
+                    <DocButton
+                      key={d.key}
+                      label={d.label}
+                      docKey={d.key}
+                      app={selectedApp}
+                      docStatus={docStatus}
+                      locked={lockedDocs.has(d.key)}
+                      optional={d.optional}
+                      onPress={(url, key) => {
+                        setDocImageUrl(url);
+                        setCurrentDocKey(key);
+                        setDocImageModal(true);
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {/* Summary */}
+              {(approvedDocs.length > 0 || rejectedDocs.length > 0) && (
+                <View style={s.section}>
+                  <SectionLabel text="RESUMEN DE REVISIÓN" />
+                  {approvedDocs.length > 0 && (
+                    <View
                       style={[
-                        styles.largeStatusText,
+                        s.summaryBox,
                         {
-                          color: getStatusColor(selectedApplication.status),
+                          borderColor: C.successBorder,
+                          backgroundColor: C.successLight,
                         },
                       ]}
                     >
-                      {selectedApplication.status === 'pending'
-                        ? '⏳ Pending Review'
-                        : selectedApplication.status === 'approved'
-                        ? '✓ Approved'
-                        : '✕ Rejected'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Resubmission Banner */}
-                {selectedApplication.documentStatus &&
-                  Object.keys(selectedApplication.documentStatus).length >
-                    0 && (
-                    <View style={styles.resubmissionBanner}>
-                      <Text style={styles.resubmissionBannerText}>
-                        🔄 REENVÍO DE DOCUMENTOS
+                      <Text style={[s.summaryTitle, { color: C.success }]}>
+                        Aprobados ({approvedDocs.length})
                       </Text>
-                      <Text style={styles.resubmissionBannerSubtext}>
-                        Solo revisa los documentos marcados como "Pendiente"
-                      </Text>
+                      {approvedDocs.map(d => (
+                        <Text key={d} style={s.summaryItem}>
+                          {d}
+                        </Text>
+                      ))}
                     </View>
                   )}
-
-                {/* Personal Information */}
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Personal Information</Text>
-                  <DetailRow label="Email" value={selectedApplication.email} />
-                  <DetailRow label="Phone" value={selectedApplication.phone} />
-                  <DetailRow
-                    label="Application Date"
-                    value={selectedApplication.applicationDate}
-                  />
-                </View>
-
-                {/* License Information */}
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>License Information</Text>
-                  <DetailRow
-                    label="License Number"
-                    value={selectedApplication.licenseNumber}
-                  />
-                  <DetailRow
-                    label="Expiry Date"
-                    value={selectedApplication.licenseExpiryDate}
-                  />
-                </View>
-
-                {/* Vehicle Information */}
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Vehicle Information</Text>
-                  <DetailRow
-                    label="Vehicle Type"
-                    value={selectedApplication.vehicleType}
-                  />
-                  <DetailRow
-                    label="License Plate"
-                    value={selectedApplication.vehiclePlate}
-                  />
-                  <DetailRow
-                    label="Year"
-                    value={selectedApplication.vehicleYear.toString()}
-                  />
-                </View>
-
-                {/* Documents Section */}
-                {selectedApplication.currentRequest && (
-                  <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>
-                      Documentos (v
-                      {selectedApplication.currentRequest.version})
-                    </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.documentsScroll}
+                  {rejectedDocs.length > 0 && (
+                    <View
+                      style={[
+                        s.summaryBox,
+                        {
+                          borderColor: C.errorBorder,
+                          backgroundColor: C.errorLight,
+                          marginTop: 8,
+                        },
+                      ]}
                     >
-                      {/* Renderizar TODOS los 10 documentos posibles dinámicamente */}
-                      {[
-                        { key: 'profilePhoto', label: 'Foto Perfil' },
-                        { key: 'ciFront', label: 'CI Frente' },
-                        { key: 'ciBack', label: 'CI Dorso' },
-                        { key: 'antecedentsPhoto', label: 'Antecedentes' },
-                        { key: 'carFront', label: 'Auto Frente' },
-                        { key: 'carBack', label: 'Auto Dorso' },
-                        { key: 'carLeft', label: 'Auto Izquierda' },
-                        { key: 'carRight', label: 'Auto Derecha' },
-                        { key: 'soatPhoto', label: 'SOAT' },
-                        { key: 'ruatPhoto', label: 'RUAT' },
-                      ].map(doc => {
-                        const fileData =
-                          selectedApplication.currentRequest?.files?.[doc.key];
-                        const docPath = fileData
-                          ? fileData.url ||
-                            `http://192.168.100.133:3000/uploads/drivers/${fileData.filename}`
-                          : undefined;
-
-                        return renderDocumentButton(
-                          docPath,
-                          doc.label,
-                          doc.key,
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
-
-                {/* Documento Status Summary */}
-                {Object.keys(documentApprovalStatus).length > 0 && (
-                  <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>
-                      Resumen de Documentos
-                    </Text>
-                    {getApprovedAndRejectedDocs().approved.length > 0 && (
-                      <View style={styles.documentStatusBox}>
+                      <Text style={[s.summaryTitle, { color: C.error }]}>
+                        Rechazados ({rejectedDocs.length})
+                      </Text>
+                      {rejectedDocs.map(d => (
                         <Text
-                          style={[styles.statusLabel, { color: '#10B981' }]}
+                          key={d}
+                          style={[s.summaryItem, { color: C.error }]}
                         >
-                          ✓ Documentos Aprobados
+                          {d}
                         </Text>
-                        {getApprovedAndRejectedDocs().approved.map(
-                          (doc, idx) => (
-                            <Text key={idx} style={styles.documentStatusItem}>
-                              • {doc}
-                            </Text>
-                          ),
-                        )}
-                      </View>
-                    )}
-                    {getApprovedAndRejectedDocs().rejected.length > 0 && (
-                      <View style={styles.documentStatusBox}>
-                        <Text
-                          style={[styles.statusLabel, { color: '#EF4444' }]}
-                        >
-                          ✗ Documentos Rechazados (Deben ser reenviados)
-                        </Text>
-                        {getApprovedAndRejectedDocs().rejected.map(
-                          (doc, idx) => (
-                            <Text
-                              key={idx}
-                              style={[
-                                styles.documentStatusItem,
-                                { color: '#EF4444' },
-                              ]}
-                            >
-                              • {doc}
-                            </Text>
-                          ),
-                        )}
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                {/* Notas de Verificación */}
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Notas de Verificación</Text>
-                  <View style={styles.notesBox}>
-                    <Text style={styles.notesText}>
-                      {selectedApplication.verificationNotes}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Motivo de Rechazo (si fue rechazado) */}
-                {selectedApplication.status === 'rejected' &&
-                  selectedApplication.rejectionReason && (
-                    <View style={styles.sectionContainer}>
-                      <Text style={styles.sectionTitle}>Motivo de Rechazo</Text>
-                      <View style={styles.rejectionBox}>
-                        <Text style={styles.rejectionText}>
-                          {selectedApplication.rejectionReason}
-                        </Text>
-                      </View>
+                      ))}
                     </View>
                   )}
+                </View>
+              )}
 
-                {/* Action Buttons */}
-                {selectedApplication.status === 'pending' && (
-                  <View style={styles.actionsSection}>
-                    <TouchableOpacity
+              {/* Notes */}
+              {!!selectedApp.verificationNotes && (
+                <View style={s.section}>
+                  <SectionLabel text="NOTAS DE VERIFICACIÓN" />
+                  <View style={s.notesBox}>
+                    <Text style={s.notesTxt}>
+                      {selectedApp.verificationNotes}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Rejection reason (if already rejected) */}
+              {selectedApp.status === 'rejected' &&
+                selectedApp.rejectionReason && (
+                  <View style={s.section}>
+                    <SectionLabel text="MOTIVO DE RECHAZO" />
+                    <View
                       style={[
-                        styles.approveButton,
-                        isSubmitting && styles.buttonDisabled,
+                        s.summaryBox,
+                        {
+                          borderColor: C.errorBorder,
+                          backgroundColor: C.errorLight,
+                        },
                       ]}
-                      onPress={handleApproveDriver}
-                      disabled={isSubmitting}
                     >
-                      {isSubmitting ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <Text style={styles.actionButtonText}>
-                          ✓ Approve Driver
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.rejectButton,
-                        isSubmitting && styles.buttonDisabled,
-                      ]}
-                      onPress={() => setRejectionModalVisible(true)}
-                      disabled={isSubmitting}
-                    >
-                      <Text style={styles.actionButtonText}>
-                        ✕ Reject Driver
+                      <Text style={[s.notesTxt, { color: C.error }]}>
+                        {selectedApp.rejectionReason}
                       </Text>
-                    </TouchableOpacity>
+                    </View>
                   </View>
                 )}
-              </ScrollView>
-            </View>
-          </View>
+
+              {/* Actions */}
+              {selectedApp.status === 'pending' && (
+                <View style={s.actions}>
+                  <TouchableOpacity
+                    style={[s.approveBtn, isSubmitting && { opacity: 0.6 }]}
+                    onPress={handleApprove}
+                    disabled={isSubmitting}
+                    activeOpacity={0.8}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator color={C.white} size="small" />
+                    ) : (
+                      <>
+                        <Check size={16} color={C.white} strokeWidth={2.5} />
+                        <Text style={s.actionTxt}>Aprobar conductor</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.rejectBtn, isSubmitting && { opacity: 0.6 }]}
+                    onPress={() => setRejectModalVisible(true)}
+                    disabled={isSubmitting}
+                    activeOpacity={0.8}
+                  >
+                    <X size={16} color={C.error} strokeWidth={2.5} />
+                    <Text style={[s.actionTxt, { color: C.error }]}>
+                      Rechazar conductor
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          </SafeAreaView>
         </Modal>
       )}
 
-      {/* Rejection Reason Modal */}
+      {/* ── Rejection Modal ───────────────────────────────────────────────────── */}
       <Modal
-        visible={rejectionModalVisible}
+        visible={rejectModalVisible}
         animationType="fade"
-        transparent={true}
+        transparent
+        onRequestClose={() => setRejectModalVisible(false)}
       >
-        <View style={styles.rejectionModalContainer}>
-          <View style={styles.rejectionModalContent}>
-            <Text style={styles.rejectionModalTitle}>Rejection Reason</Text>
+        <View style={s.overlay}>
+          <View style={s.rejectModal}>
+            <Text style={s.rejectModalTitle}>Motivo de rechazo</Text>
+            <Text style={s.rejectModalSub}>
+              Explica por qué se rechaza esta solicitud.
+            </Text>
             <TextInput
-              style={styles.rejectionInput}
-              placeholder="Explain why you're rejecting this application..."
-              placeholderTextColor="#999"
+              style={s.rejectInput}
+              placeholder="Describe el motivo de rechazo..."
+              placeholderTextColor={C.textMuted}
               value={rejectionReason}
               onChangeText={setRejectionReason}
               multiline
-              numberOfLines={5}
+              numberOfLines={4}
               textAlignVertical="top"
             />
-            <View style={styles.rejectionButtonsRow}>
+            {rejectedDocs.length > 0 && (
+              <View
+                style={[
+                  s.summaryBox,
+                  {
+                    borderColor: C.errorBorder,
+                    backgroundColor: C.errorLight,
+                    marginBottom: 16,
+                  },
+                ]}
+              >
+                <Text style={[s.summaryTitle, { color: C.error }]}>
+                  Docs a reenviar
+                </Text>
+                {rejectedDocs.map(d => (
+                  <Text key={d} style={[s.summaryItem, { color: C.error }]}>
+                    {d}
+                  </Text>
+                ))}
+              </View>
+            )}
+            <View style={s.rejectBtnsRow}>
               <TouchableOpacity
-                style={styles.rejectionCancelButton}
+                style={s.rejectCancelBtn}
                 onPress={() => {
                   setRejectionReason('');
-                  setRejectionModalVisible(false);
+                  setRejectModalVisible(false);
                 }}
               >
-                <Text style={styles.rejectionCancelButtonText}>Cancel</Text>
+                <Text style={s.rejectCancelTxt}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.rejectionConfirmButton}
-                onPress={handleRejectDriver}
+                style={[s.rejectConfirmBtn, isSubmitting && { opacity: 0.6 }]}
+                onPress={handleReject}
+                disabled={isSubmitting}
               >
-                <Text style={styles.rejectionConfirmButtonText}>Reject</Text>
+                {isSubmitting ? (
+                  <ActivityIndicator color={C.white} size="small" />
+                ) : (
+                  <Text style={s.rejectConfirmTxt}>Rechazar</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Document Image Modal */}
+      {/* ── Document Image Modal ──────────────────────────────────────────────── */}
       <Modal
-        visible={documentImageModalVisible}
+        visible={docImageModal}
         animationType="fade"
-        transparent={true}
+        transparent
+        onRequestClose={() => setDocImageModal(false)}
       >
-        <View style={styles.documentImageModalContainer}>
+        <View style={s.overlay}>
           <TouchableOpacity
-            style={styles.documentImageModalBackdrop}
-            onPress={() => setDocumentImageModalVisible(false)}
+            style={StyleSheet.absoluteFill}
+            onPress={() => setDocImageModal(false)}
           />
-          <View style={styles.documentImageModalContent}>
-            {selectedDocumentImage && (
+          <View style={s.imgModal}>
+            {docImageUrl && (
               <Image
-                key={selectedDocumentImage}
-                source={{ uri: selectedDocumentImage }}
-                style={styles.documentImageLarge}
+                source={{ uri: docImageUrl }}
+                style={s.docImg}
+                resizeMode="contain"
               />
             )}
-            <View style={styles.documentImageButtonsRow}>
-              <TouchableOpacity
-                style={[styles.documentImageButton, styles.rejectImageButton]}
-                onPress={() => {
-                  if (currentDocumentKey) {
-                    setDocumentApprovalStatus(prev => ({
-                      ...prev,
-                      [currentDocumentKey]: 'rejected',
-                    }));
-                    setDocumentImageModalVisible(false);
-                    setCurrentDocumentKey(null);
-                  }
-                }}
+            {/* Si el doc está bloqueado (ya aprobado en versión anterior) solo mostrar info */}
+            {currentDocKey && lockedDocs.has(currentDocKey) ? (
+              <View
+                style={[
+                  s.imgActions,
+                  { flexDirection: 'column', alignItems: 'center' },
+                ]}
               >
-                <Text style={styles.documentImageButtonText}>✗ Rechazar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.documentImageButton, styles.approveImageButton]}
-                onPress={() => {
-                  if (currentDocumentKey) {
-                    setDocumentApprovalStatus(prev => ({
-                      ...prev,
-                      [currentDocumentKey]: 'approved',
-                    }));
-                    setDocumentImageModalVisible(false);
-                    setCurrentDocumentKey(null);
-                  }
-                }}
-              >
-                <Text style={styles.documentImageButtonText}>✓ Aprobar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.documentImageButton, styles.closeImageButton]}
-                onPress={() => {
-                  setDocumentImageModalVisible(false);
-                  setCurrentDocumentKey(null);
-                }}
-              >
-                <Text style={styles.documentImageButtonText}>Cerrar</Text>
-              </TouchableOpacity>
-            </View>
+                <View
+                  style={[
+                    s.imgBtn,
+                    {
+                      flex: undefined,
+                      backgroundColor: C.successLight,
+                      borderColor: C.successBorder,
+                      width: '100%',
+                      justifyContent: 'center',
+                    },
+                  ]}
+                >
+                  <Check size={16} color={C.success} strokeWidth={2.5} />
+                  <Text style={[s.imgBtnTxt, { color: C.success }]}>
+                    Ya aprobado en versión anterior
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={s.imgActions}>
+                <TouchableOpacity
+                  style={[
+                    s.imgBtn,
+                    {
+                      backgroundColor: C.errorLight,
+                      borderColor: C.errorBorder,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (currentDocKey) {
+                      setDocStatus(p => ({
+                        ...p,
+                        [currentDocKey]: 'rejected',
+                      }));
+                    }
+                    setDocImageModal(false);
+                    setCurrentDocKey(null);
+                  }}
+                >
+                  <X size={16} color={C.error} strokeWidth={2.5} />
+                  <Text style={[s.imgBtnTxt, { color: C.error }]}>
+                    Rechazar
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    s.imgBtn,
+                    {
+                      backgroundColor: C.successLight,
+                      borderColor: C.successBorder,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (currentDocKey) {
+                      setDocStatus(p => ({
+                        ...p,
+                        [currentDocKey]: 'approved',
+                      }));
+                    }
+                    setDocImageModal(false);
+                    setCurrentDocKey(null);
+                  }}
+                >
+                  <Check size={16} color={C.success} strokeWidth={2.5} />
+                  <Text style={[s.imgBtnTxt, { color: C.success }]}>
+                    Aprobar
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity
+              style={s.imgCloseBtn}
+              onPress={() => {
+                setDocImageModal(false);
+                setCurrentDocKey(null);
+              }}
+            >
+              <Text style={s.imgCloseTxt}>Cerrar</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1123,614 +1193,310 @@ const AdminDriverRegistrationScreen: React.FC<
   );
 };
 
-interface DetailRowProps {
-  label: string;
-  value: string;
-}
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
 
-const DetailRow: React.FC<DetailRowProps> = ({ label, value }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={styles.detailValue}>{value}</Text>
-  </View>
-);
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
   header: {
-    backgroundColor: '#7C3AED',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
   },
-  backButton: {
-    fontSize: 28,
-    color: '#FFFFFF',
-    fontWeight: '700',
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: C.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerEmpty: {
-    width: 28,
-  },
-  content: {
-    flex: 1,
-  },
-  statsContainer: {
+  headerTitle: { fontSize: 16, fontWeight: '700', color: C.text },
+
+  statsRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    gap: 0,
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  statNumber: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#F59E0B',
-    marginBottom: 4,
-  },
+  statItem: { flex: 1, alignItems: 'center' },
+  statNum: { fontSize: 22, fontWeight: '800', letterSpacing: -0.8 },
   statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
+    fontSize: 10,
+    color: C.textMuted,
+    fontWeight: '600',
+    marginTop: 2,
   },
-  searchContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  searchInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#1F2937',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  filterSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  filterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginRight: 8,
-  },
-  filterButtonActive: {
-    backgroundColor: '#7C3AED',
-    borderColor: '#7C3AED',
-  },
-  filterText: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  filterTextActive: {
-    color: '#FFFFFF',
-  },
-  listSection: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  resultCount: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-  emptyState: {
+
+  searchWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  applicationCard: {
-    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    backgroundColor: C.surfaceHigh,
     borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  searchInput: { flex: 1, fontSize: 14, color: C.text, padding: 0 },
+
+  filtersRow: { maxHeight: 44, marginBottom: 4 },
+
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.white,
+  },
+  chipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  chipTxt: { fontSize: 12, fontWeight: '600', color: C.textSub },
+  chipTxtActive: { color: C.white },
+
+  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 },
+
+  center: { alignItems: 'center', paddingVertical: 40, gap: 12 },
+  loadingTxt: { fontSize: 13, color: C.textMuted },
+  emptyTxt: { fontSize: 14, color: C.textMuted, fontWeight: '600' },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.errorLight,
+    borderRadius: 10,
+    padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: C.errorBorder,
+  },
+  errorTxt: { flex: 1, fontSize: 13, color: C.error, fontWeight: '600' },
+
+  resultCount: {
+    fontSize: 11,
+    color: C.textMuted,
+    fontWeight: '600',
+    marginBottom: 10,
+    letterSpacing: 0.3,
+  },
+
+  card: {
+    backgroundColor: C.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 10,
     overflow: 'hidden',
   },
-  cardContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+  cardTop: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  cardName: { fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 2 },
+  cardEmail: { fontSize: 12, color: C.textMuted, marginBottom: 5 },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cardMetaTxt: { fontSize: 11, color: C.primary, fontWeight: '600' },
+  cardMetaDot: { fontSize: 11, color: C.textMuted },
+  cardBottom: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  photoAndInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  photoAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#7C3AED',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  photoText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  appInfo: {
-    flex: 1,
-  },
-  appName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  appEmail: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 6,
-  },
-  appMeta: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  appMetaText: {
-    fontSize: 11,
-    color: '#7C3AED',
-    fontWeight: '500',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginLeft: 12,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  verificationRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingBottom: 12,
     gap: 8,
   },
-  verificationCheck: {
-    flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  verificationCheckPassed: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#10B981',
-  },
-  verificationCheckText: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-    marginTop: 50,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    backgroundColor: '#7C3AED',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  closeButton: {
-    fontSize: 28,
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  emptySpace: {
-    width: 28,
-  },
-  modalBody: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  modalHeaderSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  largeAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#7C3AED',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  largeAvatarText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  modalUserName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  largeStatusBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: C.surfaceHigh,
     borderRadius: 20,
-  },
-  largeStatusText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  sectionContainer: {
-    marginBottom: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: C.border,
   },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  detailRow: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#1F2937',
-    fontWeight: '600',
-  },
-  verificationStatusRow: {
+  pillOk: { backgroundColor: C.successLight, borderColor: C.successBorder },
+  pillTxt: { fontSize: 10, color: C.textMuted, fontWeight: '600' },
+  pillTxtOk: { color: C.success },
+
+  // Modal
+  modalContent: { padding: 20, paddingBottom: 40 },
+  modalHero: {
+    alignItems: 'center',
+    paddingVertical: 24,
     gap: 10,
-  },
-  verificationStatusItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  verificationStatusItemPassed: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#86EFAC',
-  },
-  verificationStatusText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  notesBox: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  notesText: {
-    fontSize: 13,
-    color: '#1F2937',
-    lineHeight: 20,
-  },
-  rejectionBox: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  rejectionText: {
-    fontSize: 13,
-    color: '#7F1D1D',
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  actionsSection: {
-    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
     marginBottom: 20,
   },
-  approveButton: {
-    backgroundColor: '#10B981',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
+  heroName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.4,
   },
-  rejectButton: {
-    backgroundColor: '#EF4444',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  rejectionModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rejectionModalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    width: '85%',
-  },
-  rejectionModalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  rejectionInput: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 13,
-    color: '#1F2937',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 16,
-    maxHeight: 120,
-  },
-  rejectionButtonsRow: {
+
+  resubBanner: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  rejectionCancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-  },
-  rejectionCancelButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  rejectionConfirmButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-  },
-  rejectionConfirmButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  errorBanner: {
-    backgroundColor: '#FEF2F2',
-    borderLeftWidth: 4,
-    borderLeftColor: '#EF4444',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 6,
-  },
-  errorText: {
-    color: '#7F1D1D',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  documentsScroll: {
-    marginVertical: 10,
-  },
-  documentItem: {
-    alignItems: 'center',
-    marginRight: 12,
-    marginBottom: 8,
-  },
-  documentImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  documentLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
-    marginTop: 6,
-    textAlign: 'center',
-    maxWidth: 120,
-  },
-  documentButton: {
-    backgroundColor: '#7C3AED',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginRight: 12,
-    minWidth: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  documentButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  documentStatusBox: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-  },
-  statusLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  documentStatusItem: {
-    fontSize: 12,
-    color: '#374151',
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  documentImageModalContainer: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  documentImageModalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-  },
-  documentImageModalContent: {
-    backgroundColor: '#FFFFFF',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: C.warningLight,
     borderRadius: 12,
-    padding: 16,
-    maxWidth: 350,
-    alignItems: 'center',
-    zIndex: 1,
+    padding: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: C.warningBorder,
   },
-  documentImageLarge: {
-    width: 300,
-    height: 400,
-    borderRadius: 8,
+  resubTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.warning,
+    marginBottom: 2,
   },
-  documentImageButtonsRow: {
+  resubSub: { fontSize: 12, color: C.warning },
+
+  section: { marginBottom: 20 },
+
+  summaryBox: {
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+  },
+  summaryTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  summaryItem: { fontSize: 12, color: C.textSub, marginBottom: 3 },
+
+  notesBox: {
+    backgroundColor: C.surfaceHigh,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  notesTxt: { fontSize: 13, color: C.text, lineHeight: 20 },
+
+  actions: { gap: 10, marginTop: 4 },
+  approveBtn: {
+    backgroundColor: C.success,
+    borderRadius: 14,
+    paddingVertical: 16,
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  rejectBtn: {
+    backgroundColor: C.errorLight,
+    borderRadius: 14,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: C.errorBorder,
+  },
+  actionTxt: { fontSize: 15, fontWeight: '700', color: C.white },
+
+  // Overlay / modals
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+
+  rejectModal: {
+    backgroundColor: C.white,
+    borderRadius: 20,
+    padding: 20,
     width: '100%',
   },
-  documentImageButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  rejectImageButton: {
-    backgroundColor: '#EF4444',
-  },
-  approveImageButton: {
-    backgroundColor: '#10B981',
-  },
-  closeImageButton: {
-    backgroundColor: '#6B7280',
-  },
-  documentImageButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  resubmissionBanner: {
-    backgroundColor: '#FEF3C7',
-    borderLeftWidth: 4,
-    borderLeftColor: '#F59E0B',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 6,
-  },
-  resubmissionBannerText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#92400E',
+  rejectModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: C.text,
     marginBottom: 4,
   },
-  resubmissionBannerSubtext: {
-    fontSize: 12,
-    color: '#B45309',
+  rejectModalSub: { fontSize: 13, color: C.textMuted, marginBottom: 14 },
+  rejectInput: {
+    backgroundColor: C.surfaceHigh,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    color: C.text,
+    borderWidth: 1,
+    borderColor: C.border,
+    minHeight: 100,
+    marginBottom: 14,
   },
+  rejectBtnsRow: { flexDirection: 'row', gap: 10 },
+  rejectCancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    alignItems: 'center',
+  },
+  rejectCancelTxt: { fontSize: 14, fontWeight: '700', color: C.textSub },
+  rejectConfirmBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: C.error,
+    alignItems: 'center',
+  },
+  rejectConfirmTxt: { fontSize: 14, fontWeight: '700', color: C.white },
+
+  imgModal: {
+    backgroundColor: C.white,
+    borderRadius: 20,
+    padding: 16,
+    width: '100%',
+    maxWidth: 380,
+    alignItems: 'center',
+  },
+  docImg: { width: '100%', height: 380, borderRadius: 12, marginBottom: 16 },
+  imgActions: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    marginBottom: 10,
+  },
+  imgBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1.5,
+  },
+  imgBtnTxt: { fontSize: 14, fontWeight: '700' },
+  imgCloseBtn: {
+    paddingVertical: 11,
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    alignItems: 'center',
+  },
+  imgCloseTxt: { fontSize: 14, fontWeight: '600', color: C.textSub },
 });
 
 export default AdminDriverRegistrationScreen;

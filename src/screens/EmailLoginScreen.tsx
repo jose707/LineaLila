@@ -163,16 +163,6 @@ export default function EmailLoginScreen({
           )}
         </TouchableOpacity>
 
-        {/* Signup Link */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>¿No tienes cuenta? </Text>
-          <TouchableOpacity
-            disabled={loading}
-            onPress={() => navigation.navigate('Signup')}
-          >
-            <Text style={styles.signupLink}>Regístrate aquí</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </ScrollView>
   );
@@ -280,21 +270,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 'auto',
-  },
-  footerText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  signupLink: {
-    color: COLORS.primary,
-    fontSize: 14,
     fontWeight: '600',
   },
 });

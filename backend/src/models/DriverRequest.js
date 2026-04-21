@@ -13,11 +13,13 @@ const DriverRequest = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
       // Para vincular solicitudes del mismo usuario (v1, v2, v3...)
+      field: 'user_id',
     },
     driverId: {
       type: DataTypes.UUID,
       allowNull: true,
       // Se asigna cuando se aprueba la solicitud
+      field: 'driver_id',
     },
     version: {
       type: DataTypes.INTEGER,
@@ -32,10 +34,12 @@ const DriverRequest = sequelize.define(
     rejectionReason: {
       type: DataTypes.TEXT,
       allowNull: true,
+      field: 'rejection_reason',
     },
     rejectedDocuments: {
       type: DataTypes.JSON,
       allowNull: true,
+      field: 'rejected_documents',
     },
     metadata: {
       type: DataTypes.JSON,
@@ -45,6 +49,7 @@ const DriverRequest = sequelize.define(
   {
     tableName: 'driver_requests',
     timestamps: true,
+    underscored: true,
   },
 );
 

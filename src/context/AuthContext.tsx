@@ -6,10 +6,13 @@ import React, {
   ReactNode,
   useCallback,
 } from 'react';
+import { Alert, Platform, PermissionsAndroid } from 'react-native';
 import { authService } from '../services/auth.service';
+import { onFCMTokenRefresh } from '../services/firebase.service';
 import { StorageHelper } from '../services/storage';
 import { User, UserRole } from '../types/models';
 import { LoginRequest, SignupRequest } from '../types/api';
+import { socketService } from '../services/socket.service';
 
 export interface AuthContextType {
   user: User | null;
@@ -29,6 +32,27 @@ export interface AuthContextType {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
+const requestInitialPermissions = async () => {
+  if (Platform.OS === 'android') {
+    try {
+      await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Permiso de Ubicación',
+          message:
+            'LineaLila necesita acceder a tu ubicación para conectarte de forma precisa.',
+          buttonNeutral: 'Después',
+          buttonNegative: 'No',
+          buttonPositive: 'OK',
+        },
+      );
+    } catch (e) {
+      console.warn('Error pidiendo ubicación:', e);
+    }
+  }
+  await authService.registerFCMToken().catch(() => {});
+};
+
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -43,28 +67,73 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const savedUserStr = StorageHelper.getItem('user');
         const savedToken = StorageHelper.getItem('authToken');
-        const savedDriverMode = StorageHelper.getItem('driverMode');
+        console.log(
+          '🔐 [INIT] Inicializando auth desde storage. hasToken:',
+          !!savedToken,
+        );
 
-        if (savedUserStr) {
-          setUser(JSON.parse(savedUserStr));
-        }
         if (savedToken) {
+          // Intentar validar el token con el backend
           setToken(savedToken);
-        }
-        if (savedDriverMode === 'true') {
-          setIsDriverMode(true);
+          const freshUser = await authService.fetchCurrentUser();
+
+          if (freshUser) {
+            console.log(
+              '🔐 [INIT] Sesión válida, usuario refrescado desde /auth/me',
+            );
+            setUser(freshUser);
+            // Sincronizar isDriverMode con currentMode de la BD
+            setIsDriverMode(freshUser.currentMode === 'driver');
+            StorageHelper.setItem('user', JSON.stringify(freshUser));
+            // 🔌 Reconectar WebSocket con sesión restaurada
+            socketService.connect();
+
+            // Register FCM Token implicitly in the background
+            authService.registerFCMToken().catch(() => {});
+          } else {
+            console.log(
+              '🔐 [INIT] Token inválido o expirado. Limpiando sesión local.',
+            );
+            StorageHelper.removeItem('authToken');
+            StorageHelper.removeItem('user');
+            setUser(null);
+            setToken(null);
+            setIsDriverMode(false);
+            Alert.alert(
+              'Sesión caducada',
+              'Por seguridad, vuelve a iniciar sesión.',
+            );
+          }
+        } else {
+          // No hay token guardado: asegurarse de que no quede usuario colgado
+          setUser(null);
+          setToken(null);
+          setIsDriverMode(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
       } finally {
         setIsLoading(false);
+        console.log('🔐 [INIT] Inicialización completada - isLoading=false');
       }
     };
 
     initializeAuth();
   }, []);
+
+  // Mantener token FCM sincronizado cuando Firebase lo renueva.
+  useEffect(() => {
+    if (!token) return;
+
+    const unsubscribe = onFCMTokenRefresh((newToken: string) => {
+      authService.registerFCMTokenValue(newToken).catch((err: any) => {
+        console.error('[FCM] Error syncing refreshed token:', err?.message);
+      });
+    });
+
+    return unsubscribe;
+  }, [token]);
 
   const login = useCallback(async (credentials: LoginRequest) => {
     try {
@@ -75,6 +144,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(response.user);
       StorageHelper.setItem('user', JSON.stringify(response.user));
       StorageHelper.setItem('authToken', response.token);
+      // 🔌 Conectar WebSocket
+      socketService.connect();
+
+      // Sincronizar isDriverMode con currentMode del usuario
+      if (response.user?.currentMode === 'driver') {
+        setIsDriverMode(true);
+      } else {
+        setIsDriverMode(false);
+      }
+
+      await requestInitialPermissions();
+    } catch (error) {
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -84,10 +166,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     async (authToken: string, userData: User) => {
       try {
         setIsLoading(true);
+
+        console.log('🔐 [LOGIN] Sesión iniciada:', {
+          userId: userData?.id,
+          email: userData?.email,
+        });
+
         setToken(authToken);
         setUser(userData);
         StorageHelper.setItem('user', JSON.stringify(userData));
         StorageHelper.setItem('authToken', authToken);
+        // 🔌 Conectar WebSocket
+        socketService.connect();
+
+        // Sincronizar isDriverMode con currentMode del usuario
+        if (userData?.currentMode === 'driver') {
+          setIsDriverMode(true);
+        } else {
+          setIsDriverMode(false);
+        }
+
+        await requestInitialPermissions();
       } finally {
         setIsLoading(false);
       }
@@ -101,6 +200,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await authService.logout();
       setUser(null);
       setToken(null);
+      setIsDriverMode(false);
+
+      // 🗑️ Limpiar estado de solicitud activa
+      StorageHelper.removeItem('activeRideState');
+      // 🔌 Desconectar WebSocket
+      socketService.disconnect();
+      console.log('🗑️ [AuthContext] Estado de solicitud limpiado en logout');
     } finally {
       setIsLoading(false);
     }
@@ -113,26 +219,46 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       setUser(response.user);
       StorageHelper.setItem('user', JSON.stringify(response.user));
+
+      await requestInitialPermissions();
+
       return response.user;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const updateUser = useCallback(
-    (updatedData: Partial<User>) => {
-      if (user) {
-        const newUser = { ...user, ...updatedData };
-        setUser(newUser);
+  const updateUser = useCallback((updatedData: Partial<User>) => {
+    setUser(prevUser => {
+      if (prevUser) {
+        const newUser = { ...prevUser, ...updatedData };
         StorageHelper.setItem('user', JSON.stringify(newUser));
+
+        // Sincronizar isDriverMode si currentMode cambió
+        if (updatedData.currentMode) {
+          setIsDriverMode(updatedData.currentMode === 'driver');
+        }
+
+        return newUser;
       }
-    },
-    [user],
-  );
+      return prevUser;
+    });
+  }, []);
 
   const setIsDriverModeCallback = useCallback((mode: boolean) => {
     setIsDriverMode(mode);
-    StorageHelper.setItem('driverMode', mode ? 'true' : 'false');
+    // Actualizar el user.currentMode también
+    setUser(prevUser => {
+      if (prevUser) {
+        const updatedUser: User = {
+          ...prevUser,
+          currentMode: mode ? 'driver' : 'passenger',
+        };
+        StorageHelper.setItem('user', JSON.stringify(updatedUser));
+        return updatedUser;
+      }
+      return prevUser;
+    });
   }, []);
 
   const refreshAuth = useCallback(async () => {

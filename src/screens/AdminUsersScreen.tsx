@@ -320,7 +320,7 @@ const AdminUsersScreen: React.FC<AdminUsersScreenProps> = ({ navigation }) => {
                     <Text style={styles.userRole}>
                       {user.role === 'admin' ? '👨‍💼 Admin' : '👤 User'}
                     </Text>
-                    {user.rating && user.rating > 0 && (
+                    {(user.rating ?? 0) > 0 && (
                       <Text style={styles.userRating}>⭐ {user.rating}</Text>
                     )}
                   </View>
@@ -371,7 +371,7 @@ const AdminUsersScreen: React.FC<AdminUsersScreenProps> = ({ navigation }) => {
                         : 'N/A'
                     }
                   />
-                  {selectedUser.rating && selectedUser.rating > 0 && (
+                  {(selectedUser.rating ?? 0) > 0 && (
                     <DetailRow
                       label="Rating"
                       value={`⭐ ${selectedUser.rating} / 5.0`}
@@ -390,13 +390,11 @@ const AdminUsersScreen: React.FC<AdminUsersScreenProps> = ({ navigation }) => {
                       onPress={handleDeleteUser}
                       disabled={isSubmitting}
                     >
-                      <Text style={styles.actionButtonText}>
-                        {isSubmitting ? (
-                          <ActivityIndicator color="#FFFFFF" size="small" />
-                        ) : (
-                          '⊘ Disable User'
-                        )}
-                      </Text>
+                      {isSubmitting ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <Text style={styles.actionButtonText}>⊘ Disable User</Text>
+                      )}
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
@@ -407,13 +405,11 @@ const AdminUsersScreen: React.FC<AdminUsersScreenProps> = ({ navigation }) => {
                       onPress={handleEnableUser}
                       disabled={isSubmitting}
                     >
-                      <Text style={styles.actionButtonText}>
-                        {isSubmitting ? (
-                          <ActivityIndicator color="#FFFFFF" size="small" />
-                        ) : (
-                          '✓ Enable User'
-                        )}
-                      </Text>
+                      {isSubmitting ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <Text style={styles.actionButtonText}>✓ Enable User</Text>
+                      )}
                     </TouchableOpacity>
                   )}
                 </View>

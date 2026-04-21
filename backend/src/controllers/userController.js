@@ -130,9 +130,62 @@ const verifyPhone = async (req, res) => {
   }
 };
 
+const updateCurrentMode = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { currentMode } = req.body;
+
+    // Validar que el modo sea válido
+    if (!currentMode || !['passenger', 'driver'].includes(currentMode)) {
+      return res.status(400).json({
+        error: 'Modo inválido. Debe ser "passenger" o "driver"',
+      });
+    }
+
+    // Si intenta cambiar a modo conductor, verificar que sea un conductor aprobado
+    if (currentMode === 'driver') {
+      const Driver = require('../models/Driver');
+      const driver = await Driver.findOne({
+        where: { userId, status: 'approved' },
+      });
+
+      if (!driver) {
+        return res.status(403).json({
+          error:
+            'No tienes permisos para ser conductor. Tu solicitud de registro aún no ha sido aprobada.',
+        });
+      }
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        error: 'Usuario no encontrado',
+      });
+    }
+
+    await user.update({ currentMode });
+
+    // Importar buildUserResponseObject desde authController
+    const authController = require('./authController');
+    const responseUser = await authController.buildUserResponseObject(user);
+
+    res.status(200).json({
+      message: `Modo cambiado a ${currentMode} correctamente`,
+      user: responseUser,
+    });
+  } catch (error) {
+    console.error('Error al cambiar modo:', error);
+    res.status(500).json({
+      error: 'Error al cambiar el modo',
+    });
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
   updateProfilePhoto,
   verifyPhone,
+  updateCurrentMode,
 };

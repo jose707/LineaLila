@@ -73,3 +73,7 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Secrets — NO subir al repositorio
+backend/.env
+backend/serviceAccountKey.json

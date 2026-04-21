@@ -1,27 +1,20 @@
 import auth from '@react-native-firebase/auth';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import messaging from '@react-native-firebase/messaging';
+import { Platform, PermissionsAndroid } from 'react-native';
 
-interface LoginCredentials {
-  email: string;
-  password: string;
-  phoneNumber: string;
-}
-
-interface OTPVerificationData {
-  verificationId: string;
-  code: string;
-}
+const GOOGLE_WEB_CLIENT_ID = '807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps.googleusercontent.com';
 
 /**
  * Send OTP to phone number
  */
 export const sendPhoneOTP = async (phoneNumber: string): Promise<string> => {
   try {
-    console.log(`📱 Sending OTP to: ${phoneNumber}`);
+    console.log(`ðŸ“± Sending OTP to: ${phoneNumber}`);
 
     const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
-    console.log('✅ OTP sent successfully');
+    console.log('âœ… OTP sent successfully');
 
     if (!confirmation.verificationId) {
       throw new Error('No verification ID received');
@@ -29,7 +22,7 @@ export const sendPhoneOTP = async (phoneNumber: string): Promise<string> => {
 
     return confirmation.verificationId;
   } catch (error: any) {
-    console.error('❌ Error sending OTP:', error);
+    console.error('âŒ Error sending OTP:', error);
     throw new Error(`Error sending OTP: ${error.message}`);
   }
 };
@@ -42,7 +35,7 @@ export const verifyPhoneOTP = async (
   code: string,
 ): Promise<FirebaseAuthTypes.UserCredential> => {
   try {
-    console.log(`🔐 Verifying OTP code`);
+    console.log(`ðŸ” Verifying OTP code`);
     console.log(`   Verification ID: ${verificationId?.substring(0, 20)}...`);
     console.log(`   Code: ${code}`);
     console.log(`   Code length: ${code.length}`);
@@ -50,28 +43,28 @@ export const verifyPhoneOTP = async (
     const credential = auth.PhoneAuthProvider.credential(verificationId, code);
     const userCredential = await auth().signInWithCredential(credential);
 
-    console.log('✅ OTP verified successfully');
+    console.log('âœ… OTP verified successfully');
     return userCredential;
   } catch (error: any) {
-    console.error('❌ Error verifying OTP:', error);
+    console.error('âŒ Error verifying OTP:', error);
     console.error('   Error code:', error.code);
     console.error('   Error message:', error.message);
     console.error('   Full error:', JSON.stringify(error));
 
-    // Mensajes de error más claros
+    // Mensajes de error mÃ¡s claros
     if (error.code === 'auth/invalid-verification-code') {
       throw new Error(
-        'El código de verificación es incorrecto. Verifica que sea el número de 6 dígitos correcto.',
+        'El cÃ³digo de verificaciÃ³n es incorrecto. Verifica que sea el nÃºmero de 6 dÃ­gitos correcto.',
       );
     } else if (error.code === 'auth/session-expired') {
-      throw new Error('El código expiró. Solicita uno nuevo.');
+      throw new Error('El cÃ³digo expirÃ³. Solicita uno nuevo.');
     } else if (error.code === 'auth/invalid-verification-id') {
       throw new Error(
-        'ID de verificación inválido. Intenta enviar el código nuevamente.',
+        'ID de verificaciÃ³n invÃ¡lido. Intenta enviar el cÃ³digo nuevamente.',
       );
     } else if (error.code === 'auth/missing-verification-code') {
       throw new Error(
-        'El código no se proporcionó. Verifica e intenta de nuevo.',
+        'El cÃ³digo no se proporcionÃ³. Verifica e intenta de nuevo.',
       );
     }
 
@@ -87,17 +80,17 @@ export const loginWithEmailPassword = async (
   password: string,
 ): Promise<FirebaseAuthTypes.UserCredential> => {
   try {
-    console.log(`📧 Logging in with email: ${email}`);
+    console.log(`ðŸ“§ Logging in with email: ${email}`);
 
     const userCredential = await auth().signInWithEmailAndPassword(
       email,
       password,
     );
-    console.log('✅ Login successful');
+    console.log('âœ… Login successful');
 
     return userCredential;
   } catch (error: any) {
-    console.error('❌ Error logging in:', error);
+    console.error('âŒ Error logging in:', error);
     throw new Error(`Login failed: ${error.message}`);
   }
 };
@@ -110,17 +103,17 @@ export const createUserWithEmailPassword = async (
   password: string,
 ): Promise<FirebaseAuthTypes.UserCredential> => {
   try {
-    console.log(`📧 Creating user with email: ${email}`);
+    console.log(`ðŸ“§ Creating user with email: ${email}`);
 
     const userCredential = await auth().createUserWithEmailAndPassword(
       email,
       password,
     );
-    console.log('✅ User created successfully');
+    console.log('âœ… User created successfully');
 
     return userCredential;
   } catch (error: any) {
-    console.error('❌ Error creating user:', error);
+    console.error('âŒ Error creating user:', error);
     throw new Error(`User creation failed: ${error.message}`);
   }
 };
@@ -141,9 +134,9 @@ export const updateUserPhoneNumber = async (
     }
 
     await user.linkWithCredential(credential);
-    console.log('✅ Phone number linked successfully');
+    console.log('âœ… Phone number linked successfully');
   } catch (error: any) {
-    console.error('❌ Error linking phone number:', error);
+    console.error('âŒ Error linking phone number:', error);
     throw new Error(`Error linking phone: ${error.message}`);
   }
 };
@@ -166,10 +159,10 @@ export const completePhoneAuth = async (
     const credential = auth.PhoneAuthProvider.credential(verificationId, code);
     await userCredential.user.linkWithCredential(credential);
 
-    console.log('✅ Phone authentication completed');
+    console.log('âœ… Phone authentication completed');
     return userCredential;
   } catch (error: any) {
-    console.error('❌ Error in phone authentication:', error);
+    console.error('âŒ Error in phone authentication:', error);
     throw new Error(`Authentication failed: ${error.message}`);
   }
 };
@@ -187,9 +180,9 @@ export const getCurrentUser = (): FirebaseAuthTypes.User | null => {
 export const signOut = async (): Promise<void> => {
   try {
     await auth().signOut();
-    console.log('✅ Signed out successfully');
+    console.log('âœ… Signed out successfully');
   } catch (error: any) {
-    console.error('❌ Error signing out:', error);
+    console.error('âŒ Error signing out:', error);
     throw error;
   }
 };
@@ -206,7 +199,7 @@ export const getAuthToken = async (): Promise<string | null> => {
     const token = await user.getIdToken();
     return token;
   } catch (error: any) {
-    console.error('❌ Error getting token:', error);
+    console.error('âŒ Error getting token:', error);
     return null;
   }
 };
@@ -223,9 +216,9 @@ export const initializeGoogleSignIn = async (): Promise<void> => {
       forceCodeForRefreshToken: true,
       profileImageSize: 120,
     });
-    console.log('✅ Google Sign-In configured');
+    console.log('âœ… Google Sign-In configured');
   } catch (error: any) {
-    console.error('❌ Error configuring Google Sign-In:', error);
+    console.error('âŒ Error configuring Google Sign-In:', error);
   }
 };
 
@@ -238,37 +231,36 @@ export const signInWithGoogle =
       // Ensure Google Sign-In is configured
       try {
         await GoogleSignin.configure({
-          webClientId:
-            '807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps.googleusercontent.com',
+          webClientId: GOOGLE_WEB_CLIENT_ID,
           offlineAccess: true,
           forceCodeForRefreshToken: true,
           profileImageSize: 120,
         });
-      } catch (e) {
+      } catch {
         // Configuration might already exist, continue
-        console.log('ℹ️ Google Sign-In already configured');
+        console.log('â„¹ï¸ Google Sign-In already configured');
       }
 
       // Check if Google Play Services are available
       const hasPlayServices = await GoogleSignin.hasPlayServices({
         showPlayServicesUpdateDialog: true,
       });
-      console.log(`📱 Google Play Services available: ${hasPlayServices}`);
+      console.log(`ðŸ“± Google Play Services available: ${hasPlayServices}`);
 
       // Ensure activity is ready - wait a bit before attempting sign in
-      console.log('⏳ Esperar a que el activity esté listo...');
+      console.log('â³ Esperar a que el activity estÃ© listo...');
       await new Promise(resolve => setTimeout(() => resolve(null), 800));
 
       // Try to get current user first to validate activity
       try {
         const currentUser = await GoogleSignin.getCurrentUser();
         if (currentUser) {
-          console.log('ℹ️ Already signed in, signing out first');
+          console.log('â„¹ï¸ Already signed in, signing out first');
           await GoogleSignin.signOut();
         }
-      } catch (e) {
+      } catch {
         // User not signed in, continue
-        console.log('ℹ️ No previous user session');
+        console.log('â„¹ï¸ No previous user session');
       }
 
       // Sign in with Google with retry logic built-in
@@ -278,13 +270,13 @@ export const signInWithGoogle =
 
       while (retries < maxRetries) {
         try {
-          console.log(`🔐 Google Sign-In attempt ${retries + 1}/${maxRetries}`);
+          console.log(`ðŸ” Google Sign-In attempt ${retries + 1}/${maxRetries}`);
           signInResult = await GoogleSignin.signIn();
-          console.log('✅ Google Sign-In user retrieved');
+          console.log('âœ… Google Sign-In user retrieved');
           break;
         } catch (signInError: any) {
           const errorMsg = signInError?.message || String(signInError);
-          console.error(`❌ Sign-in attempt ${retries + 1} failed:`, errorMsg);
+          console.error(`âŒ Sign-in attempt ${retries + 1} failed:`, errorMsg);
 
           if (
             errorMsg.includes('current activity is null') ||
@@ -293,7 +285,7 @@ export const signInWithGoogle =
             retries++;
             if (retries < maxRetries) {
               console.log(
-                `⏳ Activity no disponible, reintentando en 1 segundo... (${retries}/${maxRetries})`,
+                `â³ Activity no disponible, reintentando en 1 segundo... (${retries}/${maxRetries})`,
               );
               await new Promise(resolve =>
                 setTimeout(() => resolve(null), 1000),
@@ -324,35 +316,35 @@ export const signInWithGoogle =
         signInResult?.photo ||
         null;
 
-      console.log(`📧 Extracted Email: "${userEmail}"`);
-      console.log(`👤 Extracted Name: "${userName}"`);
-      console.log(`🖼️  Extracted Photo: "${userPhoto ? 'YES' : 'NO'}"`);
+      console.log(`ðŸ“§ Extracted Email: "${userEmail}"`);
+      console.log(`ðŸ‘¤ Extracted Name: "${userName}"`);
+      console.log(`ðŸ–¼ï¸  Extracted Photo: "${userPhoto ? 'YES' : 'NO'}"`);
 
       if (!userEmail) {
         console.error(
-          '❌ No email found in Google response:',
+          'âŒ No email found in Google response:',
           JSON.stringify(signInResult),
         );
         throw new Error('No se pudo obtener el correo de Google');
       }
 
-      console.log(`✅ Google Sign-In: ${userName} (${userEmail})`);
+      console.log(`âœ… Google Sign-In: ${userName} (${userEmail})`);
 
       // Get the ID token from Google
       const tokens: any = await GoogleSignin.getTokens();
-      console.log('✅ Google tokens retrieved');
+      console.log('âœ… Google tokens retrieved');
 
       const idToken = tokens?.idToken;
 
       if (!idToken) {
         console.error(
-          '❌ No ID token found in Google response:',
+          'âŒ No ID token found in Google response:',
           JSON.stringify(tokens),
         );
         throw new Error('No se pudo obtener el ID token de Google');
       }
 
-      console.log('🔐 Creating Firebase credential...');
+      console.log('ðŸ” Creating Firebase credential...');
 
       // Create Firebase credential with the Google ID token
       const googleCredential = auth.GoogleAuthProvider.credential(idToken);
@@ -375,10 +367,10 @@ export const signInWithGoogle =
         }
       }
 
-      console.log('✅ Google Sign-In successful');
-      console.log(`📧 Firebase UID: ${userCredential.user.uid}`);
-      console.log(`📧 User Email: ${userEmail}`);
-      console.log(`📧 User Name: ${userName}`);
+      console.log('âœ… Google Sign-In successful');
+      console.log(`ðŸ“§ Firebase UID: ${userCredential.user.uid}`);
+      console.log(`ðŸ“§ User Email: ${userEmail}`);
+      console.log(`ðŸ“§ User Name: ${userName}`);
 
       // Store the original Google email and name since Firebase might have created a temporary one
       return {
@@ -392,7 +384,106 @@ export const signInWithGoogle =
         } as any,
       };
     } catch (error: any) {
-      console.error('❌ Error in Google Sign-In:', error.message);
+      console.error('âŒ Error in Google Sign-In:', error.message);
       throw error;
     }
   };
+
+// --- FCM Push Notifications ----------------------------------------------
+
+const ensureMessagingReady = async (): Promise<void> => {
+  try {
+    await messaging().setAutoInitEnabled(true);
+    await messaging().registerDeviceForRemoteMessages();
+  } catch (error: any) {
+    // Android often works without explicit registerDeviceForRemoteMessages.
+    console.log('[FCM] registerDeviceForRemoteMessages skipped:', error?.message);
+  }
+};
+
+export const requestNotificationPermission = async (): Promise<boolean> => {
+  try {
+    await ensureMessagingReady();
+
+    if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      );
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        console.log('[FCM] Native POST_NOTIFICATIONS permission denied');
+        return false;
+      }
+    }
+
+    const authStatus = await messaging().requestPermission();
+    const enabled =
+      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+    console.log(
+      enabled ? '[FCM] Notification permission granted' : '[FCM] Notification permission denied',
+    );
+    return enabled;
+  } catch (error: any) {
+    console.error('[FCM] Error requesting permission:', error.message);
+    return false;
+  }
+};
+
+export const getFCMToken = async (): Promise<string | null> => {
+  try {
+    await ensureMessagingReady();
+    const token = await messaging().getToken();
+    console.log('[FCM] Token:', token.substring(0, 20) + '...');
+    return token;
+  } catch (error: any) {
+    console.error('[FCM] Error getting token:', error.message);
+    return null;
+  }
+};
+
+export const registerFCMTokenWithBackend = async (
+  apiBaseUrl: string,
+  jwtToken: string,
+): Promise<void> => {
+  try {
+    const granted = await requestNotificationPermission();
+    if (!granted) return;
+
+    const fcmToken = await getFCMToken();
+    if (!fcmToken) return;
+
+    const res = await fetch(apiBaseUrl + '/api/notifications/register-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + jwtToken,
+      },
+      body: JSON.stringify({ token: fcmToken }),
+    });
+
+    if (res.ok) console.log('[FCM] Token registered in backend');
+  } catch (error: any) {
+    console.error('[FCM] Error registering token in backend:', error.message);
+  }
+};
+
+export const onForegroundNotification = (
+  callback: (
+    title: string,
+    body: string,
+    data: Record<string, string>,
+  ) => void,
+) =>
+  messaging().onMessage(async msg => {
+    callback(
+      msg.notification?.title ?? '',
+      msg.notification?.body ?? '',
+      (msg.data ?? {}) as Record<string, string>,
+    );
+  });
+
+export const onFCMTokenRefresh = (callback: (token: string) => void) =>
+  messaging().onTokenRefresh((token: string) => {
+    callback(token);
+  });
