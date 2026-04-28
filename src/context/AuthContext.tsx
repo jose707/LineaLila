@@ -60,7 +60,19 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // MODO DISEÑO: Forzar SplashScreen siempre visible
   const [isLoading, setIsLoading] = useState(true);
+
+  // DESCOMENTAR ESTA LÍNEA PARA VOLVER AL COMPORTAMIENTO NORMAL
+  // const [isLoading, setIsLoading] = useState(true);
+
+  // Forzar isLoading a true siempre
+  // Esto hace que RootNavigator muestre SplashScreen todo el tiempo
+  // Puedes quitarlo cuando termines de ajustar el diseño
+  // eslint-disable-next-line
+  useEffect(() => {
+    setIsLoading(true);
+  }, []);
   const [isDriverMode, setIsDriverMode] = useState(false);
 
   // Inicializar sesión al montar
@@ -114,8 +126,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } catch (error) {
         console.error('Error initializing auth:', error);
       } finally {
+        // MODO DISEÑO: Comentado para mantener SplashScreen visible
         setIsLoading(false);
-        console.log('🔐 [INIT] Inicialización completada - isLoading=false');
+        console.log(
+          '🔐 [INIT] Inicialización completada - isLoading=true (MODO DISEÑO)',
+        );
       }
     };
 

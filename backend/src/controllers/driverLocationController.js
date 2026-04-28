@@ -38,8 +38,6 @@ exports.updateLocation = async (req, res) => {
       });
     }
 
-    // Create or update location
-    // Note: longitude comes first in WGS84 format (POINT(lng lat))
     const point = sequelize.where(
       sequelize.fn('ST_GeomFromText', `POINT(${longitude} ${latitude})`, 4326),
       sequelize.col('location'),

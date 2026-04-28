@@ -1,149 +1,129 @@
-// src/screens/SplashScreen.tsx
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
-  ActivityIndicator,
-  Image,
   Animated,
-} from "react-native";
-import { useAuth } from "../hooks/useAuth";
-import { COLORS } from "../theme/colors";
+  StatusBar,
+  Dimensions,
+  Image,
+  ActivityIndicator,
+} from 'react-native';
+import SplashImage from '../../assets/splash.png';
+import { useAuth } from '../hooks/useAuth';
+import { COLORS } from '../theme/colors';
 
 export default function SplashScreen() {
   const { isLoading } = useAuth();
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  const fade = useRef(new Animated.Value(0)).current;
+  const move = useRef(new Animated.Value(30)).current;
+
+  // Detectar si es tablet
+  const screenWidth = Dimensions.get('window').width;
+  const isTablet = screenWidth >= 768; // iPad y tablets tienen ancho >= 768
+  const resizeMode = isTablet ? 'contain' : 'cover';
 
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 1000,
-      useNativeDriver: true,
-    }).start();
-  }, [fadeAnim]);
+    Animated.parallel([
+      Animated.timing(fade, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(move, {
+        toValue: 0,
+        duration: 1200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   return (
-    <View style={styles.container}>
-      <Animated.View style={{ ...styles.content, opacity: fadeAnim }}>
-        {/* Logo placeholder */}
-        <View style={styles.logoContainer}>
-          <View style={styles.logo}>
-            <View style={styles.logoBgPurple} />
-          </View>
-        </View>
-
-        {/* App name */}
-        <View style={styles.titleContainer}>
-          <View style={styles.titlePurple}>
-            <View style={styles.titlePinkLeft} />
-            <View style={styles.titlePinkRight} />
-          </View>
-        </View>
-
-        {/* Tagline */}
-        <View style={styles.taglineContainer}>
-          <View style={styles.tagline} />
-        </View>
-
-        {/* Loading indicator */}
+    <View style={styles.fullScreen}>
+      <Image
+        source={SplashImage}
+        style={styles.fullImage}
+        resizeMode={resizeMode}
+      />
+      <Animated.View
+        style={{
+          opacity: fade,
+          position: 'absolute',
+          width: '100%',
+          height: '100%',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
         {isLoading && (
           <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+            <ActivityIndicator size="large" color={COLORS.primaryLight} />
           </View>
         )}
       </Animated.View>
-
-      {/* Bottom text */}
-      <View style={styles.footer}>
-        <View style={styles.footerText} />
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  fullScreen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingBottom: 60,
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
-  content: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoContainer: {
-    marginBottom: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+
   logo: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: COLORS.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    fontSize: 52,
+    fontWeight: '900',
+    color: '#FFF',
+    letterSpacing: 1,
   },
-  logoBgPurple: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.secondary,
+
+  subtitle: {
+    marginTop: 10,
+    color: '#EEE',
+    fontSize: 18,
+    marginBottom: 60,
   },
-  titleContainer: {
-    marginBottom: 16,
-    alignItems: "center",
+
+  road: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderStyle: 'dashed',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    transform: [{ rotate: '25deg' }],
   },
-  titlePurple: {
-    height: 50,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
+
+  pin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFF',
+    marginBottom: -12,
   },
-  titlePinkLeft: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: COLORS.secondary,
-    marginRight: 8,
+
+  loading: {
+    marginTop: 50,
+    color: '#FFF',
+    opacity: 0.8,
   },
-  titlePinkRight: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: COLORS.secondary,
-    marginLeft: 8,
-  },
-  taglineContainer: {
-    marginBottom: 50,
-    alignItems: "center",
-  },
-  tagline: {
-    width: 150,
-    height: 20,
-    backgroundColor: "#E5E5E5",
-    borderRadius: 10,
+  fullImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height,
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   loaderContainer: {
-    marginTop: 40,
-  },
-  footer: {
-    position: "absolute",
-    bottom: 40,
-    alignItems: "center",
-  },
-  footerText: {
-    width: 200,
-    height: 16,
-    backgroundColor: "#E5E5E5",
-    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
-
