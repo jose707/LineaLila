@@ -1,5 +1,5 @@
 // screens/SearchScreen.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   BackHandler,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -19,6 +21,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { CommonActions } from '@react-navigation/native';
+import Geolocation from '@react-native-community/geolocation';
 import SearchBar, { SearchResult } from '../components/SearchBar';
 import { MapPin, X, Plus, ArrowUpDown } from 'lucide-react-native';
 import { SEARCHSCREEN_COLORS as C } from '../theme/colors';
@@ -60,6 +63,32 @@ const SearchScreen = () => {
   }, []);
 
   const [stops, setStops] = useState<Stop[]>(initialStops);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const getLocation = async () => {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+      }
+      Geolocation.getCurrentPosition(
+        pos => {
+          setUserLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+      );
+    };
+    getLocation();
+  }, []);
 
   const isStopFilled = (stop: Stop) =>
     stop.address !== '' &&
@@ -288,6 +317,8 @@ const SearchScreen = () => {
                             onResultSelect={(result) =>
                               handleStopSelect(index, result)
                             }
+                            currentLat={userLocation?.latitude}
+                            currentLon={userLocation?.longitude}
                             leftIcon={<MapPin size={22} color="#7C3AED" strokeWidth={2.5} />}
                             onLeftIconPress={() => goBackWithPicking(index)}
                           />
