@@ -80,7 +80,8 @@ const TRAFFIC_CORRECTION_FACTOR = 3;
 const PIN_BODY_SIZE = 48; // width & height of the circle
 const PIN_TIP_SIZE = 12; // diamond tip
 const PIN_BUBBLE_H = 38; // approx bubble height + gap
-const PIN_SHIFT_UP = 120;
+const PIN_SHIFT_UP = 240;
+const PIN_VISUAL_HEIGHT = 108; // bubble(~42) + head(38) + stem(28)
 
 const CUSTOM_MAP_STYLE = [
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#DCDDE2' }] },
@@ -119,10 +120,12 @@ const Icon = {
   MyLocation: ({
     size = 20,
     color = T.accent,
+    strokeWidth,
   }: {
     size?: number;
     color?: string;
-  }) => <LocateFixed size={size} color={color} />,
+    strokeWidth?: number;
+  }) => <LocateFixed size={size} color={color} strokeWidth={strokeWidth} />,
   Menu: ({ size = 20, color = T.ink }: { size?: number; color?: string }) => (
     <Menu size={size} color={color} />
   ),
@@ -164,20 +167,24 @@ const Icon = {
   Star: ({
     size = 14,
     color = '#F59E0B',
+    filled = true,
   }: {
     size?: number;
     color?: string;
-  }) => <Star size={size} color={color} fill={color} />,
+    filled?: boolean;
+  }) => <Star size={size} color={color} fill={filled ? color : 'transparent'} />,
   Car: ({ size = 18, color = T.accent }: { size?: number; color?: string }) => (
     <Car size={size} color={color} />
   ),
   User: ({
     size = 20,
     color = T.inkMid,
+    strokeWidth,
   }: {
     size?: number;
     color?: string;
-  }) => <User size={size} color={color} />,
+    strokeWidth?: number;
+  }) => <User size={size} color={color} strokeWidth={strokeWidth} />,
   History: ({
     size = 20,
     color = T.inkMid,
@@ -469,6 +476,7 @@ const MapScreen = () => {
     farePerMinute: 0.58,
   });
   const [recentTrips, setRecentTrips] = useState<any[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   const mapRef = useRef<MapView>(null);
   const lastRegionChangeTime = useRef(0);
@@ -804,13 +812,30 @@ const MapScreen = () => {
     cleanExpiredCache();
   }, []);
 
-  // Cargar viajes recientes
+  // Cargar viajes recientes y favoritos
   useEffect(() => {
     const loadRecentTrips = async () => {
       const trips = await cacheTripHistoryManager.getTrips();
       setRecentTrips(trips.slice(0, 3));
+      const saved = StorageHelper.getItem('favoriteTripIds');
+      if (saved) {
+        setFavoriteIds(new Set(JSON.parse(saved)));
+      }
     };
     loadRecentTrips();
+  }, []);
+
+  const toggleFavorite = useCallback((tripId: string) => {
+    setFavoriteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(tripId)) {
+        next.delete(tripId);
+      } else {
+        next.add(tripId);
+      }
+      StorageHelper.setItem('favoriteTripIds', JSON.stringify([...next]));
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -947,7 +972,16 @@ const MapScreen = () => {
     if (now - lastRegionChangeTime.current < 300) return;
     if (isManualCenteringRef.current) return;
     lastRegionChangeTime.current = now;
-    const center = { latitude: region.latitude, longitude: region.longitude };
+
+    // Calculate coordinate at pin tip, not map center
+    const h = mapWrapDimensions.height;
+    const pixelOffsetUp = PIN_SHIFT_UP - PIN_VISUAL_HEIGHT;
+    const latOffset = h > 0 ? (pixelOffsetUp / h) * region.latitudeDelta : 0;
+    const center = {
+      latitude: region.latitude + latOffset,
+      longitude: region.longitude,
+    };
+
     setMapCenterLocation(center);
     if (!pickupLocation || pickingMode !== null) {
       try {
@@ -974,7 +1008,6 @@ const MapScreen = () => {
       if (a.road && a.house_number) parts.push(`${a.road} ${a.house_number}`);
       else if (a.road) parts.push(a.road);
       if (a.neighbourhood || a.suburb) parts.push(a.neighbourhood || a.suburb);
-      if (a.city || a.town) parts.push(a.city || a.town);
       const addr =
         parts.length > 0
           ? parts.join(', ')
@@ -1056,7 +1089,12 @@ const MapScreen = () => {
       setShowMarker(true);
       isManualCenteringRef.current = true;
       mapRef.current?.animateToRegion(
-        { ...loc, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+        {
+          latitude: loc.latitude - 0.003,
+          longitude: loc.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
         500,
       );
       setTimeout(() => {
@@ -1445,7 +1483,7 @@ const MapScreen = () => {
           mapType="standard"
           customMapStyle={CUSTOM_MAP_STYLE}
           userInterfaceStyle="light"
-          mapPadding={{ top: 0, right: 0, bottom: 400, left: 0 }}
+          mapPadding={{ top: 0, right: 0, bottom: 0, left: 0 }}
           onMapReady={() => { }}
           onRegionChangeComplete={handleRegionChangeComplete}
         >
@@ -1515,7 +1553,7 @@ const MapScreen = () => {
                 shadowRadius: 4,
                 elevation: 4,
               }}>
-                <Icon.User size={26} color="#000000" />
+                <Icon.User size={26} color="#000000" strokeWidth={2.5} />
               </View>
             </TouchableOpacity>
           </View>
@@ -1527,11 +1565,14 @@ const MapScreen = () => {
             style={[
               s.locBtn,
               {
+                position: 'absolute',
+                right: 16,
                 bottom: destinationLocation
                   ? Platform.OS === 'android'
                     ? 10
                     : 370 + insets.bottom
-                  : 400,
+                  : 390,
+                zIndex: 10,
               },
             ]}
             onPress={() => centerToUserLocation(true)}
@@ -1540,7 +1581,7 @@ const MapScreen = () => {
             {locationLoading ? (
               <ActivityIndicator size="small" color={T.accent} />
             ) : (
-              <Icon.MyLocation size={30} color={T.accent} />
+              <Icon.MyLocation size={30} color="#000000" strokeWidth={2.2} />
             )}
           </TouchableOpacity>
         )}
@@ -1614,8 +1655,16 @@ const MapScreen = () => {
                         {trip.pickupAddress || trip.pickupLocation?.address}
                       </Text>
                     </View>
-                    <TouchableOpacity style={s.recentTripStar}>
-                      <Icon.Star size={18} color="#7C3AED" />
+                    <TouchableOpacity
+                      style={s.recentTripStar}
+                      onPress={() => toggleFavorite(trip.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Icon.Star
+                        size={20}
+                        color="#7C3AED"
+                        filled={favoriteIds.has(trip.id)}
+                      />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 ))}
@@ -2103,7 +2152,7 @@ const s = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 20,
+    paddingTop: 16,
     paddingBottom: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
@@ -2116,7 +2165,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderRadius: 16,
     marginHorizontal: 16,
     borderWidth: 1,
@@ -2129,19 +2178,19 @@ const s = StyleSheet.create({
   scheduleBtnActive: { backgroundColor: '#7C3AED' },
   scheduleBtnText: { fontSize: 14, color: '#7C3AED', fontWeight: '600' },
   scheduleBtnTextActive: { color: '#FFFFFF' },
-  quickDestinations: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, paddingTop: 16, paddingBottom: 16, gap: 8 },
+  quickDestinations: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, gap: 8 },
   quickDestItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, borderWidth: 1, borderColor: '#E5E5EA' },
   quickDestContent: { flexDirection: 'column' },
   quickDestIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   quickDestText: { fontSize: 14, color: '#000000', fontWeight: '500' },
   quickDestAdd: { fontSize: 11, color: '#999999', fontWeight: '400' },
-  recentTripsSection: { paddingHorizontal: 24, paddingBottom: 16 },
-  recentTripItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12 },
-  recentTripsTitle: { fontSize: 12, color: '#999999', fontWeight: '600', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  recentTripsSection: { paddingHorizontal: 24, paddingBottom: 10 },
+  recentTripItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
+  recentTripsTitle: { fontSize: 12, color: '#999999', fontWeight: '600', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   recentTripIcon: { width: 40, height: 40, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   recentTripContent: { flex: 1 },
-  recentTripText: { fontSize: 14, color: '#000000', fontWeight: '500' },
-  recentTripSubtext: { fontSize: 12, color: '#999999', fontWeight: '400', marginTop: 2 },
+  recentTripText: { fontSize: 15, color: '#000000', fontWeight: '500' },
+  recentTripSubtext: { fontSize: 13, color: '#999999', fontWeight: '400', marginTop: 2 },
   recentTripStar: { padding: 4 },
 
   // ── MAP MARKERS ───────────────────────────────────────────────────────────
