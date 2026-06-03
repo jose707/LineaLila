@@ -5,6 +5,7 @@ import './src/services/firebase-init';
 import * as firebaseService from './src/services/firebase.service';
 
 import { AuthProvider } from './src/context/AuthContext';
+import { SettingsProvider } from './src/context/SettingsContext';
 import RootNavigator from './src/navigation/RootNavigator';
 
 export default function App() {
@@ -26,11 +27,13 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <NavigationContainer>
-        {/* En React Native puro, barStyle puede ser 'dark-content' o 'light-content' */}
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <RootNavigator />
-      </NavigationContainer>
+      <SettingsProvider>
+        <NavigationContainer>
+          {/* En React Native puro, barStyle puede ser 'dark-content' o 'light-content' */}
+          <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+          <RootNavigator />
+        </NavigationContainer>
+      </SettingsProvider>
     </AuthProvider>
   );
 }

@@ -12,9 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { ridesService } from '../services/rides.service';
+import { Menu, X } from 'lucide-react-native';
 
 const T = {
-  bg: '#FAFAFA',
+  bg: '#FFFFFF',
   white: '#FFFFFF',
   ink: '#2D2D2D',
   inkMid: '#666666',
@@ -39,6 +40,7 @@ const RideHistoryScreen = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const loadHistory = useCallback(
     async (refresh = false) => {
@@ -172,31 +174,48 @@ const RideHistoryScreen = () => {
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}
         >
-          <Text style={s.backArrow}>←</Text>
+          <X size={24} color={T.accent} strokeWidth={2.8} />
         </TouchableOpacity>
         <Text style={s.title}>Mis Viajes</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity
+          style={s.menuBtn}
+          onPress={() => setMenuVisible(!menuVisible)}
+          activeOpacity={0.7}
+        >
+          <Menu size={24} color={T.accent} strokeWidth={2.8} />
+        </TouchableOpacity>
       </View>
 
-      {/* Filtros */}
-      <View style={s.filters}>
-        {(['all', 'completed', 'cancelled'] as FilterStatus[]).map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[s.chip, filter === f && s.chipActive]}
-            onPress={() => setFilter(f)}
-            activeOpacity={0.7}
-          >
-            <Text style={[s.chipText, filter === f && s.chipTextActive]}>
-              {f === 'all'
-                ? `Todos (${rides.length})`
-                : f === 'completed'
-                ? `Completados (${count('completed')})`
-                : `Cancelados (${count('cancelled')})`}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {/* Menu Hamburguesa Desplegable (Filtros) */}
+      {menuVisible && (
+        <TouchableOpacity
+          style={s.overlay}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <View style={s.dropdown}>
+            {(['all', 'completed', 'cancelled'] as FilterStatus[]).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[s.dropdownItem, filter === f && s.dropdownItemActive]}
+                onPress={() => {
+                  setFilter(f);
+                  setMenuVisible(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.dropdownText, filter === f && s.dropdownTextActive]}>
+                  {f === 'all'
+                    ? `Todos (${rides.length})`
+                    : f === 'completed'
+                    ? `Completados (${count('completed')})`
+                    : `Cancelados (${count('cancelled')})`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* Contenido */}
       {isLoading ? (
@@ -258,32 +277,56 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: T.white,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
   },
   backBtn: { width: 40, alignItems: 'flex-start' },
-  backArrow: { fontSize: 26, color: T.accent, fontWeight: '600' },
   title: { fontSize: 18, fontWeight: '700', color: T.ink },
-  filters: {
-    flexDirection: 'row',
-    gap: 8,
+  menuBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: 56,
+    right: 16,
+    backgroundColor: T.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.border,
+    paddingVertical: 6,
+    width: 190,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1001,
+  },
+  dropdownItem: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: T.white,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    backgroundColor: T.white,
+  dropdownItemActive: {
+    backgroundColor: T.accentSoft,
   },
-  chipActive: { backgroundColor: T.accent, borderColor: T.accent },
-  chipText: { fontSize: 12, fontWeight: '600', color: T.inkMid },
-  chipTextActive: { color: T.white },
+  dropdownText: {
+    fontSize: 14,
+    color: T.ink,
+    fontWeight: '500',
+  },
+  dropdownTextActive: {
+    color: T.accent,
+    fontWeight: '600',
+  },
   list: { padding: 16, paddingBottom: 40, gap: 12 },
   card: {
     backgroundColor: T.white,

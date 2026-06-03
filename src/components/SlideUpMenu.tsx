@@ -115,9 +115,9 @@ export const SlideUpMenu: React.FC<SlideUpMenuProps> = ({
 
         <View style={styles.menuUser}>
           <View style={[styles.menuAvatar, { backgroundColor: T.avatarBg }]}>
-            {user?.profilePhoto ? (
+            {user?.profilePhoto || (user as any)?.photoURL ? (
               <Image
-                source={{ uri: user.profilePhoto }}
+                source={{ uri: user.profilePhoto || (user as any).photoURL }}
                 style={{ width: 50, height: 50, borderRadius: 25 }}
               />
             ) : (
@@ -259,4 +259,5 @@ const styles = StyleSheet.create({
   },
 });
 
+export { SlideUpMenu };
 export default SlideUpMenu;

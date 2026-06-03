@@ -35,13 +35,16 @@ import {
   ArrowRight,
   Banknote,
   Bell,
+  Briefcase,
   Car,
   Check,
   ChevronRight,
   CircleHelp,
   Clock,
   History,
+  Home,
   LocateFixed,
+  MapPin,
   Menu,
   MessageCircle,
   Minus,
@@ -52,7 +55,7 @@ import {
   User,
   X,
 } from 'lucide-react-native';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { SlideUpMenu } from '../components/SlideUpMenu';
 import { useAuth } from '../hooks/useAuth';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
@@ -77,7 +80,20 @@ const TRAFFIC_CORRECTION_FACTOR = 3;
 const PIN_BODY_SIZE = 48; // width & height of the circle
 const PIN_TIP_SIZE = 12; // diamond tip
 const PIN_BUBBLE_H = 38; // approx bubble height + gap
-const PIN_SHIFT_UP = PIN_BODY_SIZE + PIN_TIP_SIZE / 2 + PIN_BUBBLE_H + 8;
+const PIN_SHIFT_UP = 120;
+
+const CUSTOM_MAP_STYLE = [
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#DCDDE2' }] },
+  { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#DCDDE2' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#C0C0C0' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#E7E8ED' }] },
+  { featureType: 'building', elementType: 'geometry', stylers: [{ color: '#E7E8ED' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#c8e6c9' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#bbdefb' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#E7E8ED' }] },
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#F7F6F3' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#DCDDE2' }] },
+];
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 type MapScreenNavigationProp = NativeStackNavigationProp<
@@ -225,6 +241,15 @@ const Icon = {
     size?: number;
     color?: string;
   }) => <MessageCircle size={size} color={color} />,
+  Home: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
+    <Home size={size} color={color} />
+  ),
+  Briefcase: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
+    <Briefcase size={size} color={color} />
+  ),
+  MapPin: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
+    <MapPin size={size} color={color} />
+  ),
 };
 
 const FloatingPin = ({
@@ -281,13 +306,11 @@ const FloatingPin = ({
           </View>
         )}
 
-        {/* Circle body */}
-        <View style={[s.pinBody, mode === 'destination' && { backgroundColor: T.accent }]}>
-          <View style={[s.pinCenter, mode === 'destination' && { backgroundColor: T.white }]} />
+        {/* Lollipop pin: head + stem */}
+        <View style={s.pinHead}>
+          <View style={s.pinHole} />
         </View>
-
-        {/* Diamond tip — points DOWN at the map center */}
-        <View style={[s.pinTip, mode === 'destination' && { backgroundColor: T.accent, borderTopColor: T.accent, borderLeftColor: T.accent }]} />
+        <View style={s.pinStem} />
       </View>
     </View>
   );
@@ -400,6 +423,11 @@ const MapScreen = () => {
     null,
   );
   const [destinationAddress, setDestinationAddress] = useState('');
+  const [waypoints, setWaypoints] = useState<
+    { latitude: number; longitude: number; address: string }[]
+  >([]);
+  const [allStops, setAllStops] = useState<Stop[]>([]);
+  const [editingStopIndex, setEditingStopIndex] = useState<number | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [showMarker, setShowMarker] = useState(true);
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
@@ -425,6 +453,7 @@ const MapScreen = () => {
     useState<string>('taxi');
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<string>('cash');
+  const [scheduleRide, setScheduleRide] = useState(false);
   const [, setRenderTrigger] = useState(0);
   const [mapWrapDimensions, setMapWrapDimensions] = useState({
     width: 0,
@@ -439,6 +468,7 @@ const MapScreen = () => {
     farePerKm: 0.5,
     farePerMinute: 0.58,
   });
+  const [recentTrips, setRecentTrips] = useState<any[]>([]);
 
   const mapRef = useRef<MapView>(null);
   const lastRegionChangeTime = useRef(0);
@@ -774,45 +804,51 @@ const MapScreen = () => {
     cleanExpiredCache();
   }, []);
 
+  // Cargar viajes recientes
+  useEffect(() => {
+    const loadRecentTrips = async () => {
+      const trips = await cacheTripHistoryManager.getTrips();
+      setRecentTrips(trips.slice(0, 3));
+    };
+    loadRecentTrips();
+  }, []);
+
   useEffect(() => {
     if (!route.params) return;
     const p = route.params as any;
     if (p.reset) {
       resetAll();
       setPickingMode(null);
+      setWaypoints([]);
+      setAllStops([]);
+      setEditingStopIndex(null);
       return;
     }
-
     if (p.pickingMode) {
       setPickingMode(p.pickingMode);
       setPickupLocation(p.pickupLocation || null);
       if (p.pickupAddress) setPickupAddress(p.pickupAddress);
       setDestinationLocation(p.destinationLocation || null);
       if (p.destinationAddress) setDestinationAddress(p.destinationAddress);
-      setRouteInfo(null);
-      setRouteCoordinates([]);
-      setSuggestedFare(null);
-      setShowMarker(true);
+      setEditingStopIndex(p.editingStopIndex ?? null);
+      setAllStops(p.stops || []);
+      if (p.stops && p.stops.length > 2) {
+        const mid = p.stops.slice(1, p.stops.length - 1).filter((s: any) => s.location?.latitude !== 0 && s.location?.longitude !== 0 && s.address !== '');
+        setWaypoints(mid.map((s: any) => ({ latitude: s.location.latitude, longitude: s.location.longitude, address: s.address })));
+      } else setWaypoints([]);
+      setRouteInfo(null); setRouteCoordinates([]); setSuggestedFare(null); setShowMarker(true);
       return;
     }
-
-    if (p.pickupLocation) {
-      setPickupLocation(p.pickupLocation);
-      setShowMarker(false);
-      setTempPickupAddress(p.pickupAddress || '');
-    }
-    if (p.destinationLocation) {
-      setDestinationLocation(p.destinationLocation);
-      setDestinationAddress(p.destinationAddress || '');
-    } else {
-      setDestinationLocation(null);
-      setDestinationAddress('');
-    }
-    if (p.pickupAddress) {
-      setPickupAddress(p.pickupAddress);
-      setTempPickupAddress(p.pickupAddress);
-    }
+    if (p.pickupLocation) { setPickupLocation(p.pickupLocation); setShowMarker(false); setTempPickupAddress(p.pickupAddress || ''); }
+    if (p.destinationLocation) setDestinationLocation(p.destinationLocation); else setDestinationLocation(null);
+    if (p.destinationAddress) setDestinationAddress(p.destinationAddress); else setDestinationAddress('');
+    if (p.pickupAddress) { setPickupAddress(p.pickupAddress); setTempPickupAddress(p.pickupAddress); }
     if (p.destinationAddress) setDestinationAddress(p.destinationAddress);
+    if (p.stops && p.stops.length > 2) {
+      const mid = p.stops.slice(1, p.stops.length - 1).filter((s: any) => s.location?.latitude !== 0 && s.location?.longitude !== 0 && s.address !== '');
+      setWaypoints(mid.map((s: any) => ({ latitude: s.location.latitude, longitude: s.location.longitude, address: s.address })));
+      setAllStops(p.stops);
+    } else { setWaypoints([]); setAllStops([]); }
   }, [route.params]);
 
   const calculateRouteMemo = useCallback(() => {
@@ -821,7 +857,7 @@ const MapScreen = () => {
       setRouteInfo(null);
       setRouteCoordinates([]);
     }
-  }, [pickupLocation, destinationLocation]);
+  }, [pickupLocation, destinationLocation, waypoints]);
   useEffect(() => {
     calculateRouteMemo();
   }, [calculateRouteMemo]);
@@ -1394,21 +1430,10 @@ const MapScreen = () => {
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       {/* MAP CONTAINER — pin is a sibling of MapView so it never scrolls */}
-      <View
-        style={[
-          s.mapWrap,
-          {
-            paddingBottom:
-              Platform.OS === 'android'
-                ? Math.max(insets.bottom, 100)
-                : insets.bottom,
-          },
-        ]}
+      <View style={s.mapWrapper}
         onLayout={e => {
-          setMapWrapDimensions({
-            width: e.nativeEvent.layout.width,
-            height: e.nativeEvent.layout.height,
-          });
+          const { width, height } = e.nativeEvent.layout;
+          setMapWrapDimensions({ width, height });
         }}
       >
         <MapView
@@ -1418,6 +1443,9 @@ const MapScreen = () => {
           showsMyLocationButton={false}
           showsCompass={false}
           mapType="standard"
+          customMapStyle={CUSTOM_MAP_STYLE}
+          userInterfaceStyle="light"
+          mapPadding={{ top: 0, right: 0, bottom: 400, left: 0 }}
           onMapReady={() => { }}
           onRegionChangeComplete={handleRegionChangeComplete}
         >
@@ -1432,18 +1460,28 @@ const MapScreen = () => {
           )}
           {pickupLocation && (
             <Marker coordinate={pickupLocation} title="Origen">
-              <View style={s.dotGray}>
-                <View style={s.dotGrayInner} />
+              <View style={{ alignItems: 'center' }}>
+                <Text style={s.markerLabelTxt}>Origen</Text>
+                <View style={s.markerDotLila} />
               </View>
             </Marker>
           )}
           {destinationLocation && (
             <Marker coordinate={destinationLocation} title="Destino">
-              <View style={s.dotBlue}>
-                <View style={s.dotBlueInner} />
+              <View style={{ alignItems: 'center' }}>
+                <Text style={s.markerLabelTxt}>Destino</Text>
+                <View style={s.markerDotLila} />
               </View>
             </Marker>
           )}
+          {waypoints.map((wp, idx) => (
+            <Marker key={`wp-${idx}`} coordinate={{ latitude: wp.latitude, longitude: wp.longitude }} title={`Parada ${idx + 1}`}>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={s.markerLabelTxt}>{idx + 1}</Text>
+                <View style={s.markerDotLila} />
+              </View>
+            </Marker>
+          ))}
         </MapView>
 
         {/* ── FLOATING PIN — rendered over the map, stationary ── */}
@@ -1461,10 +1499,24 @@ const MapScreen = () => {
           <View style={[s.topBar, { top: 20 }]}>
             <TouchableOpacity
               style={s.iconBtn}
-              onPress={() => setShowClientMenu(true)}
+              onPress={() => navigation.navigate('Profile')}
               activeOpacity={0.8}
             >
-              <Icon.Menu size={30} color={T.accent} />
+              <View style={{
+                width: 50,
+                height: 50,
+                borderRadius: 25,
+                backgroundColor: '#FFFFFF',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 4,
+              }}>
+                <Icon.User size={26} color="#000000" />
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -1479,9 +1531,7 @@ const MapScreen = () => {
                   ? Platform.OS === 'android'
                     ? 10
                     : 370 + insets.bottom
-                  : Platform.OS === 'android'
-                    ? 115
-                    : insets.bottom + 24,
+                  : 400,
               },
             ]}
             onPress={() => centerToUserLocation(true)}
@@ -1495,23 +1545,83 @@ const MapScreen = () => {
           </TouchableOpacity>
         )}
 
-        {/* ── SEARCH BAR ── */}
+        {/* ── SEARCH MODAL ── */}
         {!destinationLocation && pickingMode === null && (
-          <TouchableOpacity
-            style={[
-              s.searchBar,
-              {
-                bottom: Platform.OS === 'android' ? 30 : insets.bottom,
-              },
-            ]}
-            onPress={goToSearchScreen}
-            activeOpacity={0.9}
-          >
-            <View style={s.searchIcon}>
-              <Icon.Search size={25} color={T.white} />
+          <View style={s.searchModalWrapper}>
+            <View style={s.searchModalCard}>
+              <TouchableOpacity
+                style={s.searchInput}
+                onPress={goToSearchScreen}
+                activeOpacity={0.9}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={s.searchIcon}>
+                    <Icon.Search size={22} color="#7C3AED" />
+                  </View>
+                  <Text style={s.searchPlaceholder}>¿A dónde vamos?</Text>
+                </View>
+                <TouchableOpacity
+                  style={[s.scheduleBtn, scheduleRide && s.scheduleBtnActive]}
+                  onPress={() => setScheduleRide(!scheduleRide)}
+                >
+                  <Clock size={18} color={scheduleRide ? '#FFFFFF' : '#7C3AED'} />
+                  <Text style={[s.scheduleBtnText, scheduleRide && s.scheduleBtnTextActive]}>Ahora</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+
+              <View style={s.quickDestinations}>
+                <TouchableOpacity style={s.quickDestItem}>
+                  <View style={s.quickDestIcon}>
+                    <Icon.Home size={26} color="#7C3AED" />
+                  </View>
+                  <View style={s.quickDestContent}>
+                    <Text style={s.quickDestText}>Casa</Text>
+                    <Text style={s.quickDestAdd}>Agregar</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.quickDestItem}>
+                  <View style={s.quickDestIcon}>
+                    <Icon.Briefcase size={26} color="#7C3AED" />
+                  </View>
+                  <View style={s.quickDestContent}>
+                    <Text style={s.quickDestText}>Trabajo</Text>
+                    <Text style={s.quickDestAdd}>Agregar</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.quickDestItem}>
+                  <View style={s.quickDestIcon}>
+                    <Icon.Star size={26} color="#7C3AED" />
+                  </View>
+                  <View style={s.quickDestContent}>
+                    <Text style={s.quickDestText}>Favoritos</Text>
+                    <Text style={s.quickDestAdd}>Agregar</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              <View style={s.recentTripsSection}>
+                <Text style={s.recentTripsTitle}>Viajes recientes</Text>
+                {recentTrips.map((trip: any, index: number) => (
+                  <TouchableOpacity key={index} style={s.recentTripItem}>
+                    <View style={s.recentTripIcon}>
+                      <MapPin size={26} color="#7C3AED" />
+                    </View>
+                    <View style={s.recentTripContent}>
+                      <Text style={s.recentTripText} numberOfLines={1}>
+                        {trip.destinationAddress || trip.dropoffLocation?.address}
+                      </Text>
+                      <Text style={s.recentTripSubtext}>
+                        {trip.pickupAddress || trip.pickupLocation?.address}
+                      </Text>
+                    </View>
+                    <TouchableOpacity style={s.recentTripStar}>
+                      <Icon.Star size={18} color="#7C3AED" />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-            <Text style={s.searchPlaceholder}>¿A dónde vamos?</Text>
-          </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -1533,20 +1643,15 @@ const MapScreen = () => {
             elevation: 6,
           }}
           onPress={() => {
+            const updatedStops = allStops.length > 0 && editingStopIndex != null
+              ? allStops.map((s: any, i: number) => i === editingStopIndex
+                  ? { location: { latitude: mapCenterLocation?.latitude ?? s.location.latitude, longitude: mapCenterLocation?.longitude ?? s.location.longitude }, address: tempPickupAddress || s.address }
+                  : s)
+              : undefined;
             if (pickingMode === 'origin') {
-              navigation.navigate('Search' as any, {
-                pickupLocation: mapCenterLocation,
-                pickupAddress: tempPickupAddress,
-                destinationLocation,
-                destinationAddress,
-              });
+              navigation.navigate('Search' as any, { pickupLocation: mapCenterLocation, pickupAddress: tempPickupAddress, destinationLocation, destinationAddress, ...(updatedStops ? { stops: updatedStops } : {}) });
             } else {
-              navigation.navigate('Search' as any, {
-                pickupLocation,
-                pickupAddress,
-                destinationLocation: mapCenterLocation,
-                destinationAddress: tempPickupAddress,
-              });
+              navigation.navigate('Search' as any, { pickupLocation, pickupAddress, destinationLocation: mapCenterLocation, destinationAddress: tempPickupAddress, ...(updatedStops ? { stops: updatedStops } : {}) });
             }
             setPickingMode(null);
           }}
@@ -1905,20 +2010,18 @@ const MapScreen = () => {
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg },
+  root: { flex: 1, backgroundColor: T.bg, flexDirection: 'column' },
+  mapWrapper: {
+    flex: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
   mapWrap: { flex: 1 },
-  map: { ...StyleSheet.absoluteFillObject }, // map fills the container
+  map: { ...StyleSheet.absoluteFillObject },
 
   // ── FLOATING PIN ──────────────────────────────────────────────────────────
-  pinAnchor: {
-    position: 'absolute',
-  },
-
-  pinStack: {
-    width: 240,
-    alignItems: 'center',
-  },
-
+  pinAnchor: { position: 'absolute' },
+  pinStack: { width: 240, alignItems: 'center' },
   pinBubble: {
     backgroundColor: T.white,
     paddingHorizontal: 14,
@@ -1934,445 +2037,186 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  pinBubbleText: {
-    fontSize: 12,
-    color: T.ink,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  pinBody: {
-    width: PIN_BODY_SIZE,
-    height: PIN_BODY_SIZE,
-    borderRadius: PIN_BODY_SIZE / 2,
-    backgroundColor: T.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2.5,
-    borderColor: T.accent,
-    shadowColor: T.accent,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  pinCenter: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+  pinBubbleText: { fontSize: 12, color: T.ink, fontWeight: '600', textAlign: 'center' },
+  pinHead: {
+    width: 38,
+    height: 38,
+    borderRadius: 25,
     backgroundColor: T.accent,
-  },
-  // Diamond tip pointing DOWN
-  pinTip: {
-    width: PIN_TIP_SIZE,
-    height: PIN_TIP_SIZE,
-    backgroundColor: T.white,
-    marginTop: -(PIN_TIP_SIZE / 2), // overlap the circle bottom by half
-    transform: [{ rotate: '45deg' }],
-    borderBottomWidth: 2.5,
-    borderRightWidth: 2.5,
-    borderColor: T.accent,
-  },
-
-  // ── MAP CONTROLS ──────────────────────────────────────────────────────────
-  topBar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  iconBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 22,
-    backgroundColor: T.white,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 2,
+  },
+  pinHole: { width: 15, height: 15, borderRadius: 9, backgroundColor: '#FFFFFF' },
+  pinStem: {
+    width: 5,
+    height: 32,
+    backgroundColor: T.accent,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+    marginTop: -4,
+    zIndex: 1,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
+  // ── MAP CONTROLS ──────────────────────────────────────────────────────────
+  topBar: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', justifyContent: 'flex-end' },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locBtn: {
     position: 'absolute',
     right: 16,
-    width: 57,
-    height: 57,
-    borderRadius: 32,
-    backgroundColor: T.white,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     elevation: 4,
   },
-  searchBar: {
+  searchModalWrapper: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    height: 72,
-    borderRadius: 16,
-    backgroundColor: T.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
-  searchIcon: { marginRight: 16 },
-  searchPlaceholder: { fontSize: 18, color: T.white, letterSpacing: 0.1 },
-
-  // ── MAP MARKERS ───────────────────────────────────────────────────────────
-  dotGray: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: T.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: T.inkLight,
-  },
-  dotGrayInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.inkLight,
-  },
-  dotBlue: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: T.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: T.accent,
-  },
-  dotBlueInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.accent,
-  },
-
-  // ── BOTTOM PANEL ──────────────────────────────────────────────────────────
-  panel: {
-    backgroundColor: T.white,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+  searchModalCard: {
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    paddingTop: 20,
+    paddingBottom: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
+    shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 16,
-    elevation: 12,
+    elevation: 10,
   },
-  routePill: {
-    backgroundColor: T.bg,
-    borderRadius: 12,
-    paddingVertical: 12,
+  searchInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    marginBottom: 10,
+    paddingVertical: 12,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    backgroundColor: '#FFFFFF',
   },
+  searchIcon: { marginRight: 8 },
+  searchPlaceholder: { fontSize: 18, color: '#000000', fontWeight: '700' },
+  scheduleBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#EDE9FE', gap: 6, marginLeft: 12 },
+  scheduleBtnActive: { backgroundColor: '#7C3AED' },
+  scheduleBtnText: { fontSize: 14, color: '#7C3AED', fontWeight: '600' },
+  scheduleBtnTextActive: { color: '#FFFFFF' },
+  quickDestinations: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, paddingTop: 16, paddingBottom: 16, gap: 8 },
+  quickDestItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 8, borderWidth: 1, borderColor: '#E5E5EA' },
+  quickDestContent: { flexDirection: 'column' },
+  quickDestIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  quickDestText: { fontSize: 14, color: '#000000', fontWeight: '500' },
+  quickDestAdd: { fontSize: 11, color: '#999999', fontWeight: '400' },
+  recentTripsSection: { paddingHorizontal: 24, paddingBottom: 16 },
+  recentTripItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12 },
+  recentTripsTitle: { fontSize: 12, color: '#999999', fontWeight: '600', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  recentTripIcon: { width: 40, height: 40, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  recentTripContent: { flex: 1 },
+  recentTripText: { fontSize: 14, color: '#000000', fontWeight: '500' },
+  recentTripSubtext: { fontSize: 12, color: '#999999', fontWeight: '400', marginTop: 2 },
+  recentTripStar: { padding: 4 },
+
+  // ── MAP MARKERS ───────────────────────────────────────────────────────────
+  dotGray: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#E7E8ED', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#BDBDBD' },
+  dotGrayInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#9E9E9E' },
+  dotBlue: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#E7E8ED', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#BDBDBD' },
+  dotBlueInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#9E9E9E' },
+  markerLabelTxt: { fontSize: 10, fontWeight: '800', color: T.ink, backgroundColor: T.white, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginBottom: 3, overflow: 'hidden' },
+  markerDotLila: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.accent, borderWidth: 2, borderColor: T.white },
+
+  // ── BOTTOM PANEL ──────────────────────────────────────────────────────────
+  panel: { backgroundColor: T.white, marginTop: -24, paddingTop: 20, paddingHorizontal: 20, paddingBottom: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 10 },
+  routePill: { backgroundColor: T.bg, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10 },
   routeAddr: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   routeDot: { width: 8, height: 8, borderRadius: 4 },
   routeAddrText: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
   routeConnector: { paddingLeft: 3, paddingVertical: 3 },
-  routeLine: {
-    width: 1.5,
-    height: 10,
-    backgroundColor: T.border,
-    marginLeft: 3,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: T.bg,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 14,
-  },
-  stat: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
+  routeLine: { width: 1.5, height: 10, backgroundColor: T.border, marginLeft: 3 },
+  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.bg, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 14 },
+  stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   statVal: { fontSize: 13, fontWeight: '600', color: T.ink },
   statDiv: { width: 1, height: 20, backgroundColor: T.border },
-  fareRow: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  fareLabel: {
-    fontSize: 12,
-    color: T.inkLight,
-    fontWeight: '500',
-    marginBottom: -12,
-  },
-  fareControls: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  fareBtn: {
-    width: 45,
-    height: 45,
-    borderRadius: 21,
-    backgroundColor: T.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fareValue: {
-    fontSize: 25,
-    fontWeight: '800',
-    color: T.accent,
-    minWidth: 120,
-    textAlign: 'center',
-  },
+  fareRow: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  fareLabel: { fontSize: 12, color: T.inkLight, fontWeight: '500', marginBottom: -12 },
+  fareControls: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fareBtn: { width: 45, height: 45, borderRadius: 21, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
+  fareValue: { fontSize: 25, fontWeight: '800', color: T.accent, minWidth: 120, textAlign: 'center' },
   timerWrap: { gap: 10 },
   timerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: T.warn },
   timerLabel: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
   timerVal: { fontSize: 15, fontWeight: '700', color: T.warn },
-  progressTrack: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: T.border,
-    overflow: 'hidden',
-    marginHorizontal: 2,
-  },
+  progressTrack: { height: 3, borderRadius: 2, backgroundColor: T.border, overflow: 'hidden', marginHorizontal: 2 },
   progressFill: { height: '100%', backgroundColor: T.accent, borderRadius: 2 },
-  cancelBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: T.danger,
-  },
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: T.danger },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: T.danger },
 
   // ── SELECTORS ─────────────────────────────────────────────────────────────
-  selectorsContainer: {
-    marginBottom: 16,
-    gap: 12,
-  },
-  selectorRow: {
-    flexDirection: 'column',
-    gap: 8,
-  },
-  selectorLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: T.inkMid,
-  },
-  optionsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  optionChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: T.bg,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  optionChipActive: {
-    backgroundColor: T.accent + '15',
-    borderColor: T.accent,
-  },
-  optionText: {
-    fontSize: 13,
-    color: T.inkMid,
-    fontWeight: '500',
-  },
-  optionTextActive: {
-    color: T.accent,
-    fontWeight: '700',
-  },
+  selectorsContainer: { marginBottom: 16, gap: 12 },
+  selectorRow: { flexDirection: 'column', gap: 8 },
+  selectorLabel: { fontSize: 13, fontWeight: '600', color: T.inkMid },
+  optionsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  optionChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border },
+  optionChipActive: { backgroundColor: T.accent + '15', borderColor: T.accent },
+  optionText: { fontSize: 13, color: T.inkMid, fontWeight: '500' },
+  optionTextActive: { color: T.accent, fontWeight: '700' },
 
   ctaRow: { flexDirection: 'row', gap: 10 },
-  ghostBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: T.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: T.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    shadowColor: T.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  ctaBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: T.white,
-    letterSpacing: 0.2,
-  },
+  ghostBtn: { width: 52, height: 52, borderRadius: 14, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
+  ctaBtn: { flex: 1, height: 52, borderRadius: 14, backgroundColor: T.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, shadowColor: T.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
+  ctaBtnText: { fontSize: 15, fontWeight: '700', color: T.white, letterSpacing: 0.2 },
 
   // ── OFFERS BUBBLES ──────────────────────────────────────────────────────────
-  offersBubblesContainer: {
-    position: 'absolute',
-    top: 140, // Move down slightly from the top bar so it hovers cleanly over the map
-    left: 16,
-    right: 16,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    zIndex: 999,
-    pointerEvents: 'box-none',
-  },
-  offersBubbles: {
-    width: '100%',
-    maxWidth: 400,
-    alignItems: 'center',
-    pointerEvents: 'box-none',
-    gap: 12,
-  },
-  offerBubble: {
-    width: '100%',
-    backgroundColor: T.white,
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  offerTopBar: {
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    width: '100%',
-  },
-  offerProgressFill: {
-    height: '100%',
-    backgroundColor: T.accent,
-  },
-  offerContent: {
-    padding: 16,
-  },
-  offerHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  offerAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  offerInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  offerVehicleText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#374151',
-    marginBottom: 2,
-  },
-  offerDriverName: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  offerRatingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  offerRatingText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#9CA3AF',
-  },
-  offerRightStats: {
-    alignItems: 'flex-end',
-  },
-  offerPrice: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: T.accent,
-    marginBottom: 4,
-  },
-  offerStatText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  offerActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  offerRejectBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#FEF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  offerRejectText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#EF4444',
-  },
-  offerAcceptBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  offerAcceptText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: T.white,
-  },
-  offersHint: {
-    fontSize: 11,
-    color: T.inkLight,
-    textAlign: 'center',
-    marginTop: 6,
-    fontStyle: 'italic',
-  },
+  offersBubblesContainer: { position: 'absolute', top: 140, left: 16, right: 16, alignItems: 'center', justifyContent: 'flex-start', zIndex: 999, pointerEvents: 'box-none' },
+  offersBubbles: { width: '100%', maxWidth: 400, alignItems: 'center', pointerEvents: 'box-none', gap: 12 },
+  offerBubble: { width: '100%', backgroundColor: T.white, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8 },
+  offerTopBar: { height: 4, backgroundColor: '#E5E7EB', width: '100%' },
+  offerProgressFill: { height: '100%', backgroundColor: T.accent },
+  offerContent: { padding: 16 },
+  offerHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 },
+  offerAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  offerInfo: { flex: 1, justifyContent: 'center' },
+  offerVehicleText: { fontSize: 15, fontWeight: '700', color: '#374151', marginBottom: 2 },
+  offerDriverName: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
+  offerRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  offerRatingText: { fontSize: 13, fontWeight: '600', color: '#9CA3AF' },
+  offerRightStats: { alignItems: 'flex-end' },
+  offerPrice: { fontSize: 22, fontWeight: '800', color: T.accent, marginBottom: 4 },
+  offerStatText: { fontSize: 13, color: '#6B7280', fontWeight: '500', marginBottom: 2 },
+  offerActions: { flexDirection: 'row', gap: 12 },
+  offerRejectBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
+  offerRejectText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
+  offerAcceptBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
+  offerAcceptText: { fontSize: 16, fontWeight: '700', color: T.white },
+  offersHint: { fontSize: 11, color: T.inkLight, textAlign: 'center', marginTop: 6, fontStyle: 'italic' },
 
   // ── MENU ──────────────────────────────────────────────────────────────────
 });

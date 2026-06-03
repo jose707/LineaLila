@@ -20,6 +20,9 @@ const CommissionSettlement = require('./CommissionSettlement');
 const ServiceArea         = require('./ServiceArea');
 const PricingRule         = require('./PricingRule');
 const AuditLog            = require('./AuditLog');
+const RideWaypoint        = require('./RideWaypoint');
+const TrustedContact      = require('./TrustedContact');
+const PanicEvent          = require('./PanicEvent');
 
 const setupAssociations = () => {
 
@@ -138,6 +141,27 @@ const setupAssociations = () => {
   // ─────────────────────────────────────────
   User.hasMany(AuditLog, { foreignKey: 'changed_by', as: 'auditLogs' });
   AuditLog.belongsTo(User, { foreignKey: 'changed_by', as: 'changedBy' });
+
+  // ─────────────────────────────────────────
+  // RIDE ↔ RIDE WAYPOINT (paradas intermedias)
+  // ─────────────────────────────────────────
+  Ride.hasMany(RideWaypoint, { foreignKey: 'ride_id', as: 'waypoints', onDelete: 'CASCADE' });
+  RideWaypoint.belongsTo(Ride, { foreignKey: 'ride_id', as: 'ride' });
+
+  // ─────────────────────────────────────────
+  // USER ↔ TRUSTED CONTACT
+  // ─────────────────────────────────────────
+  User.hasMany(TrustedContact, { foreignKey: 'user_id', as: 'trustedContacts', onDelete: 'CASCADE' });
+  TrustedContact.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+  // ─────────────────────────────────────────
+  // USER ↔ PANIC EVENT
+  // RIDE ↔ PANIC EVENT (nullable)
+  // ─────────────────────────────────────────
+  User.hasMany(PanicEvent, { foreignKey: 'user_id', as: 'panicEvents', onDelete: 'CASCADE' });
+  PanicEvent.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+  Ride.hasMany(PanicEvent, { foreignKey: 'ride_id', as: 'panicEvents', onDelete: 'CASCADE' });
+  PanicEvent.belongsTo(Ride, { foreignKey: 'ride_id', as: 'ride' });
 };
 
 module.exports = setupAssociations;

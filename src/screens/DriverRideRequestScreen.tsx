@@ -29,7 +29,6 @@ import {
   Settings,
   User,
 } from 'lucide-react-native';
-import { SlideUpMenu } from '../components/SlideUpMenu';
 import { useAuth } from '../hooks/useAuth';
 import useRides from '../hooks/useRides';
 import { ridesService } from '../services/rides.service';
@@ -176,7 +175,7 @@ const DriverRideRequestScreen = () => {
   const [offerStatus, setOfferStatus] = useState<
     'waiting' | 'rejected' | 'expired'
   >('waiting');
-  const [showDriverMenu, setShowDriverMenu] = useState(false);
+
 
   const mapRef = useRef<MapView>(null);
   const waitingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -657,7 +656,7 @@ const DriverRideRequestScreen = () => {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => setShowDriverMenu(true)}
+          onPress={() => navigation.navigate('Profile')}
           style={styles.menuBtn}
         >
           <Menu size={20} color={THEME.text} />
@@ -1056,60 +1055,6 @@ const DriverRideRequestScreen = () => {
         </View>
       )}
 
-      <SlideUpMenu
-        visible={showDriverMenu}
-        onClose={() => setShowDriverMenu(false)}
-        user={user}
-        menuItems={[
-          {
-            icon: <User size={20} color={THEME.textSecondary} />,
-            label: 'Mi Perfil',
-            onPress: () => navigation.navigate('Profile'),
-          },
-          {
-            icon: <History size={20} color={THEME.textSecondary} />,
-            label: 'Mis Viajes',
-            onPress: () => navigation.navigate('RideHistory'),
-          },
-          {
-            icon: <Settings size={20} color={THEME.textSecondary} />,
-            label: 'Ajustes',
-            onPress: () => navigation.navigate('Profile'),
-          },
-          {
-            icon: <Bell size={20} color={THEME.textSecondary} />,
-            label: 'Notificaciones',
-            onPress: () => navigation.navigate('Profile'),
-          },
-          {
-            icon: <CircleHelp size={20} color={THEME.textSecondary} />,
-            label: 'Ayuda',
-            onPress: () => navigation.navigate('Profile'),
-          },
-          {
-            icon: <MessageCircle size={20} color={THEME.textSecondary} />,
-            label: 'Soporte',
-            onPress: () => navigation.navigate('Profile'),
-          },
-        ]}
-        closeButton={{
-          label: 'Modo Pasajero',
-          onPress: () => navigation.navigate('Profile'),
-          backgroundColor: THEME.primary,
-          textColor: THEME.bg,
-        }}
-        theme={{
-          primary: THEME.primary,
-          accent: THEME.primary,
-          text: THEME.text,
-          textMuted: THEME.textSecondary,
-          border: THEME.border,
-          bg: THEME.bg,
-          white: THEME.surface,
-          overlay: 'rgba(0,0,0,0.4)',
-          avatarBg: THEME.primaryLight,
-        }}
-      />
     </SafeAreaView>
   );
 };

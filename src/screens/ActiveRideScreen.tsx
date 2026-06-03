@@ -85,6 +85,14 @@ interface ActiveRide {
   licensePlate?: string;
   pickupLocation: { latitude: number; longitude: number; address: string };
   dropoffLocation: { latitude: number; longitude: number; address: string };
+  waypoints?: Array<{
+    id: string;
+    sequence: number;
+    location: { latitude: number; longitude: number };
+    address: string;
+    arrivedAt?: string | null;
+    departedAt?: string | null;
+  }>;
   driverLocation?: { latitude: number; longitude: number };
   fare: number;
   distance: number;
@@ -484,42 +492,71 @@ const ActiveRideScreen = () => {
     if (!ride) return;
     (async () => {
       try {
-        const { latitude: pLat, longitude: pLon } = ride.pickupLocation;
-        const { latitude: dLat, longitude: dLon } = ride.dropoffLocation;
-        const cached = await cacheRouteManager.getRoute(
-          { latitude: pLat, longitude: pLon },
-          { latitude: dLat, longitude: dLon },
-        );
-        if (cached) {
-          setRouteCoordinates(cached.coordinates);
-          return;
-        }
-        const r = await fetch(
-          `${LOCATIONIQ_BASE_URL}/directions/driving/${pLon},${pLat};${dLon},${dLat}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false`,
-        );
-        if (!r.ok) throw new Error();
-        const data = await r.json();
-        if (data.routes?.length > 0) {
-          const coords = decodePolyline(data.routes[0].geometry);
-          await cacheRouteManager.saveRoute(
-            { latitude: pLat, longitude: pLon },
-            { latitude: dLat, longitude: dLon },
-            {
-              pickupLat: pLat,
-              pickupLon: pLon,
-              destLat: dLat,
-              destLon: dLon,
-              distance: data.routes[0].distance,
-              duration: data.routes[0].duration,
-              coordinates: coords,
-              fare: 0,
-              timestamp: Date.now(),
-            },
+        const legs: Array<{ latitude: number; longitude: number }> = [
+          ride.pickupLocation,
+          ...(ride.waypoints || []).map(wp => wp.location),
+          ride.dropoffLocation,
+        ];
+
+        let allCoords: Array<{ latitude: number; longitude: number }> = [];
+
+        for (let i = 0; i < legs.length - 1; i++) {
+          const { latitude: fromLat, longitude: fromLon } = legs[i];
+          const { latitude: toLat, longitude: toLon } = legs[i + 1];
+          const cached = await cacheRouteManager.getRoute(
+            { latitude: fromLat, longitude: fromLon },
+            { latitude: toLat, longitude: toLon },
           );
-          setRouteCoordinates(coords);
-        } else throw new Error();
+          if (cached) {
+            if (i === 0) {
+              allCoords.push(...cached.coordinates);
+            } else {
+              allCoords.push(...cached.coordinates.slice(1));
+            }
+            continue;
+          }
+          const r = await fetch(
+            `${LOCATIONIQ_BASE_URL}/directions/driving/${fromLon},${fromLat};${toLon},${toLat}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false`,
+          );
+          if (!r.ok) throw new Error();
+          const data = await r.json();
+          if (data.routes?.length > 0) {
+            const coords = decodePolyline(data.routes[0].geometry);
+            await cacheRouteManager.saveRoute(
+              { latitude: fromLat, longitude: fromLon },
+              { latitude: toLat, longitude: toLon },
+              {
+                pickupLat: fromLat,
+                pickupLon: fromLon,
+                destLat: toLat,
+                destLon: toLon,
+                distance: data.routes[0].distance,
+                duration: data.routes[0].duration,
+                coordinates: coords,
+                fare: 0,
+                timestamp: Date.now(),
+              },
+            );
+            if (i === 0) {
+              allCoords.push(...coords);
+            } else {
+              allCoords.push(...coords.slice(1));
+            }
+          } else throw new Error();
+        }
+
+        if (allCoords.length > 0) {
+          setRouteCoordinates(allCoords);
+        } else {
+          setRouteCoordinates(legs);
+        }
       } catch {
-        setRouteCoordinates([ride.pickupLocation, ride.dropoffLocation]);
+        const legs: Array<{ latitude: number; longitude: number }> = [
+          ride.pickupLocation,
+          ...(ride.waypoints || []).map(wp => wp.location),
+          ride.dropoffLocation,
+        ];
+        setRouteCoordinates(legs);
       }
     })();
   }, [ride?.rideId]);
@@ -601,6 +638,17 @@ const ActiveRideScreen = () => {
         eta: Math.floor((d.duration || 0) / 60),
         startTime: d.startedAt || d.createdAt,
         cancelledBy: d.cancelled_by || d.cancelledBy,
+        waypoints: (d.waypoints || []).map((wp: any) => ({
+          id: wp.id,
+          sequence: wp.sequence,
+          location: wp.location || {
+            latitude: 0,
+            longitude: 0,
+          },
+          address: wp.address || '',
+          arrivedAt: wp.arrivedAt || null,
+          departedAt: wp.departedAt || null,
+        })),
       };
       setRide(mapped);
       setIsLoading(false);
@@ -944,8 +992,9 @@ const ActiveRideScreen = () => {
           {/* Pickup */}
           {ride.status === 'in_progress' && (
             <Marker coordinate={ride.pickupLocation} title="Recogida">
-              <View style={[s.marker, { borderColor: T.inkLight }]}>
-                <View style={[s.markerDot, { backgroundColor: T.inkLight }]} />
+              <View style={{ alignItems: 'center' }}>
+                <Text style={[s.markerLabelText, { backgroundColor: T.white, color: T.ink, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginBottom: 3, fontSize: 11, fontWeight: '800' }]}>Origen</Text>
+                <View style={[s.markerDotCircle, { backgroundColor: T.accent }]} />
               </View>
             </Marker>
           )}
@@ -953,11 +1002,27 @@ const ActiveRideScreen = () => {
           {/* Dropoff */}
           {ride.status === 'in_progress' && (
             <Marker coordinate={ride.dropoffLocation} title="Destino">
-              <View style={[s.marker, { borderColor: T.accent }]}>
-                <View style={[s.markerDot, { backgroundColor: T.accent }]} />
+              <View style={{ alignItems: 'center' }}>
+                <Text style={[s.markerLabelText, { backgroundColor: T.white, color: T.ink, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginBottom: 3, fontSize: 11, fontWeight: '800' }]}>Destino</Text>
+                <View style={[s.markerDotCircle, { backgroundColor: T.accent }]} />
               </View>
             </Marker>
           )}
+
+          {/* Waypoints */}
+          {ride.status === 'in_progress' &&
+            (ride.waypoints || []).map((wp, idx) => (
+              <Marker
+                key={`wp-${idx}`}
+                coordinate={wp.location}
+                title={`Parada ${wp.sequence || idx + 1}`}
+              >
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={[s.markerLabelText, { backgroundColor: T.white, color: T.ink, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginBottom: 3, fontSize: 11, fontWeight: '800' }]}>{wp.sequence || idx + 1}</Text>
+                  <View style={[s.markerDotCircle, { backgroundColor: T.accent }]} />
+                </View>
+              </Marker>
+            ))}
 
           {/* Passenger */}
           {passengerLocation && (
@@ -1077,6 +1142,22 @@ const ActiveRideScreen = () => {
               </Text>
             </View>
           </View>
+          {(ride.waypoints || []).map((wp, idx) => (
+            <React.Fragment key={`wp-${idx}`}>
+              <View style={s.vSep}>
+                <View style={s.vLine} />
+              </View>
+              <View style={s.routeRow}>
+                <View style={[s.routeDot, { backgroundColor: T.warn }]} />
+                <View style={s.routeTexts}>
+                  <Text style={s.routeLabel}>Parada {wp.sequence || idx + 1}</Text>
+                  <Text style={[s.routeAddr, { color: T.ink }]} numberOfLines={2}>
+                    {wp.address}
+                  </Text>
+                </View>
+              </View>
+            </React.Fragment>
+          ))}
           <View style={s.vSep}>
             <View style={s.vLine} />
           </View>
@@ -1436,6 +1517,27 @@ const s = StyleSheet.create({
     borderWidth: 2,
   },
   markerDot: { width: 8, height: 8, borderRadius: 4 },
+  markerDotCircle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: T.white,
+  },
+  markerLabel: {
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: T.white,
+    paddingHorizontal: 6,
+  },
+  markerLabelText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: T.white,
+  },
 
   // Panel
   panel: {

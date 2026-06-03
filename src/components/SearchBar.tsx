@@ -19,8 +19,10 @@ export interface SearchResult {
 interface SearchBarProps {
   onResultSelect: (result: SearchResult) => void;
   placeholder: string;
-  currentLat?: number; // Latitud actual del usuario
-  currentLon?: number; // Longitud actual del usuario
+  currentLat?: number;
+  currentLon?: number;
+  leftIcon?: React.ReactNode;
+  onLeftIconPress?: () => void;
 }
 
 const LOCATIONIQ_API_KEY = "pk.2c35bb8a74b61271c3e0f669fb81718d";
@@ -31,11 +33,14 @@ const SearchBar: React.FC<SearchBarProps> = ({
   placeholder,
   currentLat,
   currentLon,
+  leftIcon,
+  onLeftIconPress,
 }) => {
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (searchText.length < 2) {
@@ -98,9 +103,15 @@ const SearchBar: React.FC<SearchBarProps> = ({
             currentLat && currentLon
               ? calculateDistance(currentLat, currentLon, lat, lon)
               : Infinity;
+          const cleanName = item.display_name
+            .replace(/, La Paz(, La Paz)?, Bolivia$/i, '')
+            .replace(/, La Paz Department, Bolivia$/i, '')
+            .replace(/, Bolivia$/i, '')
+            .trim();
+
           return {
-            address: item.display_name,
-            display_name: item.display_name,
+            address: cleanName,
+            display_name: cleanName,
             lat: item.lat,
             lon: item.lon,
             distance,
@@ -145,6 +156,15 @@ const SearchBar: React.FC<SearchBarProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.inputContainer}>
+        {leftIcon && isFocused && (
+          <TouchableOpacity
+            onPress={onLeftIconPress}
+            style={styles.leftIconBtn}
+            activeOpacity={0.7}
+          >
+            {leftIcon}
+          </TouchableOpacity>
+        )}
         <TextInput
           style={styles.input}
           placeholder={placeholder}
@@ -152,10 +172,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
           value={searchText}
           onChangeText={setSearchText}
           onFocus={() => {
+            setIsFocused(true);
             if (searchText.length >= 2) {
               setShowResults(true);
             }
           }}
+          onBlur={() => setIsFocused(false)}
         />
         {searchText.length > 0 && (
           <TouchableOpacity
@@ -185,7 +207,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
               style={styles.resultItem}
               onPress={() => handleResultSelect(item)}
             >
-              <Text style={styles.resultIcon}>📍</Text>
               <View style={styles.resultTextContainer}>
                 <Text style={styles.resultAddress} numberOfLines={2}>
                   {item.address}
@@ -215,7 +236,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 12,
+    marginVertical: 6,
   },
   inputContainer: {
     flexDirection: "row",
@@ -226,11 +247,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E0E0E0",
   },
+  leftIconBtn: {
+    marginRight: 8,
+  },
   input: {
     flex: 1,
     paddingVertical: 12,
     fontSize: 14,
     color: "#2D2D2D",
+    minHeight: 48,
   },
   clearButton: {
     padding: 8,
@@ -258,11 +283,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
-  },
-  resultIcon: {
-    fontSize: 16,
-    marginRight: 10,
-    marginTop: 2,
   },
   resultTextContainer: {
     flex: 1,

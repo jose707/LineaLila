@@ -1,5 +1,5 @@
 // screens/SearchScreen.tsx
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,16 +17,12 @@ import {
   useFocusEffect,
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { CommonActions } from '@react-navigation/native';
 import SearchBar, { SearchResult } from '../components/SearchBar';
-import { LatLng } from 'react-native-maps';
-import { MapPin } from 'lucide-react-native';
+import { MapPin, X, Plus, ArrowUpDown } from 'lucide-react-native';
 import { SEARCHSCREEN_COLORS as C } from '../theme/colors';
-import {
-  cacheSearchManager,
-  cacheTripHistoryManager,
-} from '../utils/cacheManager';
+import { cacheSearchManager } from '../utils/cacheManager';
 
 type SearchScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -34,72 +30,91 @@ type SearchScreenNavigationProp = NativeStackNavigationProp<
 >;
 type SearchScreenRouteProp = RouteProp<RootStackParamList, 'Search'>;
 
+const EMPTY_STOP: Stop = { location: { latitude: 0, longitude: 0 }, address: '' };
+
 const SearchScreen = () => {
   const navigation = useNavigation<SearchScreenNavigationProp>();
   const route = useRoute<SearchScreenRouteProp>();
 
-  const [pickupLocation, setPickupLocation] = useState<LatLng | null>(
-    route.params?.pickupLocation || null,
-  );
-  const [pickupAddress, setPickupAddress] = useState<string>(
-    route.params?.pickupAddress || '',
-  );
-  const [destinationLocation, setDestinationLocation] = useState<LatLng | null>(
-    route.params?.destinationLocation || null,
-  );
-  const [destinationAddress, setDestinationAddress] = useState<string>(
-    route.params?.destinationAddress || '',
-  );
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
-  const [frequentTrips, setFrequentTrips] = useState<any[]>([]);
+  const MAX_STOPS = 5;
 
-  // 🔥 CARGAR HISTORIAL DE BÚSQUEDAS Y VIAJES FRECUENTES
-  useEffect(() => {
-    const loadHistory = async () => {
-      const searches = await cacheSearchManager.getSearches();
-      const trips = await cacheTripHistoryManager.getFrequentTrips();
-      setSearchHistory(searches);
-      setFrequentTrips(trips);
-    };
-    loadHistory();
+  const initialStops = React.useMemo(() => {
+    if (route.params?.stops && route.params.stops.length >= 2) {
+      return route.params.stops.slice(0, MAX_STOPS);
+    }
+    const pickup = route.params?.pickupLocation
+      ? {
+          location: route.params.pickupLocation,
+          address: route.params.pickupAddress || '',
+        }
+      : { location: { latitude: 0, longitude: 0 }, address: '' };
+
+    const destination = route.params?.destinationLocation
+      ? {
+          location: route.params.destinationLocation,
+          address: route.params.destinationAddress || '',
+        }
+      : { location: { latitude: 0, longitude: 0 }, address: '' };
+
+    return [pickup, destination];
   }, []);
 
-  // Manejar selección de punto de partida
-  const handlePickupSelect = (result: SearchResult) => {
-    const location: LatLng = {
-      latitude: parseFloat(result.lat),
-      longitude: parseFloat(result.lon),
+  const [stops, setStops] = useState<Stop[]>(initialStops);
+
+  const isStopFilled = (stop: Stop) =>
+    stop.address !== '' &&
+    stop.location.latitude !== 0 &&
+    stop.location.longitude !== 0;
+
+  const filledStops = stops.filter(isStopFilled);
+
+  const handleStopSelect = (index: number, result: SearchResult) => {
+    const newStops = [...stops];
+    newStops[index] = {
+      location: {
+        latitude: parseFloat(result.lat),
+        longitude: parseFloat(result.lon),
+      },
+      address: result.display_name,
     };
-    setPickupLocation(location);
-    setPickupAddress(result.display_name);
-    // 🔥 GUARDAR BÚSQUEDA EN CACHÉ
+    setStops(newStops);
     cacheSearchManager.saveSearch(result.display_name);
   };
 
-  // Manejar selección de destino
-  const handleDestinationSelect = (result: SearchResult) => {
-    const location: LatLng = {
-      latitude: parseFloat(result.lat),
-      longitude: parseFloat(result.lon),
-    };
-    setDestinationLocation(location);
-    setDestinationAddress(result.display_name);
-    // 🔥 GUARDAR BÚSQUEDA EN CACHÉ
-    cacheSearchManager.saveSearch(result.display_name);
+  const addStopAfter = (index: number) => {
+    if (stops.length >= MAX_STOPS) return;
+    const insertAt = index === stops.length - 1 ? stops.length - 1 : index + 1;
+    const newStops = [...stops];
+    newStops.splice(insertAt, 0, { ...EMPTY_STOP });
+    setStops(newStops);
   };
 
-  // Confirmar ubicaciones y volver al mapa
+  const clearStop = (index: number) => {
+    const newStops = [...stops];
+    newStops[index] = { ...EMPTY_STOP };
+    setStops(newStops);
+  };
+
+  const swapStops = () => {
+    if (stops.length !== 2) return;
+    const newStops = [stops[1], stops[0]];
+    setStops(newStops);
+  };
+
+  const removeStop = (index: number) => {
+    if (stops.length <= 2) return;
+    const newStops = stops.filter((_, i) => i !== index);
+    setStops(newStops);
+  };
+
   const confirmLocations = () => {
-    if (!pickupLocation) {
-      Alert.alert(
-        'Punto de partida requerido',
-        'Por favor selecciona tu punto de partida',
-      );
-      return;
-    }
+    const validStops = stops.filter(isStopFilled);
 
-    if (!destinationLocation) {
-      Alert.alert('Destino requerido', 'Por favor selecciona tu destino');
+    if (validStops.length < 2) {
+      Alert.alert(
+        'Información requerida',
+        'Selecciona al menos el punto de partida y el destino.',
+      );
       return;
     }
 
@@ -110,10 +125,11 @@ const SearchScreen = () => {
           {
             name: 'Map',
             params: {
-              pickupLocation,
-              destinationLocation,
-              pickupAddress,
-              destinationAddress,
+              pickupLocation: validStops[0].location,
+              destinationLocation: validStops[validStops.length - 1].location,
+              pickupAddress: validStops[0].address,
+              destinationAddress: validStops[validStops.length - 1].address,
+              stops: validStops,
             },
           },
         ],
@@ -121,7 +137,6 @@ const SearchScreen = () => {
     );
   };
 
-  // Volver y resetear todo
   const goBack = () => {
     navigation.dispatch(
       CommonActions.reset({
@@ -131,8 +146,11 @@ const SearchScreen = () => {
     );
   };
 
-  // Volver al mapa en modo de selección manual
-  const goBackWithPicking = (mode: 'origin' | 'destination') => {
+  const goBackWithPicking = (stopIndex: number) => {
+    const currentStops = stops.map((s) =>
+      isStopFilled(s) ? s : { ...EMPTY_STOP },
+    );
+
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
@@ -140,11 +158,24 @@ const SearchScreen = () => {
           {
             name: 'Map',
             params: {
-              pickupLocation,
-              pickupAddress,
-              destinationLocation,
-              destinationAddress,
-              pickingMode: mode,
+              pickupLocation: isStopFilled(currentStops[0])
+                ? currentStops[0].location
+                : undefined,
+              pickupAddress: currentStops[0].address || undefined,
+              destinationLocation: isStopFilled(
+                currentStops[currentStops.length - 1],
+              )
+                ? currentStops[currentStops.length - 1].location
+                : undefined,
+              destinationAddress:
+                currentStops[currentStops.length - 1].address || undefined,
+              stops: currentStops,
+              pickingMode: stopIndex === 0
+                ? 'origin'
+                : stopIndex === currentStops.length - 1
+                  ? 'destination'
+                  : 'origin',
+              editingStopIndex: stopIndex,
             },
           },
         ],
@@ -152,7 +183,6 @@ const SearchScreen = () => {
     );
   };
 
-  // 🔥 MANEJAR BOTÓN ATRÁS NATIVO DEL DISPOSITIVO
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
@@ -170,17 +200,16 @@ const SearchScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* HEADER PREMIUM */}
+      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={goBack}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonText}>←</Text>
+          <X size={24} color={C.primaryLight} strokeWidth={2.8} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <View style={styles.logoCircle} />
           <Text style={styles.headerTitle}>Planifica tu viaje</Text>
         </View>
         <View style={styles.headerSpacer} />
@@ -190,133 +219,137 @@ const SearchScreen = () => {
         style={styles.content}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* SECCIÓN PUNTO DE PARTIDA */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <View style={styles.sectionIconContainer}>
-                <View style={styles.originDot} />
+        {stops.map((stop, index) => {
+          const isFirst = index === 0;
+          const isLast = index === stops.length - 1;
+
+          return (
+            <View key={`stop-${index}`}>
+              
+
+              {/* STOP ROW */}
+              <View style={styles.section}>
+                <View style={styles.sectionRow}>
+                  {/* Step indicator */}
+                  <View style={styles.stepColumn}>
+                    <View
+                      style={[
+                        styles.stepIndicator,
+                        {
+                          backgroundColor: '#7C3AED',
+                        },
+                      ]}
+                    >
+                      <Text style={styles.stepNumber}>{index + 1}</Text>
+                    </View>
+                  </View>
+
+                  {/* Content */}
+                  <View style={styles.stopContent}>
+                    <View style={styles.stopInputRow}>
+                      <View style={styles.searchBarWrapper}>
+                        {isStopFilled(stop) ? (
+                          <TouchableOpacity
+                            style={styles.filledInput}
+                            onPress={() => clearStop(index)}
+                            activeOpacity={0.8}
+                          >
+                            <MapPin
+                              size={20}
+                              color="#7C3AED"
+                              strokeWidth={2.5}
+                              style={{ marginRight: 8 }}
+                            />
+                            <Text
+                              style={styles.filledInputText}
+                              numberOfLines={1}
+                            >
+                              {stop.address}
+                            </Text>
+                            <TouchableOpacity
+                              style={styles.clearInputBtn}
+                              onPress={() => clearStop(index)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <X size={12} color="#FFFFFF" strokeWidth={4} />
+                            </TouchableOpacity>
+                          </TouchableOpacity>
+                        ) : (
+                          <SearchBar
+                            placeholder={
+                              isFirst
+                                ? '¿Dónde te recogemos?'
+                                : isLast
+                                  ? '¿Cuál es el destino final?'
+                                  : 'Buscar parada...'
+                            }
+                            onResultSelect={(result) =>
+                              handleStopSelect(index, result)
+                            }
+                            leftIcon={<MapPin size={22} color="#7C3AED" strokeWidth={2.5} />}
+                            onLeftIconPress={() => goBackWithPicking(index)}
+                          />
+                        )}
+                      </View>
+
+                      {/* Right buttons */}
+                      {stops.length === 2 && isLast ? (
+                        <TouchableOpacity
+                          style={styles.swapRowBtn}
+                          onPress={swapStops}
+                          activeOpacity={0.7}
+                        >
+                          <ArrowUpDown size={18} color="#FFFFFF" strokeWidth={3} />
+                        </TouchableOpacity>
+                      ) : stops.length > 2 && !isFirst ? (
+                        <TouchableOpacity
+                          style={styles.removeStopBtn}
+                          onPress={() => removeStop(index)}
+                          activeOpacity={0.7}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <X size={18} color="#7C3AED" strokeWidth={3} />
+                        </TouchableOpacity>
+                      ) : isFirst ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.addStopRowBtn,
+                            stops.length >= MAX_STOPS && styles.addStopRowBtnDisabled,
+                          ]}
+                          onPress={() => addStopAfter(index)}
+                          activeOpacity={stops.length >= MAX_STOPS ? 1 : 0.7}
+                          disabled={stops.length >= MAX_STOPS}
+                        >
+                          <Plus
+                            size={18}
+                            color={stops.length >= MAX_STOPS ? '#9CA3AF' : '#FFFFFF'}
+                            strokeWidth={3}
+                          />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
               </View>
-              <Text style={styles.sectionLabel}>Punto de partida</Text>
             </View>
-            <TouchableOpacity
-              style={styles.mapSelectButton}
-              onPress={() => goBackWithPicking('origin')}
-              activeOpacity={0.7}
-            >
-              <MapPin size={14} color={C.primary} />
-              <Text style={styles.mapSelectText}>Mapa</Text>
-            </TouchableOpacity>
-          </View>
-
-          {pickupLocation && pickupAddress ? (
-            <View style={styles.selectedLocationCard}>
-              <View style={styles.selectedLocationIcon}>
-                <View style={styles.selectedLocationDot} />
-              </View>
-              <View style={styles.selectedLocationInfo}>
-                <Text style={styles.selectedLocationTitle}>Confirmado</Text>
-                <Text style={styles.selectedLocationAddress} numberOfLines={2}>
-                  {pickupAddress.split(',')[0]}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.changeButton}
-                onPress={() => {
-                  setPickupLocation(null);
-                  setPickupAddress('');
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.changeButtonText}>Cambiar</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <SearchBar
-              onResultSelect={handlePickupSelect}
-              placeholder="¿Dónde te recogemos?"
-              currentLat={pickupLocation?.latitude}
-              currentLon={pickupLocation?.longitude}
-            />
-          )}
-        </View>
-
-        {/* SECCIÓN DESTINO */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <View style={styles.sectionIconContainer}>
-                <View style={styles.destinationDot} />
-              </View>
-              <Text style={styles.sectionLabel}>Destino</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.mapSelectButton}
-              onPress={() => goBackWithPicking('destination')}
-              activeOpacity={0.7}
-            >
-              <MapPin size={14} color={C.primary} />
-              <Text style={styles.mapSelectText}>Mapa</Text>
-            </TouchableOpacity>
-          </View>
-
-          {destinationLocation && destinationAddress ? (
-            <View style={styles.selectedLocationCard}>
-              <View style={styles.selectedLocationIcon}>
-                <View
-                  style={[
-                    styles.selectedLocationDot,
-                    styles.destinationLocationDot,
-                  ]}
-                />
-              </View>
-              <View style={styles.selectedLocationInfo}>
-                <Text style={styles.selectedLocationTitle}>Confirmado</Text>
-                <Text style={styles.selectedLocationAddress} numberOfLines={2}>
-                  {destinationAddress.split(',')[0]}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.changeButton}
-                onPress={() => {
-                  setDestinationLocation(null);
-                  setDestinationAddress('');
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.changeButtonText}>Cambiar</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <SearchBar
-              onResultSelect={handleDestinationSelect}
-              placeholder="¿A dónde vamos?"
-              currentLat={pickupLocation?.latitude}
-              currentLon={pickupLocation?.longitude}
-            />
-          )}
-        </View>
-
-        {/* BOTÓN CONFIRMAR */}
-        {pickupLocation && destinationLocation && (
-          <View style={styles.confirmSection}>
-            <TouchableOpacity
-              style={styles.confirmButton}
-              onPress={confirmLocations}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.confirmButtonText}>Continuar</Text>
-              <View style={styles.confirmButtonIcon}>
-                <Text style={styles.confirmButtonIconText}>→</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ESPACIADO INFERIOR */}
-        <View style={styles.bottomSpacer} />
+          );
+        })}
       </ScrollView>
+
+      {/* CONFIRM BUTTON - FIXED BOTTOM */}
+      {filledStops.length >= 2 && (
+        <View style={styles.confirmSection}>
+          <TouchableOpacity
+            style={styles.confirmButton}
+            onPress={confirmLocations}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.confirmButtonText}>Continuar</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -324,7 +357,7 @@ const SearchScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: C.background,
+    backgroundColor: '#FFFFFF',
   },
 
   // HEADER
@@ -335,39 +368,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: C.headerBorder,
+    paddingBottom: 16,
   },
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: C.backgroundLight,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backButtonText: {
-    fontSize: 24,
-    color: C.textDark,
-    fontWeight: '300',
   },
   headerContent: {
-    flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    justifyContent: 'center',
-  },
-  logoCircle: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.primaryLight,
-    marginRight: 8,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '400',
+    fontSize: 20,
+    fontWeight: '700',
     color: C.textDark,
     letterSpacing: 0.3,
   },
@@ -380,129 +395,128 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 12,
   },
 
-  // SECTIONS
+  
+  // CONNECTOR
+  connectorRow: {
+    width: 48,
+    alignItems: 'center',
+    height: 4,
+    justifyContent: 'center',
+  },
+  connectorLine: {
+    width: 2,
+    height: '100%',
+    backgroundColor: '#E5E7EB',
+  },
+
+  // STOP SECTION
   section: {
-    marginBottom: 32,
+    marginBottom: 0,
   },
-  sectionHeader: {
+  sectionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
+    alignItems: 'flex-start',
+    gap: 5,
   },
-  sectionIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: C.backgroundLight,
+  stepColumn: {
+    width: 48,
+    alignItems: 'center',
+  },
+  stepIndicator: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginTop: 6,
   },
-  originDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.primaryLight,
-  },
-  destinationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 10,
-    backgroundColor: C.primary,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    color: C.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    fontWeight: '600',
-  },
-  mapSelectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.primaryLight + '15', // light primary tint
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  mapSelectText: {
-    fontSize: 12,
-    color: C.primary,
-    fontWeight: '600',
-    marginLeft: 4,
+  stepNumber: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
-  // SELECTED LOCATION
-  selectedLocationCard: {
-    backgroundColor: C.white,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: C.borderLight,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  selectedLocationIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: C.successLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  selectedLocationDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 10,
-    backgroundColor: C.success,
-  },
-  destinationLocationDot: {
-    backgroundColor: C.primary,
-  },
-  selectedLocationInfo: {
+  // STOP CONTENT
+  stopContent: {
     flex: 1,
   },
-  selectedLocationTitle: {
-    fontSize: 11,
-    color: C.success,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 4,
+
+  // STOP INPUT
+  stopInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 5,
   },
-  selectedLocationAddress: {
-    fontSize: 15,
-    color: C.textDark,
-    fontWeight: '400',
-    lineHeight: 20,
+  searchBarWrapper: {
+    flex: 1,
   },
-  changeButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  filledInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
     borderRadius: 12,
-    backgroundColor: C.backgroundLight,
-    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginVertical: 6,
+    minHeight: 48,
   },
-  changeButtonText: {
-    fontSize: 13,
-    color: C.textMuted,
+  filledInputText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2D2D2D',
     fontWeight: '500',
   },
+  clearInputBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#6B7280',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addStopRowBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  addStopRowBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  swapRowBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  removeStopBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
 
-  // BOTÓN CONFIRMAR
+  // CONFIRM BUTTON
   confirmSection: {
-    marginTop: 8,
-    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
   },
   confirmButton: {
     backgroundColor: C.primaryLight,
@@ -520,28 +534,11 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: C.white,
     letterSpacing: 0.5,
-    marginRight: 8,
-  },
-  confirmButtonIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmButtonIconText: {
-    fontSize: 16,
-    color: C.white,
-    fontWeight: '500',
   },
 
-  bottomSpacer: {
-    height: 40,
-  },
 });
 
 export default SearchScreen;

@@ -9,6 +9,11 @@ import SearchScreen from '../screens/SearchScreen';
 // Importar pantallas - Cliente/Conductor (Perfil unificado)
 
 import ProfileScreen from '../screens/ProfileScreen';
+import ProfileDetailScreen from '../screens/ProfileDetailScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import HelpScreen from '../screens/HelpScreen';
+import SupportScreen from '../screens/SupportScreen';
 import ClientRideDetailsScreen from '../screens/ClientRideDetailsScreen';
 import RideHistoryScreen from '../screens/RideHistoryScreen';
 
@@ -33,6 +38,14 @@ import AdminAnalyticsScreen from '../screens/AdminAnalyticsScreen';
 import AdminDriverRegistrationScreen from '../screens/AdminDriverRegistrationScreen';
 
 // 🔥 DEFINIR TIPOS DE PARÁMETROS ACTUALIZADOS
+export type Stop = {
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  address: string;
+};
+
 export type RootStackParamList = {
   Home: undefined;
   Map: {
@@ -46,6 +59,10 @@ export type RootStackParamList = {
     };
     pickupAddress?: string;
     destinationAddress?: string;
+    stops?: Stop[];
+    pickingMode?: 'origin' | 'destination';
+    editingStopIndex?: number;
+    reset?: boolean;
   };
   Search: {
     pickupLocation?: {
@@ -58,9 +75,16 @@ export type RootStackParamList = {
       longitude: number;
     };
     destinationAddress?: string;
+    stops?: Stop[];
+    pickingMode?: 'origin' | 'destination';
   };
   // Screens del cliente/conductor
   Profile: undefined;
+  ProfileDetail: undefined;
+  Settings: undefined;
+  Notifications: undefined;
+  Help: undefined;
+  Support: undefined;
   ClientRideDetails: { rideId: string };
   RideHistory: undefined;
   // Screens de viajes (Nuevas)
@@ -142,6 +166,13 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
         }}
       />
       <Stack.Screen
+        name="ProfileDetail"
+        component={ProfileDetailScreen}
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen
         name="ClientRideDetails"
         component={ClientRideDetailsScreen}
         options={{
@@ -174,6 +205,39 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
       <Stack.Screen
         name="RideCompleted"
         component={RideCompletedScreen}
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+
+      {/* AJUSTES */}
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+
+      <Stack.Screen
+        name="Help"
+        component={HelpScreen}
+        options={{
+          animation: 'slide_from_right',
+        }}
+      />
+
+      <Stack.Screen
+        name="Support"
+        component={SupportScreen}
         options={{
           animation: 'slide_from_right',
         }}

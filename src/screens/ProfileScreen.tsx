@@ -10,18 +10,49 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
-  Modal,
+
 } from 'react-native';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
+import { useSettings } from '../context/SettingsContext';
 import { getMyRequestStatus } from '../services/admin.service';
 import { authService } from '../services/auth.service';
 import { ratingsService } from '../services/ratings.service';
 import { API_BASE_URL } from '../config/constants';
+import {
+  User,
+  Pencil,
+  History,
+  Bell,
+  Settings,
+  HelpCircle,
+  Car,
+  ChevronRight,
+  Circle,
+  X,
+  Star,
+  AlertCircle,
+  FileText,
+  Headphones,
+} from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
+
+interface UserProfile {
+  name: string;
+  email: string;
+  phone: string;
+  rating: number;
+  totalRides: number;
+}
+
+interface DriverProfile extends UserProfile {
+  vehicle: string;
+  plate: string;
+  documentId: string;
+  joinDate: string;
+}
 
 const COLORS = {
   primary: '#7514C5',
@@ -39,134 +70,15 @@ const COLORS = {
   warning: '#D97706',
 };
 
-interface UserProfile {
-  name: string;
-  email: string;
-  phone: string;
-  rating: number;
-  totalRides: number;
-}
 
-interface DriverProfile extends UserProfile {
-  vehicle: string;
-  plate: string;
-  documentId: string;
-  joinDate: string;
-}
 
-// Minimal icon components (SVG-like via View)
-const ChevronRight = () => (
-  <View style={iconStyles.chevron}>
-    <View
-      style={[
-        iconStyles.chevronBar,
-        { transform: [{ rotate: '45deg' }, { translateY: -2 }] },
-      ]}
-    />
-    <View
-      style={[
-        iconStyles.chevronBar,
-        { transform: [{ rotate: '-45deg' }, { translateY: 2 }] },
-      ]}
-    />
-  </View>
-);
-
-const iconStyles = StyleSheet.create({
-  chevron: {
-    width: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  chevronBar: { width: 8, height: 1.5, backgroundColor: COLORS.primary },
-});
-
-// Status pill
-const StatusPill = ({ status }: { status: string }) => {
-  const config: Record<string, { label: string; color: string; bg: string }> = {
-    approved: { label: 'Aprobado', color: COLORS.success, bg: '#F0FDF4' },
-    pending: { label: 'En revisión', color: COLORS.warning, bg: '#FFFBEB' },
-    rejected: {
-      label: 'Observado',
-      color: COLORS.danger,
-      bg: COLORS.dangerLight,
-    },
-  };
-  const c = config[status] ?? {
-    label: status,
-    color: COLORS.textSecondary,
-    bg: COLORS.background,
-  };
-  return (
-    <View style={[pillStyles.pill, { backgroundColor: c.bg }]}>
-      <View style={[pillStyles.dot, { backgroundColor: c.color }]} />
-      <Text style={[pillStyles.label, { color: c.color }]}>{c.label}</Text>
-    </View>
-  );
-};
-
-const pillStyles = StyleSheet.create({
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    gap: 5,
-  },
-  dot: { width: 5, height: 5, borderRadius: 3 },
-  label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
-});
-
-const ruatStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    marginBottom: 12,
-  },
-  alertRow: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 10,
-    padding: 10,
-  },
-  iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  icon: { fontSize: 18 },
-  title: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 2,
-  },
-  sub: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    lineHeight: 17,
-  },
-  btn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnTxt: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-});
 
 const ProfileScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { user, logout, isDriverMode, setIsDriverMode, token, updateUser } =
     useAuth();
+  const { settings } = useSettings();
+  const isDark = settings.darkMode;
 
   const [profile, setProfile] = useState<DriverProfile>({
     name: 'Usuario',
@@ -190,9 +102,6 @@ const ProfileScreen = () => {
   const [loadingDriverStatus, setLoadingDriverStatus] = useState(true);
   const [calculatedRating, setCalculatedRating] = useState<number>(5.0);
 
-  // ── RUAT verification ────────────────────────────────────────────────────
-  const [ruatUploading, setRuatUploading] = useState(false);
-  const [ruatPickerVisible, setRuatPickerVisible] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -257,68 +166,7 @@ const ProfileScreen = () => {
     }
   };
 
-  // ── RUAT upload ──────────────────────────────────────────────────────────
-  const vehicle = driverStatus?.driver?.vehicle ?? null;
-  const ruatVerified: boolean = vehicle?.ruatVerified ?? false;
-  const ruatRequired: boolean = vehicle?.ruatRequired ?? false;
-  // ruatFile != null && !ruatVerified → conductor subió el RUAT, espera revisión del admin
-  // ruatFile != null &&  ruatVerified → aprobado (referencia permanente)
-  const ruatPending: boolean = !!vehicle?.ruatFile && !ruatVerified;
 
-  const handleRuatUpload = async (uri: string) => {
-    if (!token) return;
-    setRuatPickerVisible(false);
-    setRuatUploading(true);
-    try {
-      const form = new FormData();
-      form.append('ruatPhoto', {
-        uri,
-        type: 'image/jpeg',
-        name: 'ruat.jpg',
-      } as any);
-
-      const res = await fetch(`${API_BASE_URL}/drivers/submit-ruat`, {
-        method: 'POST',
-        body: form,
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Error ${res.status}`);
-      }
-
-      Alert.alert(
-        '✅ RUAT enviado',
-        'Tu RUAT fue enviado correctamente. El administrador lo revisará pronto.',
-      );
-      loadDriverStatus();
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'No se pudo enviar el RUAT.');
-    } finally {
-      setRuatUploading(false);
-    }
-  };
-
-  const openRuatPicker = () => {
-    Alert.alert('Subir RUAT', 'Selecciona una opción', [
-      {
-        text: 'Cámara',
-        onPress: () =>
-          launchCamera({ mediaType: 'photo', quality: 0.7 }, r => {
-            if (r.assets?.[0]?.uri) handleRuatUpload(r.assets[0].uri!);
-          }),
-      },
-      {
-        text: 'Galería',
-        onPress: () =>
-          launchImageLibrary({ mediaType: 'photo', quality: 0.7 }, r => {
-            if (r.assets?.[0]?.uri) handleRuatUpload(r.assets[0].uri!);
-          }),
-      },
-      { text: 'Cancelar', style: 'cancel' },
-    ]);
-  };
 
   const handleSave = async () => {
     try {
@@ -484,7 +332,7 @@ const ProfileScreen = () => {
   const isApprovedDriver =
     driverStatus?.hasApplication && driverStatus.status === 'approved';
 
-  const profilePhotoUrl = user?.profilePhoto;
+  const profilePhotoUrl = user?.profilePhoto || (user as any)?.photoURL || null;
 
   // Format member since date from user.createdAt
   const getMemberSince = () => {
@@ -517,18 +365,17 @@ const ProfileScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, isDark && styles.containerDark]}>
       {/* HEADER */}
-      <View style={styles.header}>
+      <View style={[styles.header, isDark && styles.headerDark]}>
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => navigation.goBack()}
         >
-          <View style={styles.backArrowLeft} />
-          <View style={styles.backArrowRight} />
+          <X size={24} color={COLORS.primary} strokeWidth={2.8} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Perfil</Text>
-        <View style={{ width: 36 }} />
+        <View style={{ width: 40 }} />
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
@@ -536,357 +383,202 @@ const ProfileScreen = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* HERO CARD */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroBg} />
-          <View style={styles.avatarWrapper}>
-            {profilePhotoUrl ? (
-              <Image
-                source={{ uri: profilePhotoUrl }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarInitial}>
-                  {currentProfile.name.charAt(0).toUpperCase()}
-                </Text>
+        {/* HERO CARD - Avatar izquierda */}
+        <View style={[styles.heroCard, isDark && styles.heroCardDark]}>
+          <View style={styles.heroRow}>
+            <View style={[styles.avatarWrapperNew, isDark && styles.avatarWrapperDark]}>
+              {profilePhotoUrl ? (
+                <Image
+                  source={{ uri: profilePhotoUrl }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <View style={[styles.avatarFallbackNew, isDark && styles.avatarFallbackDark]}>
+                  <User size={32} color={COLORS.primary} />
+                </View>
+              )}
+            </View>
+            <View style={styles.heroInfo}>
+              <Text style={[styles.heroNameNew, isDark && styles.heroNameDark]}>{currentProfile.name}</Text>
+              <Text style={[styles.heroEmail, isDark && styles.heroEmailDark]}>{currentProfile.email}</Text>
+              <View style={styles.ratingRow}>
+                <Star size={14} color={COLORS.primary} fill={COLORS.primary} />
+                <Text style={[styles.ratingTextSmall, isDark && styles.ratingTextDark]}>{currentProfile.rating || '5.0'}</Text>
+                <Text style={[styles.ratingDot]}>•</Text>
+                <Text style={[styles.ratingSubtext, isDark && styles.ratingSubtextDark]}>{currentProfile.totalRides} viajes</Text>
               </View>
-            )}
-          </View>
-          <Text style={styles.heroName}>{currentProfile.name}</Text>
-          <Text style={styles.heroEmail}>{currentProfile.email}</Text>
-
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>
-                {currentProfile.rating || '5.0'}
-              </Text>
-              <Text style={styles.statLabel}>
-                {isDriverMode &&
-                  driverStatus?.hasApplication &&
-                  driverStatus.status === 'approved'
-                  ? 'Cal. Conductor'
-                  : 'Calificación'}
-              </Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{currentProfile.totalRides}</Text>
-              <Text style={styles.statLabel}>
-                {isDriverMode &&
-                  driverStatus?.hasApplication &&
-                  driverStatus.status === 'approved'
-                  ? 'Viajes (Cond.)'
-                  : 'Viajes'}
-              </Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{getMemberSince()}</Text>
-              <Text style={styles.statLabel}>Miembro desde</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.addAccountBtnRight}
+              onPress={() => Alert.alert('Agregar cuenta', 'Pantalla en desarrollo')}
+            >
+              <Text style={styles.addAccountText}>+</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* VERIFICACIÓN DE VEHÍCULO (solo conductores aprobados) */}
-        {isApprovedDriver && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>VEHÍCULO</Text>
-            <View style={styles.card}>
-              {/* Estado RUAT */}
-              {ruatVerified ? (
-                <View style={ruatStyles.row}>
-                  <View
-                    style={[
-                      ruatStyles.iconWrap,
-                      { backgroundColor: '#DCFCE7' },
-                    ]}
-                  >
-                    <Text style={ruatStyles.icon}>✓</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={ruatStyles.title}>Vehículo Verificado</Text>
-                    <Text style={ruatStyles.sub}>
-                      Tu RUAT fue aprobado. Tu vehículo tiene el badge de
-                      verificado.
-                    </Text>
-                  </View>
-                </View>
-              ) : ruatPending ? (
-                <View style={ruatStyles.row}>
-                  <View
-                    style={[
-                      ruatStyles.iconWrap,
-                      { backgroundColor: '#FEF3C7' },
-                    ]}
-                  >
-                    <Text style={ruatStyles.icon}>⏳</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={ruatStyles.title}>RUAT en revisión</Text>
-                    <Text style={ruatStyles.sub}>
-                      Tu documento fue enviado y está siendo revisado por el
-                      administrador.
-                    </Text>
-                  </View>
-                </View>
-              ) : ruatRequired ? (
-                <View>
-                  <View style={[ruatStyles.row, ruatStyles.alertRow]}>
-                    <View
-                      style={[
-                        ruatStyles.iconWrap,
-                        { backgroundColor: '#FEE2E2' },
-                      ]}
-                    >
-                      <Text style={ruatStyles.icon}>⚠️</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[ruatStyles.title, { color: COLORS.danger }]}
-                      >
-                        Verificación requerida
-                      </Text>
-                      <Text style={ruatStyles.sub}>
-                        El administrador requiere que envíes el RUAT de tu
-                        vehículo
-                        {vehicle?.ruatRequiredReason === 'accident' &&
-                          ' (accidente registrado)'}
-                        {vehicle?.ruatRequiredReason === 'vehicle_mismatch' &&
-                          ' (vehículo no coincide)'}
-                        {vehicle?.ruatRequiredReason ===
-                          'suspension_reactivation' &&
-                          ' (reactivación de cuenta)'}
-                        {vehicle?.ruatRequiredReason === 'criminal_record' &&
-                          ' (verificación adicional)'}
-                        .
-                      </Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity
-                    style={[ruatStyles.btn, { backgroundColor: COLORS.danger }]}
-                    onPress={openRuatPicker}
-                    disabled={ruatUploading}
-                    activeOpacity={0.8}
-                  >
-                    {ruatUploading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={ruatStyles.btnTxt}>📄 Subir RUAT ahora</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View>
-                  <View style={ruatStyles.row}>
-                    <View
-                      style={[
-                        ruatStyles.iconWrap,
-                        { backgroundColor: '#F3F4F6' },
-                      ]}
-                    >
-                      <Text style={ruatStyles.icon}>○</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={ruatStyles.title}>Sin verificar</Text>
-                      <Text style={ruatStyles.sub}>
-                        Sube el RUAT de tu vehículo para obtener el badge de
-                        Vehículo Verificado.
-                      </Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity
-                    style={[
-                      ruatStyles.btn,
-                      { backgroundColor: COLORS.primary },
-                    ]}
-                    onPress={openRuatPicker}
-                    disabled={ruatUploading}
-                    activeOpacity={0.8}
-                  >
-                    {ruatUploading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={ruatStyles.btnTxt}>
-                        📄 Verificar vehículo (RUAT)
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* MODO DE OPERACIÓN */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>MODO DE OPERACIÓN</Text>
+        {/* MENÚ RÁPIDO - Grilla 2x2 */}
+        <View style={styles.menuGrid}>
           <TouchableOpacity
-            style={[
-              styles.modeCard,
-              isDriverMode && isApprovedDriver && styles.modeCardActive,
-            ]}
-            onPress={handleToggleMode}
-            disabled={loadingDriverStatus}
-            activeOpacity={0.7}
+            style={styles.menuGridItem}
+            onPress={() => navigation.navigate('ProfileDetail', {
+              vehicleModel: driverStatus?.driver?.vehicle?.model ?? currentProfile.vehicle,
+              vehiclePlate: driverStatus?.driver?.vehicle?.plate ?? currentProfile.plate,
+              isApprovedDriver,
+            })}
           >
-            <View style={styles.modeCardLeft}>
-              <View
-                style={[
-                  styles.modeIndicator,
-                  isDriverMode &&
-                  isApprovedDriver &&
-                  styles.modeIndicatorActive,
-                ]}
-              />
-              <View>
-                <Text style={styles.modeTitle}>
-                  {isDriverMode && isApprovedDriver ? 'Conductor' : 'Pasajero'}
-                </Text>
-                <Text style={styles.modeDesc}>{getModeDescription()}</Text>
+            <View style={{ flexDirection: 'column', alignItems: 'flex-start', padding: 12, width: '100%' }}>
+              <View style={styles.menuGridIcon}>
+                <User size={25} color={COLORS.primary} />
               </View>
+              <Text style={styles.menuGridText}>Mi perfil</Text>
             </View>
-            <View style={styles.modeCardRight}>
-              {driverStatus?.status && (
-                <StatusPill status={driverStatus.status} />
-              )}
-              {loadingDriverStatus ? (
-                <ActivityIndicator
-                  size="small"
-                  color={COLORS.primary}
-                  style={{ marginLeft: 8 }}
-                />
-              ) : (
-                <ChevronRight />
-              )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuGridItem}
+            onPress={() => navigation.navigate('RideHistory')}
+          >
+            <View style={{ flexDirection: 'column', alignItems: 'flex-start', padding: 12, width: '100%' }}>
+              <View style={styles.menuGridIcon}>
+                <History size={25} color={COLORS.primary} />
+              </View>
+              <Text style={styles.menuGridText}>Mis Viajes</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuGridItem}
+            onPress={() => navigation.navigate('Settings')}
+          >
+            <View style={{ flexDirection: 'column', alignItems: 'flex-start', padding: 12, width: '100%' }}>
+              <View style={styles.menuGridIcon}>
+                <Settings size={25} color={COLORS.primary} />
+              </View>
+              <Text style={styles.menuGridText}>Ajustes</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuGridItem}
+            onPress={() => navigation.navigate('Notifications')}
+          >
+            <View style={{ flexDirection: 'column', alignItems: 'flex-start', padding: 12, width: '100%' }}>
+              <View style={styles.menuGridIcon}>
+                <Bell size={25} color={COLORS.primary} />
+              </View>
+              <Text style={styles.menuGridText}>Notificaciones</Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        {/* INFORMACIÓN PERSONAL */}
+        {/* AYUDA Y SOPORTE */}
         <View style={styles.section}>
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionLabel}>INFORMACIÓN PERSONAL</Text>
-            {!isEditing && (
-              <TouchableOpacity onPress={() => setIsEditing(true)}>
-                <Text style={styles.editLink}>Editar</Text>
+          <View style={styles.menuContainer}>
+            <TouchableOpacity
+              style={styles.menuItemNew}
+              onPress={() => navigation.navigate('Help')}
+            >
+              <View style={styles.menuItemLeftNew}>
+                <View style={styles.menuItemIcon}>
+                  <HelpCircle size={25} color={COLORS.primary} />
+                </View>
+                <Text style={styles.menuItemTextNew}>Ayuda</Text>
+              </View>
+              <ChevronRight size={20} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItemNew}
+              onPress={() => navigation.navigate('Support')}
+            >
+              <View style={styles.menuItemLeftNew}>
+                <View style={styles.menuItemIcon}>
+                  <Headphones size={25} color={COLORS.primary} />
+                </View>
+                <Text style={styles.menuItemTextNew}>Soporte</Text>
+              </View>
+              <ChevronRight size={20} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItemNew}
+              onPress={() => Alert.alert('Noticias', 'Pantalla en desarrollo')}
+            >
+              <View style={styles.menuItemLeftNew}>
+                <View style={styles.menuItemIcon}>
+                  <FileText size={25} color={COLORS.primary} />
+                </View>
+                <Text style={styles.menuItemTextNew}>Noticias</Text>
+              </View>
+              <ChevronRight size={20} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+
+            {!isApprovedDriver && !driverStatus?.hasApplication && (
+              <TouchableOpacity
+                style={styles.menuItemNew}
+                onPress={handleBecomeDriver}
+              >
+                <View style={styles.menuItemLeftNew}>
+                  <View style={styles.menuItemIcon}>
+                    <Car size={25} color={COLORS.primary} />
+                  </View>
+                  <Text style={styles.menuItemTextNew}>Conviértete en conductor</Text>
+                </View>
+                <ChevronRight size={20} color={COLORS.textTertiary} />
               </TouchableOpacity>
             )}
-          </View>
 
-          <View style={styles.card}>
-            {isEditing ? (
-              <>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Nombre completo</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editedProfile.name}
-                    onChangeText={text =>
-                      setEditedProfile({ ...editedProfile, name: text })
-                    }
-                    placeholderTextColor={COLORS.textTertiary}
-                  />
+            {driverStatus?.status === 'rejected' && (
+              <TouchableOpacity
+                style={styles.menuItemNew}
+                onPress={() => (navigation as any).navigate('DriverRegistration', { user })}
+              >
+                <View style={styles.menuItemLeftNew}>
+                  <View style={styles.menuItemIcon}>
+                    <AlertCircle size={25} color={COLORS.danger} />
+                  </View>
+                  <Text style={styles.menuItemTextNew}>Solicitud observada</Text>
                 </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Correo electrónico</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editedProfile.email}
-                    onChangeText={text =>
-                      setEditedProfile({ ...editedProfile, email: text })
-                    }
-                    keyboardType="email-address"
-                    placeholderTextColor={COLORS.textTertiary}
-                  />
+                <ChevronRight size={20} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            )}
+
+            {driverStatus?.status === 'pending' && (
+              <TouchableOpacity
+                style={styles.menuItemNew}
+                onPress={() => { }}
+              >
+                <View style={styles.menuItemLeftNew}>
+                  <View style={styles.menuItemIcon}>
+                    <Circle size={25} color={COLORS.warning} />
+                  </View>
+                  <Text style={styles.menuItemTextNew}>Solicitud en revisión</Text>
                 </View>
-                <View style={[styles.inputGroup, { marginBottom: 0 }]}>
-                  <Text style={styles.inputLabel}>Teléfono</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editedProfile.phone}
-                    onChangeText={text =>
-                      setEditedProfile({ ...editedProfile, phone: text })
-                    }
-                    keyboardType="phone-pad"
-                    placeholderTextColor={COLORS.textTertiary}
-                  />
-                </View>
-              </>
-            ) : (
-              <>
-                <InfoRow label="Nombre" value={currentProfile.name} />
-                <InfoRow label="Correo" value={currentProfile.email} />
-                <InfoRow label="Teléfono" value={currentProfile.phone} last />
-              </>
+              </TouchableOpacity>
             )}
           </View>
         </View>
 
-        {/* VEHÍCULO - solo modo conductor */}
-        {isDriverMode && isApprovedDriver && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>VEHÍCULO</Text>
-            <View style={styles.card}>
-              {isEditing ? (
-                <>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Modelo</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedProfile.vehicle}
-                      onChangeText={text =>
-                        setEditedProfile({ ...editedProfile, vehicle: text })
-                      }
-                      placeholderTextColor={COLORS.textTertiary}
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { marginBottom: 0 }]}>
-                    <Text style={styles.inputLabel}>Placa</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedProfile.plate}
-                      onChangeText={text =>
-                        setEditedProfile({ ...editedProfile, plate: text })
-                      }
-                      placeholderTextColor={COLORS.textTertiary}
-                    />
-                  </View>
-                </>
-              ) : (
-                <>
-                  <InfoRow label="Modelo" value={currentProfile.vehicle} />
-                  <InfoRow label="Placa" value={currentProfile.plate} last />
-                </>
-              )}
-            </View>
-          </View>
+      </ScrollView>
+
+      {/* BOTTOM ACTIONS (fixed at the bottom) */}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12, backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF' }}>
+        {isApprovedDriver && (
+          <TouchableOpacity
+            style={[styles.driverCard, isDriverMode && styles.driverCardActive]}
+            onPress={handleToggleMode}
+            disabled={loadingDriverStatus}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.driverTitle, isDriverMode && styles.driverTitleActive]}>
+              {isDriverMode ? 'Modo Pasajero' : 'Modo Conductor'}
+            </Text>
+          </TouchableOpacity>
         )}
 
-        {/* EDIT ACTIONS */}
-        {isEditing && (
-          <View style={styles.editActions}>
-            <TouchableOpacity
-              style={styles.btnOutline}
-              onPress={handleCancel}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.btnOutlineText}>Cancelar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.btnFill}
-              onPress={handleSave}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.btnFillText}>Guardar</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* LOGOUT */}
         <TouchableOpacity
-          style={styles.logoutBtn}
+          style={[styles.logoutBtn, { marginTop: 0 }]}
           activeOpacity={0.7}
           onPress={() => {
             Alert.alert('Cerrar sesión', 'Serás desconectado de tu cuenta.', [
@@ -903,7 +595,7 @@ const ProfileScreen = () => {
         >
           <Text style={styles.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
@@ -945,7 +637,7 @@ const infoStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -954,8 +646,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
   backBtn: {
     width: 36,
@@ -985,7 +675,6 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingTop: 20,
     paddingHorizontal: 16,
     paddingBottom: 40,
     gap: 8,
@@ -997,8 +686,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     alignItems: 'center',
-    paddingBottom: 24,
-    marginBottom: 8,
+    paddingBottom: 15,
+
   },
   heroBg: {
     position: 'absolute',
@@ -1012,19 +701,13 @@ const styles = StyleSheet.create({
   avatarWrapper: {
     marginTop: 28,
     marginBottom: 14,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
-  avatarImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 3,
-    borderColor: COLORS.surface,
-  },
+
   avatarFallback: {
     width: 76,
     height: 76,
@@ -1046,11 +729,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: 4,
   },
-  heroEmail: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginBottom: 20,
-  },
+
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1162,6 +841,64 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
+  /* DRIVER CARD MEJORADO */
+  driverCard: {
+    backgroundColor: '#F7F7F9',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverCardActive: {
+    backgroundColor: '#F3EAFC',
+  },
+  driverIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  driverInfo: {
+    flex: 1,
+  },
+  driverTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  driverTitleActive: {
+    color: COLORS.primary,
+  },
+  driverSubtitle: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+
+  driverRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  driverActionBtn: {
+    marginTop: 12,
+    backgroundColor: '#F3EAFC',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  driverActionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+
   /* INPUTS */
   inputGroup: {
     marginBottom: 14,
@@ -1211,11 +948,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   btnFillText: {
     fontSize: 14,
@@ -1223,18 +960,318 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
+  /* MENU ITEMS */
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  menuItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  menuItemText: {
+    fontSize: 15,
+    color: COLORS.text,
+  },
+
   /* LOGOUT */
   logoutBtn: {
-    marginTop: 12,
-    paddingVertical: 14,
+    marginTop: 24,
+    paddingVertical: 16,
     borderRadius: 12,
     backgroundColor: COLORS.dangerLight,
     alignItems: 'center',
   },
   logoutText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: COLORS.danger,
+  },
+
+  /* NUEVOS ESTILOS PROFESIONALES - UBER/CABIFY STYLE */
+  containerDark: {
+    backgroundColor: '#1A1A1A',
+  },
+  headerDark: {
+    backgroundColor: '#1A1A1A',
+    borderBottomColor: '#333',
+  },
+  headerTitleDark: {
+    color: '#FFF',
+  },
+  editProfileBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3EAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroCardDark: {
+    backgroundColor: '#2D2D2D',
+  },
+  heroCardNew: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    padding: 24,
+    marginHorizontal: 16,
+    marginTop: 16,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  avatarSection: {
+    alignItems: 'center',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  addAccountBtnRight: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 6,
+    marginRight: 16,
+  },
+  addAccountText: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  heroEmail: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
+  },
+  heroEmailDark: {
+    color: '#AAA',
+  },
+  avatarWrapperNew: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    padding: 2,
+    backgroundColor: COLORS.surface,
+  },
+  avatarWrapperDark: {
+    backgroundColor: '#2D2D2D',
+  },
+  avatarFallbackNew: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
+    backgroundColor: COLORS.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarFallbackDark: {
+    backgroundColor: '#3D3D3D',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
+  },
+  avatarBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.surface,
+  },
+  heroNameNew: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  heroNameDark: {
+    color: '#FFF',
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ratingText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  ratingTextSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  ratingTextDark: {
+    color: '#FFF',
+  },
+  ratingDot: {
+    color: COLORS.textTertiary,
+    marginHorizontal: 4,
+  },
+  ratingSubtext: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  ratingSubtextDark: {
+    color: '#AAA',
+  },
+
+  /* Section Titles profesionales */
+  sectionLabelNew: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+
+  /* Menu items profesionales */
+  menuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 0,
+    gap: 12,
+  },
+  menuGridItem: {
+    width: '48%',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 12,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    alignItems: 'flex-start',
+    padding: 12,
+  },
+  menuGridIcon: {
+    width: 25,
+    height: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  menuGridText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+  menuContainer: {
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginHorizontal: 0,
+    marginVertical: 5,
+  },
+  menuItemNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+
+  },
+  menuItemLeftNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  menuItemIcon: {
+    width: 25,
+    height: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+
+  },
+  menuItemTextNew: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+
+  /* Card moderno */
+  cardModern: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+
+  /* Driver card mejorado */
+  driverCardNew: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  driverBigBtn: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+    gap: 16,
+  },
+  driverBigBtnContent: {
+    flex: 1,
+  },
+  driverBigBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  driverBigBtnSubtext: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
 });
 

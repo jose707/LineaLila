@@ -42,17 +42,23 @@ users ──────────────────── drivers ─�
   │                           ├── driver_locations
   │                           ├── driver_requests ── request_files
   │                           ├── driver_earnings ── commission_settlements
-  │                           └── ride_offers
+  │                           ├── ride_offers
+  │                           └── (panicEvents)
   │                                    │
-  └────────── rides ───────────────────┘
-                │
-                ├── payments
-                ├── ratings
-                ├── ride_offers
-                ├── driver_earnings
-                ├── promo_codes (FK)
-                ├── cancellation_reasons (FK)
-                └── service_areas (FK)
+  ├────── rides ───────────────────────┤
+  │          │                          │
+  │          ├── ride_waypoints
+  │          ├── ride_offers ───────────┘
+  │          ├── payments
+  │          ├── ratings
+  │          ├── driver_earnings
+  │          ├── panicEvents (ride_id nullable)
+  │          ├── promo_codes (FK)
+  │          ├── cancellation_reasons (FK)
+  │          └── service_areas (FK)
+  │
+  ├── trustedContacts (máx 3 por usuario)
+  └── panicEvents (botón SOS)
 
 notifications ──── users
 service_areas (zonas geográficas de operación — PostGIS)
@@ -397,6 +403,91 @@ Archivos adjuntos a una solicitud de conductor (fotos de licencia, SOAT, etc.).
 
 ---
 
+### `ride_waypoints`
+Paradas intermedias de un viaje (rutas con múltiples destinos). Cada viaje puede tener 0 o más paradas ordenadas por secuencia.
+
+| Columna | Tipo | Nulo | Default | Descripción |
+|---|---|---|---|---|
+| `id` | UUID | NO | | Identificador único |
+| `ride_id` | UUID | NO | | FK → rides (CASCADE) |
+| `sequence` | SMALLINT | NO | | Número de orden de la parada (1, 2, 3...) |
+| `location` | GEOMETRY(POINT, 4326) | NO | | Ubicación de la parada intermedia (WGS84) |
+| `address` | TEXT | NO | | Dirección legible de la parada |
+| `arrived_at` | TIMESTAMPTZ | YES | | Cuándo llegó el conductor a la parada |
+| `departed_at` | TIMESTAMPTZ | YES | | Cuándo salió el conductor de la parada |
+| `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
+
+**Constraints:**
+- `UNIQUE (ride_id, sequence)` — previene paradas duplicadas con el mismo número
+- `ON DELETE CASCADE` — al borrar un viaje se borran sus paradas
+
+**Índices:**
+- `idx_ride_waypoints_ride_id` — búsquedas por viaje
+- `idx_ride_waypoints_geo` (GIST) — queries espaciales de ubicación
+
+**Notas:**
+- El campo `pickup_location` en `rides` es el inicio; el `dropoff_location` es el destino final
+- Las paradas intermedias son complementarias al flujo principal pickup → dropoff
+- `arrived_at` y `departed_at` se registran en tiempo real durante el viaje
+
+---
+
+### `trusted_contacts`
+Contactos de confianza de un usuario (máximo 3 por usuario). Se usan para notificaciones de emergencia y compartir ubicación.
+
+| Columna | Tipo | Nulo | Default | Descripción |
+|---|---|---|---|---|
+| `id` | UUID | NO | | Identificador único |
+| `user_id` | UUID | NO | | FK → users (CASCADE) |
+| `name` | VARCHAR | NO | | Nombre del contacto de confianza |
+| `phone` | VARCHAR | NO | | Número de teléfono |
+| `relation` | VARCHAR | YES | | Relación con el usuario: `mother`, `father`, `friend`, `sibling`, etc. |
+| `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
+
+**Constraints:**
+- `UNIQUE (user_id, phone)` — evita agregar el mismo teléfono dos veces
+- `ON DELETE CASCADE` — al borrar un usuario se borran sus contactos
+
+**Índices:**
+- `idx_trusted_contacts_user` — búsquedas por usuario
+
+**Notas:**
+- Se usa en el módulo de emergencias para notificar a contactos seguros
+- Se puede compartir la ubicación en vivo con estos contactos
+- El límite de 3 se valida en la aplicación, no en la BD
+
+---
+
+### `panic_events`
+Registro de eventos del botón de pánico (SOS) activados por usuarios. Incluye ubicación, grabación de audio y timestamps.
+
+| Columna | Tipo | Nulo | Default | Descripción |
+|---|---|---|---|---|
+| `id` | UUID | NO | | Identificador único |
+| `user_id` | UUID | NO | | FK → users |
+| `ride_id` | UUID | YES | | FK → rides (nullable: pánico puede ocurrir fuera de viaje) |
+| `location` | GEOMETRY(POINT, 4326) | NO | | Ubicación exacta del pánico (WGS84) |
+| `audio_url` | VARCHAR | YES | | URL externa de la grabación de audio (40 segundos máximo) |
+| `triggered_at` | TIMESTAMPTZ | NO | | Fecha/hora cuando se activó el pánico |
+| `resolved_at` | TIMESTAMPTZ | YES | | Fecha/hora cuando se resolvió (si aplica) |
+
+**Constraints:**
+- `ride_id` es nullable — el pánico puede ocurrir en cualquier momento, no solo durante un viaje
+- No hay FK restrictiva en `ride_id` para permitir eliminación de viajes
+- No hay `ON DELETE CASCADE` — los eventos se conservan para auditoría
+
+**Índices:**
+- `idx_panic_events_user` — búsquedas por usuario
+- `idx_panic_events_geo` (GIST) — análisis geoespacial de incidentes
+
+**Notas:**
+- El audio se almacena externamente (Cloud Storage, S3, etc.); solo se guarda la URL
+- `resolved_at` se completa cuando personal de seguridad o el usuario resuelve el incidente
+- Este evento genera notificación con tipo `panic` a contactos de confianza
+- Se registra para auditoría y análisis de seguridad de la plataforma
+
+---
+
 ### `notifications`
 Historial de notificaciones push enviadas a los usuarios.
 
@@ -575,7 +666,7 @@ discount_type: 'percentage', 'fixed'
 applicable_to: 'passenger', 'driver', 'both'
 
 -- Tipo de notificación
-notification_type: 'ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system'
+notification_type: 'ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system', 'panic'
 
 -- Estado del cobro mensual
 settlement_status: 'open', 'pending_payment', 'paid', 'overdue'
@@ -628,6 +719,17 @@ CREATE INDEX idx_driver_locations_geo ON driver_locations USING GIST(location);
 CREATE INDEX idx_service_areas_boundary ON service_areas USING GIST(boundary);
 CREATE INDEX idx_service_areas_active   ON service_areas(is_active);
 CREATE INDEX idx_rides_service_area     ON rides(service_area_id);
+
+-- Índices para paradas intermedias de viajes
+CREATE INDEX idx_ride_waypoints_ride_id ON ride_waypoints(ride_id);
+CREATE INDEX idx_ride_waypoints_geo     ON ride_waypoints USING GIST(location);
+
+-- Índices para contactos de confianza
+CREATE INDEX idx_trusted_contacts_user  ON trusted_contacts(user_id);
+
+-- Índices para eventos de pánico
+CREATE INDEX idx_panic_events_user      ON panic_events(user_id);
+CREATE INDEX idx_panic_events_geo       ON panic_events USING GIST(location);
 ```
 
 ---
@@ -687,6 +789,14 @@ ADD CONSTRAINT check_paid_has_date
 CHECK (
   status != 'paid' OR paid_at IS NOT NULL
 );
+
+-- Paradas intermedias: una parada por secuencia por viaje
+ALTER TABLE ride_waypoints
+ADD CONSTRAINT uq_ride_waypoint UNIQUE (ride_id, sequence);
+
+-- Contactos de confianza: un teléfono por usuario
+ALTER TABLE trusted_contacts
+ADD CONSTRAINT uq_trusted_contact UNIQUE (user_id, phone);
 ```
 
 ---
@@ -1049,6 +1159,117 @@ WHERE r.status = 'completed'
 ORDER BY r.created_at DESC;
 ```
 
+### Ver todas las paradas de un viaje ordenadas
+```sql
+SELECT
+  rw.sequence,
+  rw.address,
+  ST_X(rw.location)::NUMERIC(10,6) AS longitude,
+  ST_Y(rw.location)::NUMERIC(10,6) AS latitude,
+  rw.arrived_at,
+  rw.departed_at,
+  EXTRACT(EPOCH FROM (rw.departed_at - rw.arrived_at)) / 60 AS duracion_minutos
+FROM ride_waypoints rw
+WHERE rw.ride_id = 'uuid-del-viaje'
+ORDER BY rw.sequence ASC;
+```
+
+### Verificar que todas las paradas fueron completadas
+```sql
+SELECT
+  COUNT(*) AS total_paradas,
+  COUNT(CASE WHEN arrived_at IS NOT NULL THEN 1 END) AS completadas,
+  COUNT(CASE WHEN arrived_at IS NULL THEN 1 END) AS pendientes
+FROM ride_waypoints
+WHERE ride_id = 'uuid-del-viaje';
+```
+
+### Obtener contactos de confianza de un usuario
+```sql
+SELECT
+  id,
+  name,
+  phone,
+  relation
+FROM trusted_contacts
+WHERE user_id = 'uuid-del-usuario'
+ORDER BY created_at ASC;
+```
+
+### Verificar si un usuario alcanzó el límite de 3 contactos
+```sql
+SELECT COUNT(*) AS total_contactos
+FROM trusted_contacts
+WHERE user_id = 'uuid-del-usuario'
+HAVING COUNT(*) >= 3;
+```
+
+### Ver todos los eventos de pánico de un usuario
+```sql
+SELECT
+  id,
+  triggered_at,
+  resolved_at,
+  ride_id,
+  audio_url,
+  ST_X(location)::NUMERIC(10,6) AS longitude,
+  ST_Y(location)::NUMERIC(10,6) AS latitude
+FROM panic_events
+WHERE user_id = 'uuid-del-usuario'
+ORDER BY triggered_at DESC;
+```
+
+### Ver eventos de pánico sin resolver
+```sql
+SELECT
+  pe.id,
+  u.name AS usuario,
+  u.phone,
+  pe.triggered_at,
+  r.pickup_address,
+  r.dropoff_address,
+  EXTRACT(EPOCH FROM (now() - pe.triggered_at)) / 60 AS minutos_desde_activacion
+FROM panic_events pe
+JOIN users u ON u.id = pe.user_id
+LEFT JOIN rides r ON r.id = pe.ride_id
+WHERE pe.resolved_at IS NULL
+ORDER BY pe.triggered_at DESC;
+```
+
+### Analizar incidentes por zona geográfica
+```sql
+SELECT
+  COUNT(*) AS total_incidentes,
+  ST_X(pe.location)::NUMERIC(10,6) AS longitude,
+  ST_Y(pe.location)::NUMERIC(10,6) AS latitude
+FROM panic_events pe
+WHERE pe.triggered_at >= now() - INTERVAL '30 days'
+GROUP BY ST_X(pe.location), ST_Y(pe.location)
+ORDER BY total_incidentes DESC;
+```
+
+### Correlacionar pánico con viajes
+```sql
+SELECT
+  pe.id AS panic_id,
+  r.id AS ride_id,
+  u.name,
+  r.pickup_address,
+  r.dropoff_address,
+  pe.triggered_at,
+  r.status AS ride_status,
+  CASE 
+    WHEN pe.ride_id IS NULL THEN 'Fuera de viaje'
+    WHEN r.status = 'in_progress' THEN 'Durante viaje'
+    ELSE 'Viaje ' || r.status
+  END AS contexto
+FROM panic_events pe
+JOIN users u ON u.id = pe.user_id
+LEFT JOIN rides r ON r.id = pe.ride_id
+WHERE pe.triggered_at >= now() - INTERVAL '7 days'
+ORDER BY pe.triggered_at DESC;
+```
+
 ---
 
 ## Flujos principales
@@ -1133,6 +1354,68 @@ Si no paga antes del due_date:
 → Cron job diario llama mark_overdue_settlements()
 → commission_settlements.status → 'overdue'
 → Se puede bloquear la cuenta del conductor (drivers.is_available = false)
+```
+
+### 8. Sistema de emergencias y pánico
+```
+Setup inicial:
+→ Usuario agrega 1-3 contactos de confianza en trusted_contacts
+→ Especifica nombre, teléfono y relación
+
+Durante un viaje o en cualquier momento:
+→ Usuario presiona botón de pánico (SOS)
+→ Se captura ubicación exacta y se graba audio (40s max)
+→ Se crea registro en panic_events:
+   - user_id = usuario que activó
+   - ride_id = viaje actual (nullable si no está en viaje)
+   - location = POINT geoespacial
+   - audio_url = URL de grabación externa
+   - triggered_at = now()
+   - resolved_at = NULL (hasta que se resuelva)
+
+Notificaciones inmediatas:
+→ Se envía notificación con tipo 'panic' a todos los trustedContacts del usuario
+→ Se notifica a plataforma (admin, operador de emergencias)
+→ Se envía ubicación en vivo al conductor (si está en viaje)
+
+Resolución del evento:
+→ Una vez manejado por personal de seguridad o el usuario
+→ resolved_at se completa con la fecha/hora
+
+Auditoría:
+→ Todos los eventos de pánico se conservan indefinidamente
+→ Se usan para análisis de seguridad y patrones de incidentes
+→ Se correlacionan con rides para contexto del incidente
+```
+
+### 9. Viajes con múltiples paradas intermedias
+```
+Flujo de viaje con paradas:
+1. Pasajero solicita viaje con destinos múltiples
+2. Se crea ride con pickup_location y dropoff_location (destino final)
+3. Para cada parada intermedia se crea registro en ride_waypoints:
+   - sequence = 1, 2, 3, 4... (orden de ruta)
+   - location = POINT de cada parada
+   - address = dirección legible
+   - arrived_at = NULL (se completa al llegar)
+   - departed_at = NULL (se completa al partir)
+
+Durante la ejecución:
+4. Conductor navega a la primera parada (sequence=1)
+5. Al llegar → ride_waypoints[1].arrived_at = now()
+6. Al partir → ride_waypoints[1].departed_at = now()
+7. Repite para paradas 2, 3, etc.
+8. Finalmente va a dropoff_location
+
+Cálculo de tarifa:
+→ Se incluyen todas las distancias y tiempos en la ruta completa
+→ El pasajero ve el monto total antes de confirmar
+→ Se puede aplicar descuento con promo code
+
+Consultas útiles:
+→ Ver todas las paradas de un viaje ordenadas por sequence
+→ Calcular tiempo entre paradas (departed_at[n] - arrived_at[n])
+→ Detectar paradas incompletas (arrived_at existe pero departed_at es NULL)
 ```
 
 ---

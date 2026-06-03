@@ -3,6 +3,7 @@
 /**
  * Migración maestra — esquema completo de la BD.
  * Generada a partir del estado actual de la base de datos (dataBase.md).
+ * Incluye módulo de emergencias (botón SOS, contactos, SMS y grabaciones).
  *
  * ⚠️  Esta migración asume que la BD está vacía (fresh install).
  *     Si ya tienes tablas, NO la ejecutes — solo sirve para recrear
@@ -63,7 +64,7 @@ module.exports = {
       `CREATE TYPE applicable_to           AS ENUM ('passenger', 'driver', 'both');`,
     );
     await q(
-      `CREATE TYPE notification_type       AS ENUM ('ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system');`,
+      `CREATE TYPE notification_type       AS ENUM ('ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system', 'emergency', 'panic');`,
     );
     await q(
       `CREATE TYPE audit_action            AS ENUM ('INSERT', 'UPDATE', 'DELETE');`,
@@ -79,6 +80,14 @@ module.exports = {
     );
     await q(
       `CREATE TYPE ruat_required_reason    AS ENUM ('accident', 'vehicle_mismatch', 'suspension_reactivation', 'criminal_record');`,
+    );
+
+    // ─── ENUMs módulo emergencias ─────────────────────────────────────────────
+    await q(
+      `CREATE TYPE emergency_alert_status  AS ENUM ('active', 'resolved', 'false_alarm');`,
+    );
+    await q(
+      `CREATE TYPE sms_status              AS ENUM ('pending', 'sent', 'failed');`,
     );
 
     // ─── USERS ────────────────────────────────────────────────────────────────
@@ -462,6 +471,160 @@ module.exports = {
       );
     `);
 
+    // ─── EMERGENCY CONTACTS ───────────────────────────────────────────────────
+    // Contactos de confianza que recibirán SMS cuando el usuario pulse SOS.
+    // Se recomienda limitar a 5 contactos por usuario en la capa de aplicación.
+    await q(`
+      CREATE TABLE emergency_contacts (
+        id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name        VARCHAR(100) NOT NULL,
+        phone       VARCHAR(30)  NOT NULL,
+        relation    VARCHAR(50),
+        is_active   BOOLEAN      NOT NULL DEFAULT true,
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await q(`CREATE INDEX idx_emergency_contacts_user ON emergency_contacts(user_id);`);
+
+    // ─── EMERGENCY ALERTS ─────────────────────────────────────────────────────
+    // Registro central de cada activación del botón SOS.
+    // ride_id es opcional: la emergencia puede ocurrir fuera de un viaje activo.
+    // location guarda el punto GPS al momento de pulsar el botón.
+    // resolved_by referencia al admin que marcó la alerta como resuelta.
+    await q(`
+      CREATE TABLE emergency_alerts (
+        id               UUID                   PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id          UUID                   NOT NULL REFERENCES users(id),
+        ride_id          UUID                   REFERENCES rides(id),
+        status           emergency_alert_status NOT NULL DEFAULT 'active',
+        location         GEOMETRY(POINT, 4326),
+        location_address TEXT,
+        triggered_at     TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+        resolved_at      TIMESTAMPTZ,
+        resolved_by      UUID                   REFERENCES users(id),
+        notes            TEXT,
+        created_at       TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+
+        CONSTRAINT check_resolved_consistency
+          CHECK (
+            (status != 'resolved' AND resolved_at IS NULL)
+            OR  (status  = 'resolved' AND resolved_at IS NOT NULL)
+          )
+      );
+    `);
+    await q(`CREATE INDEX idx_emergency_alerts_user   ON emergency_alerts(user_id);`);
+    await q(`CREATE INDEX idx_emergency_alerts_ride   ON emergency_alerts(ride_id);`);
+    await q(`CREATE INDEX idx_emergency_alerts_status ON emergency_alerts(status);`);
+    await q(`CREATE INDEX idx_emergency_alerts_geo    ON emergency_alerts USING GIST(location);`);
+
+    // ─── EMERGENCY SMS LOGS ───────────────────────────────────────────────────
+    // Un alert genera una fila por cada contacto notificado.
+    // provider_id almacena el ID del mensaje en el proveedor SMS (Twilio, AWS SNS…).
+    await q(`
+      CREATE TABLE emergency_sms_logs (
+        id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+        alert_id     UUID        NOT NULL REFERENCES emergency_alerts(id) ON DELETE CASCADE,
+        contact_id   UUID        REFERENCES emergency_contacts(id),
+        phone_to     VARCHAR(30) NOT NULL,
+        message_body TEXT        NOT NULL,
+        status       sms_status  NOT NULL DEFAULT 'pending',
+        provider_id  VARCHAR(255),
+        sent_at      TIMESTAMPTZ,
+        failed_at    TIMESTAMPTZ,
+        error_msg    TEXT,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+        CONSTRAINT check_sms_status_dates
+          CHECK (
+            (status = 'sent'    AND sent_at   IS NOT NULL)
+            OR (status = 'failed'  AND failed_at IS NOT NULL)
+            OR  status = 'pending'
+          )
+      );
+    `);
+    await q(`CREATE INDEX idx_sms_logs_alert  ON emergency_sms_logs(alert_id);`);
+    await q(`CREATE INDEX idx_sms_logs_status ON emergency_sms_logs(status);`);
+
+    // ─── EMERGENCY RECORDINGS ─────────────────────────────────────────────────
+    // El audio se almacena en storage externo (S3, GCS, etc.).
+    // Esta tabla guarda solo la referencia y metadatos.
+    // Un alert puede tener múltiples segmentos si la grabación se divide en chunks.
+    await q(`
+      CREATE TABLE emergency_recordings (
+        id           UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+        alert_id     UUID         NOT NULL REFERENCES emergency_alerts(id) ON DELETE CASCADE,
+        file_url     VARCHAR(500) NOT NULL,
+        duration_sec INTEGER,
+        file_size    INTEGER,
+        mime_type    VARCHAR(50)  NOT NULL DEFAULT 'audio/mp4',
+        uploaded_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+        CONSTRAINT check_file_size_positive CHECK (file_size    IS NULL OR file_size    > 0),
+        CONSTRAINT check_duration_positive  CHECK (duration_sec IS NULL OR duration_sec > 0)
+      );
+    `);
+    await q(`CREATE INDEX idx_recordings_alert ON emergency_recordings(alert_id);`);
+
+    // ─── RIDE WAYPOINTS (Paradas intermedias) ─────────────────────────────────
+    // Paradas intermedias de un viaje (rutas con múltiples destinos).
+    // Cada viaje puede tener 0 o más paradas ordenadas por secuencia.
+    await q(`
+      CREATE TABLE ride_waypoints (
+        id          UUID                 PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ride_id     UUID                 NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+        sequence    SMALLINT             NOT NULL,
+        location    GEOMETRY(POINT, 4326) NOT NULL,
+        address     TEXT                 NOT NULL,
+        arrived_at  TIMESTAMPTZ,
+        departed_at TIMESTAMPTZ,
+        created_at  TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ,
+
+        CONSTRAINT uq_ride_waypoint UNIQUE (ride_id, sequence)
+      );
+    `);
+    await q(`CREATE INDEX idx_ride_waypoints_ride_id ON ride_waypoints(ride_id);`);
+    await q(`CREATE INDEX idx_ride_waypoints_geo     ON ride_waypoints USING GIST(location);`);
+
+    // ─── TRUSTED CONTACTS (Contactos de confianza) ────────────────────────────
+    // Contactos de confianza de un usuario (máximo 3 por usuario).
+    // Se usan para notificaciones de emergencia y compartir ubicación.
+    await q(`
+      CREATE TABLE trusted_contacts (
+        id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name        VARCHAR(255) NOT NULL,
+        phone       VARCHAR(30)  NOT NULL,
+        relation    VARCHAR(100),
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ,
+
+        CONSTRAINT uq_trusted_contact UNIQUE (user_id, phone)
+      );
+    `);
+    await q(`CREATE INDEX idx_trusted_contacts_user ON trusted_contacts(user_id);`);
+
+    // ─── PANIC EVENTS (Eventos de pánico/SOS) ─────────────────────────────────
+    // Registro de eventos del botón de pánico (SOS) activados por usuarios.
+    // Incluye ubicación, grabación de audio y timestamps.
+    // ride_id es nullable: el pánico puede ocurrir en cualquier momento, no solo durante un viaje.
+    await q(`
+      CREATE TABLE panic_events (
+        id          UUID                 PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID                 NOT NULL REFERENCES users(id),
+        ride_id     UUID                 REFERENCES rides(id),
+        location    GEOMETRY(POINT, 4326) NOT NULL,
+        audio_url   VARCHAR(500),
+        triggered_at TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
+        resolved_at TIMESTAMPTZ
+      );
+    `);
+    await q(`CREATE INDEX idx_panic_events_user ON panic_events(user_id);`);
+    await q(`CREATE INDEX idx_panic_events_geo  ON panic_events USING GIST(location);`);
+
     // ─── TRIGGER: validar razón de cancelación ────────────────────────────────
     await q(`
       CREATE OR REPLACE FUNCTION check_cancellation_reason_match()
@@ -611,13 +774,33 @@ module.exports = {
       END;
       $$ LANGUAGE plpgsql;
     `);
+
+    // ─── Seed: usuario administrador ──────────────────────────────────────────
+    const bcrypt = require('bcryptjs');
+    const adminPasswordHash = bcrypt.hashSync('admin123', 10);
+    await q(`
+      INSERT INTO users (id, name, phone, email, password, role, firebase_uid, is_active, is_verified, created_at, updated_at)
+      VALUES (
+        '00000000-0000-0000-0000-000000000001',
+        'Administrador',
+        '+59169164016',
+        'admin@linealila.com',
+        '${adminPasswordHash}',
+        'admin',
+        'admin-uid',
+        true,
+        true,
+        NOW(),
+        NOW()
+      );
+    `);
   },
 
-  // ──────────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────────────────────
   async down(queryInterface) {
     const q = sql => queryInterface.sequelize.query(sql);
 
-    // Eliminar trigger y función
+    // Eliminar triggers y funciones
     await q(`DROP TRIGGER IF EXISTS validate_cancellation_reason ON rides;`);
     await q(`DROP FUNCTION IF EXISTS check_cancellation_reason_match CASCADE;`);
     await q(`DROP FUNCTION IF EXISTS generate_monthly_settlement CASCADE;`);
@@ -627,27 +810,39 @@ module.exports = {
     await q(`DROP FUNCTION IF EXISTS is_location_serviceable CASCADE;`);
 
     // Eliminar tablas en orden inverso (respetando FKs)
-    await q(`DROP TABLE IF EXISTS audit_logs CASCADE;`);
-    await q(`DROP TABLE IF EXISTS pricing_rules CASCADE;`);
-    await q(`DROP TABLE IF EXISTS driver_earnings CASCADE;`);
+    // — Nuevas tablas módulo seguridad —
+    await q(`DROP TABLE IF EXISTS panic_events          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS trusted_contacts      CASCADE;`);
+    await q(`DROP TABLE IF EXISTS ride_waypoints        CASCADE;`);
+    // — Módulo emergencias —
+    await q(`DROP TABLE IF EXISTS emergency_recordings  CASCADE;`);
+    await q(`DROP TABLE IF EXISTS emergency_sms_logs    CASCADE;`);
+    await q(`DROP TABLE IF EXISTS emergency_alerts      CASCADE;`);
+    await q(`DROP TABLE IF EXISTS emergency_contacts    CASCADE;`);
+    // — Core —
+    await q(`DROP TABLE IF EXISTS audit_logs             CASCADE;`);
+    await q(`DROP TABLE IF EXISTS pricing_rules          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS driver_earnings        CASCADE;`);
     await q(`DROP TABLE IF EXISTS commission_settlements CASCADE;`);
-    await q(`DROP TABLE IF EXISTS notifications CASCADE;`);
-    await q(`DROP TABLE IF EXISTS "Ratings" CASCADE;`);
-    await q(`DROP TABLE IF EXISTS payments CASCADE;`);
-    await q(`DROP TABLE IF EXISTS ride_offers CASCADE;`);
-    await q(`DROP TABLE IF EXISTS rides CASCADE;`);
-    await q(`DROP TABLE IF EXISTS cancellation_reasons CASCADE;`);
-    await q(`DROP TABLE IF EXISTS promo_codes CASCADE;`);
-    await q(`DROP TABLE IF EXISTS service_areas CASCADE;`);
-    await q(`DROP TABLE IF EXISTS request_files CASCADE;`);
-    await q(`DROP TABLE IF EXISTS driver_requests CASCADE;`);
-    await q(`DROP TABLE IF EXISTS driver_locations CASCADE;`);
-    await q(`DROP TABLE IF EXISTS vehicles CASCADE;`);
-    await q(`DROP TABLE IF EXISTS drivers CASCADE;`);
-    await q(`DROP TABLE IF EXISTS users CASCADE;`);
+    await q(`DROP TABLE IF EXISTS notifications          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS ratings                CASCADE;`);
+    await q(`DROP TABLE IF EXISTS payments               CASCADE;`);
+    await q(`DROP TABLE IF EXISTS ride_offers            CASCADE;`);
+    await q(`DROP TABLE IF EXISTS rides                  CASCADE;`);
+    await q(`DROP TABLE IF EXISTS cancellation_reasons   CASCADE;`);
+    await q(`DROP TABLE IF EXISTS promo_codes            CASCADE;`);
+    await q(`DROP TABLE IF EXISTS service_areas          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS request_files          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS driver_requests        CASCADE;`);
+    await q(`DROP TABLE IF EXISTS driver_locations       CASCADE;`);
+    await q(`DROP TABLE IF EXISTS vehicles               CASCADE;`);
+    await q(`DROP TABLE IF EXISTS drivers                CASCADE;`);
+    await q(`DROP TABLE IF EXISTS users                  CASCADE;`);
 
     // Eliminar ENUMs
     const enumNames = [
+      'emergency_alert_status',
+      'sms_status',
       'user_role',
       'driver_status',
       'vehicle_type',
@@ -668,6 +863,7 @@ module.exports = {
       'driver_request_status',
       'request_file_type',
       'request_file_status',
+      'ruat_required_reason',
     ];
     for (const e of enumNames) {
       await q(`DROP TYPE IF EXISTS ${e} CASCADE;`);

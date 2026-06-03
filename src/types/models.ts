@@ -104,6 +104,17 @@ export interface Ride {
   driverId?: string;
   pickupLocation: Location;
   dropoffLocation: Location;
+  waypoints?: Array<{
+    id: string;
+    sequence: number;
+    location: {
+      latitude: number;
+      longitude: number;
+    };
+    address: string;
+    arrivedAt?: string | null;
+    departedAt?: string | null;
+  }>;
   status: RideStatus;
   fare: number;
   distance: number; // en km

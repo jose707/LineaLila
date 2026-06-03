@@ -38,6 +38,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const PromoCode = require('../models/PromoCode');
 const DriverEarning = require('../models/DriverEarning');
+const RideWaypoint = require('../models/RideWaypoint');
 const { Op } = require('sequelize');
 const { sequelize } = require('../models');
 const { v4: uuidv4 } = require('uuid');
@@ -48,6 +49,7 @@ const createRide = async (req, res) => {
     const {
       pickupLocation,
       dropoffLocation,
+      waypoints,
       distance,
       duration,
       fare,
@@ -82,6 +84,20 @@ const createRide = async (req, res) => {
       return res
         .status(400)
         .json({ error: 'Faltan datos requeridos: distance, duration' });
+    }
+
+    // ── Validar waypoints (paradas intermedias) ────────────────────────
+    let validatedWaypoints = [];
+    if (waypoints && Array.isArray(waypoints) && waypoints.length > 0) {
+      for (let i = 0; i < waypoints.length; i++) {
+        const wp = waypoints[i];
+        if (!wp?.latitude || !wp?.longitude || !wp?.address) {
+          return res.status(400).json({
+            error: `waypoint[${i}] inválido. Debe tener latitude, longitude y address`,
+          });
+        }
+      }
+      validatedWaypoints = waypoints;
     }
 
     const finalDistance = parseFloat(distance);
@@ -220,11 +236,26 @@ const createRide = async (req, res) => {
       expiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
 
+    // ── Persistir waypoints (paradas intermedias) ─────────────────────
+    if (validatedWaypoints.length > 0) {
+      const waypointRecords = validatedWaypoints.map((wp, idx) => ({
+        ride_id: ride.id,
+        sequence: idx + 1,
+        location: {
+          type: 'Point',
+          coordinates: [parseFloat(wp.longitude), parseFloat(wp.latitude)],
+        },
+        address: wp.address,
+      }));
+      await RideWaypoint.bulkCreate(waypointRecords);
+    }
+
     console.log('✅ [createRide] Viaje creado:', {
       id: ride.id,
       zona: serviceArea?.name ?? 'Sin zona',
       tarifa: `Bs ${finalFare}`,
       descuento: discountAmount > 0 ? `Bs ${discountAmount}` : 'ninguno',
+      waypoints: validatedWaypoints.length,
     });
 
     // 🔌 Notificar conductores cercanos de forma no-bloqueante
@@ -281,6 +312,11 @@ const createRide = async (req, res) => {
             longitude: parseFloat(dropoffLocation.longitude),
             address: dropoffLocation.address,
           },
+          waypoints: validatedWaypoints.map(wp => ({
+            latitude: parseFloat(wp.latitude),
+            longitude: parseFloat(wp.longitude),
+            address: wp.address,
+          })),
           createdAt: ride.createdAt,
         };
 
@@ -323,6 +359,12 @@ const getRideById = async (req, res) => {
 
       ride = await Ride.findByPk(id, {
         include: [
+          {
+            model: RideWaypoint,
+            as: 'waypoints',
+            required: false,
+            order: [['sequence', 'ASC']],
+          },
           {
             model: User,
             as: 'passenger',
@@ -459,6 +501,18 @@ const getRideById = async (req, res) => {
         enrichedRide.dropoffLocation,
         ride.dropoff_address,
       ),
+      // Waypoints normalizados
+      waypoints: (enrichedRide.waypoints || []).map(wp => ({
+        id: wp.id,
+        sequence: wp.sequence,
+        location: {
+          latitude: wp.location?.coordinates?.[1] ?? 0,
+          longitude: wp.location?.coordinates?.[0] ?? 0,
+        },
+        address: wp.address,
+        arrivedAt: wp.arrived_at || null,
+        departedAt: wp.departed_at || null,
+      })),
       // Conductor normalizado (alias user → User para compatibilidad con frontend)
       driver: enrichedRide.driver
         ? {
@@ -1135,6 +1189,12 @@ const getRideRequests = async (req, res) => {
       },
       include: [
         {
+          model: RideWaypoint,
+          as: 'waypoints',
+          required: false,
+          order: [['sequence', 'ASC']],
+        },
+        {
           model: User,
           as: 'passenger',
           attributes: ['id', 'name', 'phone', 'profilePhoto'],
@@ -1190,11 +1250,23 @@ const getRideRequests = async (req, res) => {
             0,
           address: ride.dropoff_address || '',
         },
+        waypoints: (ride.waypoints || []).map(wp => ({
+          latitude:
+            wp.location?.coordinates?.[1] ??
+            wp.location?.latitude ??
+            0,
+          longitude:
+            wp.location?.coordinates?.[0] ??
+            wp.location?.longitude ??
+            0,
+          address: wp.address || '',
+          sequence: wp.sequence,
+        })),
         fare: ride.totalFare || ride.finalFare,
         distance: ride.distance,
         duration: ride.duration,
         notes: ride.notes || '',
-        createdAt: ride.createdAt, // 🔥 AGREGAR TIMESTAMP DEL SERVIDOR
+        createdAt: ride.createdAt,
       };
 
       // 🔥 DEBUG: Log cada viaje devuelto

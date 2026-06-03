@@ -23,6 +23,9 @@ const CommissionSettlement = require('./CommissionSettlement');
 const ServiceArea         = require('./ServiceArea');
 const PricingRule         = require('./PricingRule');
 const AuditLog            = require('./AuditLog');
+const RideWaypoint        = require('./RideWaypoint');
+const TrustedContact      = require('./TrustedContact');
+const PanicEvent          = require('./PanicEvent');
 
 // Wire all associations in one call
 setupAssociations();
@@ -47,4 +50,7 @@ module.exports = {
   ServiceArea,
   PricingRule,
   AuditLog,
+  RideWaypoint,
+  TrustedContact,
+  PanicEvent,
 };

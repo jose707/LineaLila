@@ -63,6 +63,11 @@ export interface CreateRideRequest {
     longitude: number;
     address: string;
   };
+  waypoints?: Array<{
+    latitude: number;
+    longitude: number;
+    address: string;
+  }>;
   vehicleTypeRequested?: string;
   paymentMethod?: string;
   scheduledTime?: string;
@@ -145,6 +150,12 @@ export interface RideRequestsResponse {
     longitude: number;
     address: string;
   };
+  waypoints?: Array<{
+    latitude: number;
+    longitude: number;
+    address: string;
+    sequence: number;
+  }>;
   fare: number;
   distance: number;
   duration: number;
