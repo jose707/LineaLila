@@ -1466,7 +1466,7 @@ const MapScreen = () => {
 
   // ── RENDER ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+    <SafeAreaView style={s.root} edges={['bottom']}>
       {/* MAP CONTAINER — pin is a sibling of MapView so it never scrolls */}
       <View style={s.mapWrapper}
         onLayout={e => {
@@ -1532,56 +1532,38 @@ const MapScreen = () => {
           mode={pickingMode || 'origin'}
         />
 
-        {/* ── TOP BAR ── */}
+        {/* ── USER BUTTON ── */}
         {pickingMode === null && !rideRequested && (
-          <View style={[s.topBar, { top: 20 }]}>
-            <TouchableOpacity
-              style={s.iconBtn}
-              onPress={() => navigation.navigate('Profile')}
-              activeOpacity={0.8}
-            >
-              <View style={{
-                width: 50,
-                height: 50,
-                borderRadius: 25,
-                backgroundColor: '#FFFFFF',
-                justifyContent: 'center',
-                alignItems: 'center',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                elevation: 4,
-              }}>
-                <Icon.User size={26} color="#000000" strokeWidth={2.5} />
-              </View>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[s.locBtn, { top: 5 + insets.top }]}
+            onPress={() => navigation.navigate('Profile')}
+            activeOpacity={0.8}
+          >
+            <Icon.User size={26} color="#000000" strokeWidth={2.5} />
+          </TouchableOpacity>
         )}
 
         {/* ── MY LOCATION ── */}
         {pickingMode === null && !rideRequested && (
           <TouchableOpacity
-            style={[
-              s.locBtn,
-              {
-                position: 'absolute',
-                right: 16,
-                bottom: destinationLocation
-                  ? Platform.OS === 'android'
-                    ? 10
-                    : 370 + insets.bottom
-                  : 390,
-                zIndex: 10,
-              },
-            ]}
+              style={[
+                s.locBtn,
+                {
+                  bottom: destinationLocation
+                    ? Platform.OS === 'android'
+                      ? 10
+                      : 370 + insets.bottom
+                    : 390,
+                  zIndex: 10,
+                },
+              ]}
             onPress={() => centerToUserLocation(true)}
             activeOpacity={0.8}
           >
             {locationLoading ? (
               <ActivityIndicator size="small" color={T.accent} />
             ) : (
-              <Icon.MyLocation size={30} color="#000000" strokeWidth={2.2} />
+              <Icon.MyLocation size={30} color="#000000" strokeWidth={2.0} />
             )}
           </TouchableOpacity>
         )}
@@ -2118,18 +2100,9 @@ const s = StyleSheet.create({
   },
 
   // ── MAP CONTROLS ──────────────────────────────────────────────────────────
-  topBar: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', justifyContent: 'flex-end' },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F0F0F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   locBtn: {
     position: 'absolute',
-    right: 16,
+    right: 10,
     width: 50,
     height: 50,
     borderRadius: 25,
