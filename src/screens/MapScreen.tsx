@@ -62,6 +62,7 @@ import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { SlideUpMenu } from '../components/SlideUpMenu';
 import { VehiclePicker } from '../components/VehiclePicker';
 import { PaymentPicker } from '../components/PaymentPicker';
+import { TripOptionsPicker } from '../components/TripOptionsPicker';
 import { useAuth } from '../hooks/useAuth';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 import {
@@ -1921,16 +1922,39 @@ const MapScreen = () => {
           {!rideRequested && (
             <>
               <View style={s.selectorsContainer}>
-                <View style={s.selectorRow}>
-                  <VehiclePicker
-                    selected={selectedVehicleType}
-                    onSelect={setSelectedVehicleType}
+                <View style={s.vehicleRow}>
+                  <View style={s.vehiclePickerWrap}>
+                    <VehiclePicker
+                      selected={selectedVehicleType}
+                      onSelect={setSelectedVehicleType}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[s.scheduleIconBtn, scheduleRide && { borderColor: T.accent, backgroundColor: T.accent + '10' }]}
+                    onPress={() => setScheduleRide(!scheduleRide)}
+                    activeOpacity={0.8}
+                  >
+                    <Icon.Clock size={18} color={scheduleRide ? T.accent : T.inkMid} />
+                  </TouchableOpacity>
+                </View>
+                <View style={s.paymentRow}>
+                  <View style={s.paymentPickerWrap}>
+                    <PaymentPicker
+                      selected={selectedPaymentMethod}
+                      onSelect={setSelectedPaymentMethod}
+                    />
+                  </View>
+                  <TripOptionsPicker
+                    onAddStop={() => {}}
                   />
                 </View>
-                <View style={s.selectorRow}>
-                  <PaymentPicker
-                    selected={selectedPaymentMethod}
-                    onSelect={setSelectedPaymentMethod}
+                <View style={s.switchRow}>
+                  <Text style={s.switchLabel}>Modo negociación</Text>
+                  <Switch
+                    value={negotiationMode}
+                    onValueChange={setNegotiationMode}
+                    trackColor={{ false: T.border, true: T.accent + '60' }}
+                    thumbColor={negotiationMode ? T.accent : '#f4f3f4'}
                   />
                 </View>
               </View>
@@ -2396,6 +2420,22 @@ const s = StyleSheet.create({
   // ── SELECTORS ─────────────────────────────────────────────────────────────
   selectorsContainer: { marginBottom: 16, gap: 12 },
   selectorRow: { flexDirection: 'column', gap: 8 },
+  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  vehiclePickerWrap: { flex: 1 },
+  scheduleIconBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  paymentRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  paymentPickerWrap: { flex: 1 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 4 },
+  switchLabel: { fontSize: 14, fontWeight: '600', color: T.ink },
 
   ctaRow: { flexDirection: 'row', gap: 10 },
   ghostBtn: { width: 52, height: 52, borderRadius: 14, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
