@@ -17,6 +17,7 @@ import {
   BackHandler,
   useWindowDimensions,
   Image,
+  Switch,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -38,16 +39,18 @@ import {
   Briefcase,
   Car,
   Check,
-  ChevronRight,
+  ChevronLeft, ChevronRight,
   CircleHelp,
   Clock,
   History,
   Home,
+  Info,
   LocateFixed,
   MapPin,
   Menu,
   MessageCircle,
   Minus,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -57,6 +60,8 @@ import {
 } from 'lucide-react-native';
 import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { SlideUpMenu } from '../components/SlideUpMenu';
+import { VehiclePicker } from '../components/VehiclePicker';
+import { PaymentPicker } from '../components/PaymentPicker';
 import { useAuth } from '../hooks/useAuth';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 import {
@@ -220,6 +225,13 @@ const Icon = {
     size?: number;
     color?: string;
   }) => <Plus size={size} color={color} />,
+  Pencil: ({
+    size = 16,
+    color = T.inkMid,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <Pencil size={size} color={color} />,
   Settings: ({
     size = 20,
     color = T.inkMid,
@@ -248,6 +260,9 @@ const Icon = {
     size?: number;
     color?: string;
   }) => <MessageCircle size={size} color={color} />,
+  Info: ({ size = 14, color = T.accent }: { size?: number; color?: string }) => (
+    <Info size={size} color={color} />
+  ),
   Home: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
     <Home size={size} color={color} />
   ),
@@ -256,6 +271,9 @@ const Icon = {
   ),
   MapPin: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
     <MapPin size={size} color={color} />
+  ),
+  Back: ({ size = 20, color = T.inkMid, strokeWidth }: { size?: number; color?: string; strokeWidth?: number }) => (
+    <ChevronLeft size={size} color={color} strokeWidth={strokeWidth} />
   ),
 };
 
@@ -450,12 +468,15 @@ const MapScreen = () => {
   const [routeLoading, setRouteLoading] = useState(false);
   const [isCreatingRide, setIsCreatingRide] = useState(false);
   const [suggestedFare, setSuggestedFare] = useState<number | null>(null);
+  const [originalFare, setOriginalFare] = useState<number | null>(null);
+  const [showFareEditor, setShowFareEditor] = useState(false);
   const [showClientMenu, setShowClientMenu] = useState(false);
   const [rideRequested, setRideRequested] = useState(false);
   const [requestTimeLeft, setRequestTimeLeft] = useState(120);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [driverOffers, setDriverOffers] = useState<any[]>([]);
   const [showOffersOverlay, setShowOffersOverlay] = useState(false);
+  const [negotiationMode, setNegotiationMode] = useState(false);
   const [selectedVehicleType, setSelectedVehicleType] =
     useState<string>('taxi');
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -910,7 +931,9 @@ const MapScreen = () => {
     console.log(`   Subtotal raw:    Bs ${rawFare.toFixed(2)}`);
     console.log(`   ✨ Tarifa final:  Bs ${roundedFare.toFixed(2)}  (redondeado al step de ${FARE_STEP})`);
 
-    setSuggestedFare(parseFloat(roundedFare.toFixed(2)));
+    const fare = parseFloat(roundedFare.toFixed(2));
+    setSuggestedFare(fare);
+    setOriginalFare(fare);
   }, [routeInfo, fareSettings]);
 
   useEffect(() => {
@@ -1123,10 +1146,9 @@ const MapScreen = () => {
     if (!pickupLocation || !destinationLocation) return;
     setRouteLoading(true);
     try {
-      const cached = await cacheRouteManager.getRoute(
-        pickupLocation,
-        destinationLocation,
-      );
+      const cached = waypoints.length === 0
+        ? await cacheRouteManager.getRoute(pickupLocation, destinationLocation)
+        : null;
       if (cached) {
         setRouteInfo({
           distance: cached.distance,
@@ -1146,8 +1168,17 @@ const MapScreen = () => {
       }
       const { latitude: sLat, longitude: sLon } = pickupLocation;
       const { latitude: eLat, longitude: eLon } = destinationLocation;
+
+      // Build coordinates string: origin;waypoints;destination
+      const wpCoords = waypoints
+        .map(wp => `${wp.longitude},${wp.latitude}`)
+        .join(';');
+      const coordsStr = wpCoords
+        ? `${sLon},${sLat};${wpCoords};${eLon},${eLat}`
+        : `${sLon},${sLat};${eLon},${eLat}`;
+
       const r = await fetch(
-        `${LOCATIONIQ_BASE_URL}/directions/driving/${sLon},${sLat};${eLon},${eLat}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false`,
+        `${LOCATIONIQ_BASE_URL}/directions/driving/${coordsStr}?key=${LOCATIONIQ_API_KEY}&overview=full&geometries=polyline&alternatives=false`,
       );
       if (!r.ok) throw new Error();
       const d = await r.json();
@@ -1271,6 +1302,9 @@ const MapScreen = () => {
     setRouteInfo(null);
     setRouteCoordinates([]);
     setSuggestedFare(null);
+    setOriginalFare(null);
+    setShowFareEditor(false);
+    setNegotiationMode(false);
   };
 
   const goToSearchScreen = async () => {
@@ -1544,19 +1578,12 @@ const MapScreen = () => {
           </TouchableOpacity>
         )}
 
-        {/* ── MY LOCATION ── */}
-        {pickingMode === null && !rideRequested && (
+        {/* ── MY LOCATION (bottom) ── */}
+        {pickingMode === null && !rideRequested && !destinationLocation && (
           <TouchableOpacity
               style={[
                 s.locBtn,
-                {
-                  bottom: destinationLocation
-                    ? Platform.OS === 'android'
-                      ? 10
-                      : 370 + insets.bottom
-                    : 390,
-                  zIndex: 10,
-                },
+                { bottom: 390, zIndex: 10 },
               ]}
             onPress={() => centerToUserLocation(true)}
             activeOpacity={0.8}
@@ -1761,6 +1788,30 @@ const MapScreen = () => {
             )}
           </TouchableOpacity>
         )}
+
+        {/* ── TOOLBAR flotante sobre el mapa, arriba del panel ── */}
+        {destinationLocation && pickingMode === null && !rideRequested && (
+          <View style={s.toolbarFloat}>
+            <TouchableOpacity
+              style={s.locBtnStatic}
+              onPress={resetAll}
+              activeOpacity={0.8}
+            >
+              <Icon.Back size={24} color="#000000" strokeWidth={2.5} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.locBtnStatic}
+              onPress={() => centerToUserLocation(true)}
+              activeOpacity={0.8}
+            >
+              {locationLoading ? (
+                <ActivityIndicator size="small" color={T.accent} />
+              ) : (
+                <Icon.MyLocation size={30} color="#000000" strokeWidth={2.0} />
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* BOTTOM PANEL */}
@@ -1821,28 +1872,49 @@ const MapScreen = () => {
 
           {suggestedFare != null && (
             <View style={s.fareRow}>
-              <Text style={s.fareLabel}>Ajustar tarifa</Text>
-              <View style={s.fareControls}>
+              <View style={s.fareHeader}>
+                <Text style={s.fareTitle}>TU TARIFA</Text>
+                {originalFare != null && (
+                  <View style={s.fareWarning}>
+                    <Icon.Info size={12} color={T.accent} />
+                    <Text style={s.fareWarningText}>
+                      Sugerido Bs {originalFare.toFixed(2)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={s.fareTopRow}>
+                <Text style={s.fareValue}>Bs {suggestedFare.toFixed(2)}</Text>
                 <TouchableOpacity
-                  style={s.fareBtn}
-                  onPress={() =>
-                    setSuggestedFare(p =>
-                      p ? Math.max(0.5, +(p - FARE_STEP).toFixed(2)) : p,
-                    )
-                  }
+                  style={s.fareEditBtn}
+                  onPress={() => setShowFareEditor(!showFareEditor)}
+                  activeOpacity={0.8}
                 >
-                  <Icon.Minus size={24} color={T.inkMid} />
-                </TouchableOpacity>
-                <Text style={s.fareValue}>BS {suggestedFare.toFixed(2)}</Text>
-                <TouchableOpacity
-                  style={s.fareBtn}
-                  onPress={() =>
-                    setSuggestedFare(p => (p ? +(p + FARE_STEP).toFixed(2) : p))
-                  }
-                >
-                  <Icon.Plus size={24} color={T.inkMid} />
+                  <Icon.Pencil size={16} color={T.accent} />
                 </TouchableOpacity>
               </View>
+              {showFareEditor && (
+                <View style={s.fareControls}>
+                  <TouchableOpacity
+                    style={s.fareBtn}
+                    onPress={() =>
+                      setSuggestedFare(p =>
+                        p ? Math.max(0.5, +(p - FARE_STEP).toFixed(2)) : p,
+                      )
+                    }
+                  >
+                    <Icon.Minus size={24} color={T.inkMid} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.fareBtn}
+                    onPress={() =>
+                      setSuggestedFare(p => (p ? +(p + FARE_STEP).toFixed(2) : p))
+                    }
+                  >
+                    <Icon.Plus size={24} color={T.inkMid} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
 
@@ -1850,76 +1922,20 @@ const MapScreen = () => {
             <>
               <View style={s.selectorsContainer}>
                 <View style={s.selectorRow}>
-                  <Text style={s.selectorLabel}>Vehículo:</Text>
-                  <View style={s.optionsWrap}>
-                    {[
-                      { id: 'taxi', label: 'Taxi' },
-                      { id: 'minibus', label: 'Minibús' },
-                      { id: 'motorcycle', label: 'Moto' },
-                      { id: 'bus', label: 'Bus' },
-                    ].map(type => (
-                      <TouchableOpacity
-                        key={type.id}
-                        style={[
-                          s.optionChip,
-                          selectedVehicleType === type.id && s.optionChipActive,
-                        ]}
-                        onPress={() => setSelectedVehicleType(type.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            s.optionText,
-                            selectedVehicleType === type.id &&
-                            s.optionTextActive,
-                          ]}
-                        >
-                          {type.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <VehiclePicker
+                    selected={selectedVehicleType}
+                    onSelect={setSelectedVehicleType}
+                  />
                 </View>
                 <View style={s.selectorRow}>
-                  <Text style={s.selectorLabel}>Pago:</Text>
-                  <View style={s.optionsWrap}>
-                    {[
-                      { id: 'cash', label: 'Efectivo' },
-                      { id: 'qr', label: 'QR' },
-                    ].map(method => (
-                      <TouchableOpacity
-                        key={method.id}
-                        style={[
-                          s.optionChip,
-                          selectedPaymentMethod === method.id &&
-                          s.optionChipActive,
-                        ]}
-                        onPress={() => setSelectedPaymentMethod(method.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            s.optionText,
-                            selectedPaymentMethod === method.id &&
-                            s.optionTextActive,
-                          ]}
-                        >
-                          {method.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <PaymentPicker
+                    selected={selectedPaymentMethod}
+                    onSelect={setSelectedPaymentMethod}
+                  />
                 </View>
               </View>
 
               <View style={s.ctaRow}>
-                <TouchableOpacity
-                  style={s.ghostBtn}
-                  onPress={resetAll}
-                  activeOpacity={0.8}
-                >
-                  <Icon.Close size={16} color={T.inkMid} />
-                </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.ctaBtn, isCreatingRide && { opacity: 0.7 }]}
                   onPress={confirmTrip}
@@ -2352,11 +2368,21 @@ const s = StyleSheet.create({
   stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   statVal: { fontSize: 13, fontWeight: '600', color: T.ink },
   statDiv: { width: 1, height: 20, backgroundColor: T.border },
-  fareRow: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  fareLabel: { fontSize: 12, color: T.inkLight, fontWeight: '500', marginBottom: -12 },
-  fareControls: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  fareBtn: { width: 45, height: 45, borderRadius: 21, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
-  fareValue: { fontSize: 25, fontWeight: '800', color: T.accent, minWidth: 120, textAlign: 'center' },
+  fareRow: { marginBottom: 14 },
+
+  // ── TOOLBAR flotante ────────────────────────────────────────────────────
+  toolbarFloat: { position: 'absolute', bottom: 60, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 15 },
+  locBtnStatic: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4 },
+
+  fareHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 },
+  fareTitle: { fontSize: 11, fontWeight: '700', color: T.inkLight, letterSpacing: 1 },
+  fareWarning: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: T.accent + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  fareWarningText: { fontSize: 10, fontWeight: '600', color: T.accent },
+  fareTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fareValue: { fontSize: 35, fontWeight: '800', color: T.accent, fontFamily: 'Montserrat' },
+  fareEditBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border },
+  fareControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 10 },
+  fareBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
   timerWrap: { gap: 10 },
   timerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: T.warn },
@@ -2370,12 +2396,6 @@ const s = StyleSheet.create({
   // ── SELECTORS ─────────────────────────────────────────────────────────────
   selectorsContainer: { marginBottom: 16, gap: 12 },
   selectorRow: { flexDirection: 'column', gap: 8 },
-  selectorLabel: { fontSize: 13, fontWeight: '600', color: T.inkMid },
-  optionsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  optionChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border },
-  optionChipActive: { backgroundColor: T.accent + '15', borderColor: T.accent },
-  optionText: { fontSize: 13, color: T.inkMid, fontWeight: '500' },
-  optionTextActive: { color: T.accent, fontWeight: '700' },
 
   ctaRow: { flexDirection: 'row', gap: 10 },
   ghostBtn: { width: 52, height: 52, borderRadius: 14, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
