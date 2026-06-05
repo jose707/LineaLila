@@ -17,7 +17,7 @@ import {
   BackHandler,
   useWindowDimensions,
   Image,
-  Switch,
+  Animated,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -35,6 +35,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ArrowRight,
   Banknote,
+  AlertCircle,
   Bell,
   Briefcase,
   Car,
@@ -42,6 +43,7 @@ import {
   ChevronLeft, ChevronRight,
   CircleHelp,
   Clock,
+  Handshake,
   History,
   Home,
   Info,
@@ -51,6 +53,7 @@ import {
   MessageCircle,
   Minus,
   Pencil,
+  PenLine,
   Plus,
   Search,
   Settings,
@@ -138,10 +141,12 @@ const Icon = {
   Clock: ({
     size = 16,
     color = T.inkMid,
+    strokeWidth,
   }: {
     size?: number;
     color?: string;
-  }) => <Clock size={size} color={color} />,
+    strokeWidth?: number;
+  }) => <Clock size={size} color={color} strokeWidth={strokeWidth} />,
   Distance: ({
     size = 16,
     color = T.inkMid,
@@ -229,10 +234,21 @@ const Icon = {
   Pencil: ({
     size = 16,
     color = T.inkMid,
+    strokeWidth,
   }: {
     size?: number;
     color?: string;
-  }) => <Pencil size={size} color={color} />,
+    strokeWidth?: number;
+  }) => <Pencil size={size} color={color} strokeWidth={strokeWidth} />,
+  PenLine: ({
+    size = 16,
+    color = T.inkMid,
+    strokeWidth,
+  }: {
+    size?: number;
+    color?: string;
+    strokeWidth?: number;
+  }) => <PenLine size={size} color={color} strokeWidth={strokeWidth} />,
   Settings: ({
     size = 20,
     color = T.inkMid,
@@ -261,6 +277,29 @@ const Icon = {
     size?: number;
     color?: string;
   }) => <MessageCircle size={size} color={color} />,
+  Handshake: ({
+    size = 20,
+    color = T.inkMid,
+    strokeWidth,
+  }: {
+    size?: number;
+    color?: string;
+    strokeWidth?: number;
+  }) => <Handshake size={size} color={color} strokeWidth={strokeWidth} />,
+  AlertCircle: ({
+    size = 14,
+    color = T.accent,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <AlertCircle size={size} color={color} />,
+  ArrowRight: ({
+    size = 14,
+    color = T.accent,
+  }: {
+    size?: number;
+    color?: string;
+  }) => <ArrowRight size={size} color={color} />,
   Info: ({ size = 14, color = T.accent }: { size?: number; color?: string }) => (
     <Info size={size} color={color} />
   ),
@@ -478,6 +517,16 @@ const MapScreen = () => {
   const [driverOffers, setDriverOffers] = useState<any[]>([]);
   const [showOffersOverlay, setShowOffersOverlay] = useState(false);
   const [negotiationMode, setNegotiationMode] = useState(false);
+  const toggleAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(toggleAnim, {
+      toValue: negotiationMode ? 1 : 0,
+      useNativeDriver: true,
+      tension: 120,
+      friction: 10,
+    }).start();
+  }, [negotiationMode, toggleAnim]);
   const [selectedVehicleType, setSelectedVehicleType] =
     useState<string>('taxi');
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -1582,10 +1631,10 @@ const MapScreen = () => {
         {/* ── MY LOCATION (bottom) ── */}
         {pickingMode === null && !rideRequested && !destinationLocation && (
           <TouchableOpacity
-              style={[
-                s.locBtn,
-                { bottom: 390, zIndex: 10 },
-              ]}
+            style={[
+              s.locBtn,
+              { bottom: 390, zIndex: 10 },
+            ]}
             onPress={() => centerToUserLocation(true)}
             activeOpacity={0.8}
           >
@@ -1835,8 +1884,8 @@ const MapScreen = () => {
           onPress={() => {
             const updatedStops = allStops.length > 0 && editingStopIndex != null
               ? allStops.map((s: any, i: number) => i === editingStopIndex
-                  ? { location: { latitude: mapCenterLocation?.latitude ?? s.location.latitude, longitude: mapCenterLocation?.longitude ?? s.location.longitude }, address: tempPickupAddress || s.address }
-                  : s)
+                ? { location: { latitude: mapCenterLocation?.latitude ?? s.location.latitude, longitude: mapCenterLocation?.longitude ?? s.location.longitude }, address: tempPickupAddress || s.address }
+                : s)
               : undefined;
             if (pickingMode === 'origin') {
               navigation.navigate('Search' as any, { pickupLocation: mapCenterLocation, pickupAddress: tempPickupAddress, destinationLocation, destinationAddress, ...(updatedStops ? { stops: updatedStops } : {}) });
@@ -1852,7 +1901,7 @@ const MapScreen = () => {
           </Text>
         </TouchableOpacity>
       ) : destinationLocation ? (
-        <View style={s.panel}>
+        <View style={[s.panel, { paddingBottom: 10 }]}>
           {rideRequested ? (
             <View style={s.timerWrap}>
               <View style={s.timerInfo}>
@@ -1873,27 +1922,31 @@ const MapScreen = () => {
 
           {suggestedFare != null && (
             <View style={s.fareRow}>
-              <View style={s.fareHeader}>
-                <Text style={s.fareTitle}>TU TARIFA</Text>
-                {originalFare != null && (
-                  <View style={s.fareWarning}>
-                    <Icon.Info size={12} color={T.accent} />
-                    <Text style={s.fareWarningText}>
-                      Sugerido Bs {originalFare.toFixed(2)}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              <Text style={s.fareTitle}>TU TARIFA</Text>
               <View style={s.fareTopRow}>
                 <Text style={s.fareValue}>Bs {suggestedFare.toFixed(2)}</Text>
-                <TouchableOpacity
-                  style={s.fareEditBtn}
-                  onPress={() => setShowFareEditor(!showFareEditor)}
-                  activeOpacity={0.8}
-                >
-                  <Icon.Pencil size={16} color={T.accent} />
-                </TouchableOpacity>
+                {negotiationMode && (
+                  <TouchableOpacity
+                    style={s.fareEditBtn}
+                    onPress={() => setShowFareEditor(!showFareEditor)}
+                    activeOpacity={0.8}
+                  >
+                    <Icon.PenLine size={14} color={T.accent} strokeWidth={2.5} />
+                    <Text style={s.fareEditText}>Cambiar tarifa</Text>
+                  </TouchableOpacity>
+                )}
               </View>
+              {originalFare != null && (
+                <View style={s.fareWarning}>
+                  <View style={s.fareWarningLeft}>
+                    <Icon.ArrowRight size={12} color={T.accent} />
+                    <Text style={s.fareWarningText}>
+                      Tarifa sugerida: Bs {originalFare.toFixed(2)}
+                    </Text>
+                  </View>
+                  <Icon.AlertCircle size={14} color={T.accent} />
+                </View>
+              )}
               {showFareEditor && (
                 <View style={s.fareControls}>
                   <TouchableOpacity
@@ -1934,7 +1987,7 @@ const MapScreen = () => {
                     onPress={() => setScheduleRide(!scheduleRide)}
                     activeOpacity={0.8}
                   >
-                    <Icon.Clock size={18} color={scheduleRide ? T.accent : T.inkMid} />
+                    <Icon.Clock size={22} color="#000000" strokeWidth={2.3} />
                   </TouchableOpacity>
                 </View>
                 <View style={s.paymentRow}>
@@ -1945,17 +1998,36 @@ const MapScreen = () => {
                     />
                   </View>
                   <TripOptionsPicker
-                    onAddStop={() => {}}
+                    onAddStop={() => { }}
                   />
                 </View>
                 <View style={s.switchRow}>
-                  <Text style={s.switchLabel}>Modo negociación</Text>
-                  <Switch
-                    value={negotiationMode}
-                    onValueChange={setNegotiationMode}
-                    trackColor={{ false: T.border, true: T.accent + '60' }}
-                    thumbColor={negotiationMode ? T.accent : '#f4f3f4'}
-                  />
+                  <View style={s.switchLabelWrap}>
+                    <Icon.Handshake size={22} color="#000000" strokeWidth={2.3} />
+                    <Text style={s.switchLabel}>Modo negociación</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      s.negotiationToggle,
+                      negotiationMode && s.negotiationToggleActive,
+                    ]}
+                    onPress={() => setNegotiationMode(!negotiationMode)}
+                    activeOpacity={0.85}
+                  >
+                    <Animated.View
+                      style={[
+                        s.negotiationThumb,
+                        {
+                          transform: [{
+                            translateX: toggleAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 18],
+                            }),
+                          }],
+                        },
+                      ]}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -1969,10 +2041,7 @@ const MapScreen = () => {
                   {routeLoading || isCreatingRide ? (
                     <ActivityIndicator size="small" color={T.white} />
                   ) : (
-                    <>
-                      <Icon.Car size={18} color={T.white} />
-                      <Text style={s.ctaBtnText}>Solicitar viaje</Text>
-                    </>
+                    <Text style={s.ctaBtnText}>Solicitar viaje</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -2392,19 +2461,30 @@ const s = StyleSheet.create({
   stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   statVal: { fontSize: 13, fontWeight: '600', color: T.ink },
   statDiv: { width: 1, height: 20, backgroundColor: T.border },
-  fareRow: { marginBottom: 14 },
+  fareRow: { marginBottom: 10 },
 
   // ── TOOLBAR flotante ────────────────────────────────────────────────────
   toolbarFloat: { position: 'absolute', bottom: 60, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 15 },
   locBtnStatic: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4 },
 
-  fareHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 },
-  fareTitle: { fontSize: 11, fontWeight: '700', color: T.inkLight, letterSpacing: 1 },
-  fareWarning: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: T.accent + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  fareWarningText: { fontSize: 10, fontWeight: '600', color: T.accent },
+  fareTitle: { fontSize: 13, fontWeight: '700', color: '#000000', letterSpacing: 1.2, lineHeight: 10 },
+  fareWarning: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.accent + '15', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginTop: 2 },
+  fareWarningLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  fareWarningText: { fontSize: 11, fontWeight: '600', color: T.accent },
   fareTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  fareValue: { fontSize: 35, fontWeight: '800', color: T.accent, fontFamily: 'Montserrat' },
-  fareEditBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border },
+  fareValue: { fontSize: 35, fontWeight: '800', color: T.accent, fontFamily: 'Montserrat', lineHeight: 38 },
+  fareEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.accent + '40',
+    backgroundColor: T.accentSoft,
+  },
+  fareEditText: { fontSize: 10, fontWeight: '700', color: T.accent, letterSpacing: 0.5 },
   fareControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 10 },
   fareBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
   timerWrap: { gap: 10 },
@@ -2420,11 +2500,10 @@ const s = StyleSheet.create({
   // ── SELECTORS ─────────────────────────────────────────────────────────────
   selectorsContainer: { marginBottom: 16, gap: 12 },
   selectorRow: { flexDirection: 'column', gap: 8 },
-  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  vehicleRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
   vehiclePickerWrap: { flex: 1 },
   scheduleIconBtn: {
     width: 52,
-    height: 52,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: T.border,
@@ -2432,10 +2511,31 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  paymentRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  paymentRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
   paymentPickerWrap: { flex: 1 },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 4 },
-  switchLabel: { fontSize: 14, fontWeight: '600', color: T.ink },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
+  switchLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  switchLabel: { fontSize: 15, fontWeight: '700', color: '#000000' },
+  negotiationToggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: T.border,
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  negotiationToggleActive: { backgroundColor: T.accent },
+  negotiationThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: T.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
 
   ctaRow: { flexDirection: 'row', gap: 10 },
   ghostBtn: { width: 52, height: 52, borderRadius: 14, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },

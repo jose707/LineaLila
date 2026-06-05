@@ -5,22 +5,25 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
+  Image,
 } from 'react-native';
-import { Check, ChevronRight, X } from 'lucide-react-native';
+import { Check, ChevronRight, Users, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 
 const VEHICLE_TYPES = [
-  { id: 'taxi', label: 'Taxi', pax: 'Hasta 4 pasajeros' },
-  { id: 'minibus', label: 'Minibús', pax: 'Hasta 8 pasajeros' },
-  { id: 'motorcycle', label: 'Moto', pax: '1 pasajero' },
-  { id: 'bus', label: 'Bus', pax: 'Hasta 20 pasajeros' },
+  { id: 'taxi', label: 'Taxi', desc: 'Ideal para el día a día', capacity: 4 },
+  { id: 'minibus', label: 'Minibús', desc: 'Viaje en grupo', capacity: 8 },
+  { id: 'motorcycle', label: 'Moto', desc: 'Entrega inmediata y viaje express', capacity: 1 },
+  { id: 'bus', label: 'Bus', desc: 'Máxima capacidad, eventos y excursiones', capacity: 20 },
 ];
 
 interface VehiclePickerProps {
   selected: string;
   onSelect: (id: string) => void;
 }
+
+const taxiImg = require('../../assets/taxi.png');
 
 export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect }) => {
   const [open, setOpen] = useState(false);
@@ -31,13 +34,25 @@ export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect
   return (
     <>
       <TouchableOpacity
-        style={s.card}
+        style={[
+          s.card,
+          selected === 'taxi' && s.cardWithImg,
+        ]}
         onPress={() => setOpen(true)}
         activeOpacity={0.9}
       >
+        {selected === 'taxi' && (
+          <Image source={taxiImg} style={s.vehicleImg} />
+        )}
         <View style={s.info}>
-          <Text style={s.name}>{current?.label}</Text>
-          <Text style={s.pax}>{current?.pax}</Text>
+          <View style={s.nameRow}>
+            <Text style={s.name}>{current?.label}</Text>
+            <View style={s.capacityRow}>
+              <Users size={13} color={T.ink} />
+              <Text style={s.capacity}>{current?.capacity} pasajeros</Text>
+            </View>
+          </View>
+          <Text style={s.desc}>{current?.desc}</Text>
         </View>
         <ChevronRight size={16} color={T.inkLight} />
       </TouchableOpacity>
@@ -78,10 +93,16 @@ export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect
                 activeOpacity={0.7}
               >
                 <View style={s.itemInfo}>
-                  <Text style={[s.itemName, selected === type.id && s.itemNameActive]}>
-                    {type.label}
-                  </Text>
-                  <Text style={s.itemPax}>{type.pax}</Text>
+                  <View style={s.nameRow}>
+                    <Text style={[s.itemName, selected === type.id && s.itemNameActive]}>
+                      {type.label}
+                    </Text>
+                    <View style={s.capacityRow}>
+                      <Users size={13} color={T.ink} />
+                      <Text style={s.itemCapacity}>{type.capacity} pasajeros</Text>
+                    </View>
+                  </View>
+                  <Text style={s.itemDesc}>{type.desc}</Text>
                 </View>
                 {selected === type.id && (
                   <Check size={18} color={T.accent} />
@@ -107,9 +128,21 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  cardWithImg: { paddingLeft: 120 },
+  vehicleImg: {
+    position: 'absolute',
+    left: 5,
+    width: 110,
+    height: 90,
+    resizeMode: 'contain',
+
+  },
   info: { flex: 1 },
-  name: { fontSize: 14, fontWeight: '600', color: T.ink, marginBottom: 2 },
-  pax: { fontSize: 11, color: T.inkLight, fontWeight: '500' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  name: { fontSize: 16, fontWeight: '700', color: T.ink },
+  desc: { fontSize: 11, color: T.inkLight, fontWeight: '500' },
+  capacityRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  capacity: { fontSize: 11, color: T.ink, fontWeight: '500' },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   overlay: {
@@ -161,7 +194,8 @@ const s = StyleSheet.create({
   },
   itemActive: { backgroundColor: T.accent + '10' },
   itemInfo: { flex: 1 },
-  itemName: { fontSize: 15, fontWeight: '600', color: T.ink, marginBottom: 2 },
+  itemName: { fontSize: 17, fontWeight: '700', color: T.ink },
   itemNameActive: { color: T.accent },
-  itemPax: { fontSize: 12, color: T.inkLight, fontWeight: '500' },
+  itemDesc: { fontSize: 12, color: T.inkLight, fontWeight: '500' },
+  itemCapacity: { fontSize: 12, color: T.ink, fontWeight: '500' },
 });

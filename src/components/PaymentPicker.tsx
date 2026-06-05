@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { Check, ChevronRight, X } from 'lucide-react-native';
+import { Banknote, Check, ChevronRight, QrCode, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 
 const PAYMENT_METHODS = [
-  { id: 'cash', label: 'Efectivo', desc: 'Pago en efectivo al conductor' },
-  { id: 'qr', label: 'QR', desc: 'Pago por código QR' },
+  { id: 'cash', label: 'Efectivo', desc: 'Pago en efectivo al conductor', icon: Banknote },
+  { id: 'qr', label: 'QR', desc: 'Pago por código QR', icon: QrCode },
 ];
 
 interface PaymentPickerProps {
@@ -25,6 +25,7 @@ export const PaymentPicker: React.FC<PaymentPickerProps> = ({ selected, onSelect
   const insets = useSafeAreaInsets();
 
   const current = PAYMENT_METHODS.find(m => m.id === selected);
+  const CurrentIcon = current?.icon;
 
   return (
     <>
@@ -33,6 +34,7 @@ export const PaymentPicker: React.FC<PaymentPickerProps> = ({ selected, onSelect
         onPress={() => setOpen(true)}
         activeOpacity={0.9}
       >
+        {CurrentIcon && <CurrentIcon size={22} color={T.ink} style={s.icon} />}
         <View style={s.info}>
           <Text style={s.name}>{current?.label}</Text>
           <Text style={s.desc}>{current?.desc}</Text>
@@ -65,27 +67,31 @@ export const PaymentPicker: React.FC<PaymentPickerProps> = ({ selected, onSelect
                 <X size={20} color={T.inkLight} />
               </TouchableOpacity>
             </View>
-            {PAYMENT_METHODS.map(method => (
-              <TouchableOpacity
-                key={method.id}
-                style={[s.item, selected === method.id && s.itemActive]}
-                onPress={() => {
-                  onSelect(method.id);
-                  setOpen(false);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={s.itemInfo}>
-                  <Text style={[s.itemName, selected === method.id && s.itemNameActive]}>
-                    {method.label}
-                  </Text>
-                  <Text style={s.itemDesc}>{method.desc}</Text>
-                </View>
-                {selected === method.id && (
-                  <Check size={18} color={T.accent} />
-                )}
-              </TouchableOpacity>
-            ))}
+            {PAYMENT_METHODS.map(method => {
+              const MethodIcon = method.icon;
+              return (
+                <TouchableOpacity
+                  key={method.id}
+                  style={[s.item, selected === method.id && s.itemActive]}
+                  onPress={() => {
+                    onSelect(method.id);
+                    setOpen(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  {MethodIcon && <MethodIcon size={22} color={selected === method.id ? T.accent : T.ink} style={s.icon} />}
+                  <View style={s.itemInfo}>
+                    <Text style={[s.itemName, selected === method.id && s.itemNameActive]}>
+                      {method.label}
+                    </Text>
+                    <Text style={s.itemDesc}>{method.desc}</Text>
+                  </View>
+                  {selected === method.id && (
+                    <Check size={18} color={T.accent} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </Modal>
@@ -106,7 +112,8 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
   },
   info: { flex: 1 },
-  name: { fontSize: 14, fontWeight: '600', color: T.ink, marginBottom: 2 },
+  icon: { marginRight: 10 },
+  name: { fontSize: 16, fontWeight: '700', color: T.ink },
   desc: { fontSize: 11, color: T.inkLight, fontWeight: '500' },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
@@ -159,7 +166,7 @@ const s = StyleSheet.create({
   },
   itemActive: { backgroundColor: T.accent + '10' },
   itemInfo: { flex: 1 },
-  itemName: { fontSize: 15, fontWeight: '600', color: T.ink, marginBottom: 2 },
+  itemName: { fontSize: 17, fontWeight: '700', color: T.ink },
   itemNameActive: { color: T.accent },
   itemDesc: { fontSize: 12, color: T.inkLight, fontWeight: '500' },
 });

@@ -25,7 +25,7 @@ export const TripOptionsPicker: React.FC<TripOptionsPickerProps> = ({ onAddStop 
         onPress={() => setOpen(true)}
         activeOpacity={0.8}
       >
-        <SlidersHorizontal size={18} color={T.accent} />
+        <SlidersHorizontal size={20} color="#000000" strokeWidth={2.8} />
       </TouchableOpacity>
 
       <Modal
@@ -80,7 +80,6 @@ export const TripOptionsPicker: React.FC<TripOptionsPickerProps> = ({ onAddStop 
 const s = StyleSheet.create({
   trigger: {
     width: 52,
-    height: 52,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: T.border,
