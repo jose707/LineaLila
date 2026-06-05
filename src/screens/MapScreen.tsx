@@ -33,39 +33,15 @@ import {
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  ArrowRight,
-  Banknote,
-  AlertCircle,
-  Bell,
-  Briefcase,
-  Car,
-  Check,
-  ChevronLeft, ChevronRight,
-  CircleHelp,
   Clock,
-  Handshake,
-  History,
-  Home,
-  Info,
-  LocateFixed,
   MapPin,
-  Menu,
-  MessageCircle,
-  Minus,
-  Pencil,
-  PenLine,
-  Plus,
-  Search,
-  Settings,
-  Star,
-  User,
-  X,
 } from 'lucide-react-native';
+import { Icon } from '../theme/icons';
 import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { SlideUpMenu } from '../components/SlideUpMenu';
-import { VehiclePicker } from '../components/VehiclePicker';
-import { PaymentPicker } from '../components/PaymentPicker';
-import { TripOptionsPicker } from '../components/TripOptionsPicker';
+import { RouteSummaryCard } from '../components/RouteSummaryCard';
+import { RideRequestPanel } from '../components/RideRequestPanel';
+import { DriverOfferBubbles } from '../components/DriverOfferBubbles';
 import { useAuth } from '../hooks/useAuth';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 import {
@@ -116,206 +92,6 @@ interface RouteInfo {
   duration: number;
   coordinates: LatLng[];
 }
-
-// ─── ICONS (Lucide) ──────────────────────────────────────────────────────────
-const Icon = {
-  Search: ({
-    size = 20,
-    color = T.inkLight,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Search size={size} color={color} />,
-  MyLocation: ({
-    size = 20,
-    color = T.accent,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <LocateFixed size={size} color={color} strokeWidth={strokeWidth} />,
-  Menu: ({ size = 20, color = T.ink }: { size?: number; color?: string }) => (
-    <Menu size={size} color={color} />
-  ),
-  Clock: ({
-    size = 16,
-    color = T.inkMid,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <Clock size={size} color={color} strokeWidth={strokeWidth} />,
-  Distance: ({
-    size = 16,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <ArrowRight size={size} color={color} />,
-  Money: ({
-    size = 16,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Banknote size={size} color={color} />,
-  Check: ({
-    size = 16,
-    color = T.white,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Check size={size} color={color} />,
-  Close: ({
-    size = 16,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <X size={size} color={color} />,
-  Star: ({
-    size = 14,
-    color = '#F59E0B',
-    filled = true,
-  }: {
-    size?: number;
-    color?: string;
-    filled?: boolean;
-  }) => <Star size={size} color={color} fill={filled ? color : 'transparent'} />,
-  Car: ({ size = 18, color = T.accent }: { size?: number; color?: string }) => (
-    <Car size={size} color={color} />
-  ),
-  User: ({
-    size = 20,
-    color = T.inkMid,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <User size={size} color={color} strokeWidth={strokeWidth} />,
-  History: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <History size={size} color={color} />,
-  Ride: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Car size={size} color={color} />,
-  ChevronRight: ({
-    size = 16,
-    color = T.border,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <ChevronRight size={size} color={color} />,
-  Minus: ({
-    size = 16,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Minus size={size} color={color} />,
-  Plus: ({
-    size = 16,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Plus size={size} color={color} />,
-  Pencil: ({
-    size = 16,
-    color = T.inkMid,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <Pencil size={size} color={color} strokeWidth={strokeWidth} />,
-  PenLine: ({
-    size = 16,
-    color = T.inkMid,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <PenLine size={size} color={color} strokeWidth={strokeWidth} />,
-  Settings: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Settings size={size} color={color} />,
-  Bell: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <Bell size={size} color={color} />,
-  HelpCircle: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <CircleHelp size={size} color={color} />,
-  MessageCircle: ({
-    size = 20,
-    color = T.inkMid,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <MessageCircle size={size} color={color} />,
-  Handshake: ({
-    size = 20,
-    color = T.inkMid,
-    strokeWidth,
-  }: {
-    size?: number;
-    color?: string;
-    strokeWidth?: number;
-  }) => <Handshake size={size} color={color} strokeWidth={strokeWidth} />,
-  AlertCircle: ({
-    size = 14,
-    color = T.accent,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <AlertCircle size={size} color={color} />,
-  ArrowRight: ({
-    size = 14,
-    color = T.accent,
-  }: {
-    size?: number;
-    color?: string;
-  }) => <ArrowRight size={size} color={color} />,
-  Info: ({ size = 14, color = T.accent }: { size?: number; color?: string }) => (
-    <Info size={size} color={color} />
-  ),
-  Home: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
-    <Home size={size} color={color} />
-  ),
-  Briefcase: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
-    <Briefcase size={size} color={color} />
-  ),
-  MapPin: ({ size = 20, color = T.inkMid }: { size?: number; color?: string }) => (
-    <MapPin size={size} color={color} />
-  ),
-  Back: ({ size = 20, color = T.inkMid, strokeWidth }: { size?: number; color?: string; strokeWidth?: number }) => (
-    <ChevronLeft size={size} color={color} strokeWidth={strokeWidth} />
-  ),
-};
 
 const FloatingPin = ({
   visible,
@@ -1735,108 +1511,19 @@ const MapScreen = () => {
 
         {/* ── FLOATING ROUTE CARD (TOP) ── */}
         {destinationLocation && pickingMode === null && (
-          <TouchableOpacity
-            style={[s.routeTopCard, { top: 5 + insets.top }]}
-            onPress={() => setRoutePanelExpanded(!routePanelExpanded)}
-            activeOpacity={0.95}
-          >
-            {routePanelExpanded ? (
-              /* EXPANDED: full origin → waypoints → destination */
-              <View>
-                <View style={s.routeTopExpandedDetail}>
-                  <View style={s.routeTopDetailRow}>
-                    <View style={[s.routeTopDetailDot, { backgroundColor: '#22C55E' }]} />
-                    <Text style={s.routeTopDetailText} numberOfLines={2}>
-                      {pickupAddress || tempPickupAddress}
-                    </Text>
-                  </View>
-                  {waypoints.map((wp: any, idx: number) => (
-                    <View key={`wp-top-${idx}`}>
-                      <View style={s.routeTopDetailLine} />
-                      <View style={s.routeTopDetailRow}>
-                        <View style={[s.routeTopDetailDot, { backgroundColor: '#A78BFA' }]} />
-                        <Text style={s.routeTopDetailText} numberOfLines={1}>
-                          {wp.address}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                  <View style={s.routeTopDetailLine} />
-                  <View style={s.routeTopDetailRow}>
-                    <View style={[s.routeTopDetailDot, { backgroundColor: '#7C3AED' }]} />
-                    <Text style={s.routeTopDetailText} numberOfLines={2}>
-                      {destinationAddress}
-                    </Text>
-                  </View>
-                </View>
-                <View style={s.routeTopStatsInline}>
-                  {routeInfo && (
-                    <>
-                      <View style={s.routeTopStatItem}>
-                        <Icon.Distance size={12} color={T.inkLight} />
-                        <Text style={s.routeTopStatText}>{fmtDist(routeInfo.distance)}</Text>
-                      </View>
-                      <View style={s.routeTopStatDot} />
-                      <View style={s.routeTopStatItem}>
-                        <Icon.Clock size={12} color={T.inkLight} />
-                        <Text style={s.routeTopStatText}>{fmtTime(routeInfo.duration)}</Text>
-                      </View>
-                      <View style={s.routeTopStatDot} />
-                    </>
-                  )}
-                  <View style={s.routeTopStatItem}>
-                    <Icon.Money size={12} color={T.accent} />
-                    <Text style={[s.routeTopStatText, { color: T.accent, fontWeight: '700' }]}>
-                      {suggestedFare != null ? `Bs ${suggestedFare.toFixed(2)}` : '—'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ) : (
-              /* COLLAPSED: single line origin → dest + stats */
-              <View>
-                <View style={s.routeTopCollapsed}>
-                  <View style={s.routeTopOrigin}>
-                    <View style={[s.routeTopDot, s.routeTopDotGreen]} />
-                    <Text style={s.routeTopAddr} numberOfLines={1}>
-                      {(pickupAddress || tempPickupAddress || '').split(',')[0]}
-                    </Text>
-                  </View>
-                  <View style={s.routeTopArrow}>
-                    <Icon.Distance size={16} color={T.border} />
-                  </View>
-                  <View style={s.routeTopDest}>
-                    <View style={[s.routeTopDot, s.routeTopDotPurple]} />
-                    <Text style={s.routeTopAddr} numberOfLines={1}>
-                      {(destinationAddress || '').split(',')[0]}
-                    </Text>
-                  </View>
-                </View>
-                <View style={s.routeTopStatsInline}>
-                  {routeInfo && (
-                    <>
-                      <View style={s.routeTopStatItem}>
-                        <Icon.Distance size={12} color={T.inkLight} />
-                        <Text style={s.routeTopStatText}>{fmtDist(routeInfo.distance)}</Text>
-                      </View>
-                      <View style={s.routeTopStatDot} />
-                      <View style={s.routeTopStatItem}>
-                        <Icon.Clock size={12} color={T.inkLight} />
-                        <Text style={s.routeTopStatText}>{fmtTime(routeInfo.duration)}</Text>
-                      </View>
-                      <View style={s.routeTopStatDot} />
-                    </>
-                  )}
-                  <View style={s.routeTopStatItem}>
-                    <Icon.Money size={12} color={T.accent} />
-                    <Text style={[s.routeTopStatText, { color: T.accent, fontWeight: '700' }]}>
-                      {suggestedFare != null ? `Bs ${suggestedFare.toFixed(2)}` : '—'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )}
-          </TouchableOpacity>
+          <RouteSummaryCard
+            pickupAddress={pickupAddress}
+            tempPickupAddress={tempPickupAddress}
+            destinationAddress={destinationAddress}
+            waypoints={waypoints}
+            routeInfo={routeInfo}
+            suggestedFare={suggestedFare}
+            expanded={routePanelExpanded}
+            onToggleExpand={() => setRoutePanelExpanded(!routePanelExpanded)}
+            insetsTop={insets.top}
+            fmtDist={fmtDist}
+            fmtTime={fmtTime}
+          />
         )}
 
         {/* ── TOOLBAR flotante sobre el mapa, arriba del panel ── */}
@@ -1901,255 +1588,43 @@ const MapScreen = () => {
           </Text>
         </TouchableOpacity>
       ) : destinationLocation ? (
-        <View style={[s.panel, { paddingBottom: 10 }]}>
-          {rideRequested ? (
-            <View style={s.timerWrap}>
-              <View style={s.timerInfo}>
-                <View style={s.timerDot} />
-                <Text style={s.timerLabel}>Buscando conductor</Text>
-                <Text style={s.timerVal}>{fmtTimer(requestTimeLeft)}</Text>
-              </View>
-              <View style={s.progressTrack}>
-                <View
-                  style={[
-                    s.progressFill,
-                    { width: `${progress * 100}%` as any },
-                  ]}
-                />
-              </View>
-            </View>
-          ) : null}
-
-          {suggestedFare != null && (
-            <View style={s.fareRow}>
-              <Text style={s.fareTitle}>TU TARIFA</Text>
-              <View style={s.fareTopRow}>
-                <Text style={s.fareValue}>Bs {suggestedFare.toFixed(2)}</Text>
-                {negotiationMode && (
-                  <TouchableOpacity
-                    style={s.fareEditBtn}
-                    onPress={() => setShowFareEditor(!showFareEditor)}
-                    activeOpacity={0.8}
-                  >
-                    <Icon.PenLine size={14} color={T.accent} strokeWidth={2.5} />
-                    <Text style={s.fareEditText}>Cambiar tarifa</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              {originalFare != null && (
-                <View style={s.fareWarning}>
-                  <View style={s.fareWarningLeft}>
-                    <Icon.ArrowRight size={12} color={T.accent} />
-                    <Text style={s.fareWarningText}>
-                      Tarifa sugerida: Bs {originalFare.toFixed(2)}
-                    </Text>
-                  </View>
-                  <Icon.AlertCircle size={14} color={T.accent} />
-                </View>
-              )}
-              {showFareEditor && (
-                <View style={s.fareControls}>
-                  <TouchableOpacity
-                    style={s.fareBtn}
-                    onPress={() =>
-                      setSuggestedFare(p =>
-                        p ? Math.max(0.5, +(p - FARE_STEP).toFixed(2)) : p,
-                      )
-                    }
-                  >
-                    <Icon.Minus size={24} color={T.inkMid} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={s.fareBtn}
-                    onPress={() =>
-                      setSuggestedFare(p => (p ? +(p + FARE_STEP).toFixed(2) : p))
-                    }
-                  >
-                    <Icon.Plus size={24} color={T.inkMid} />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          )}
-
-          {!rideRequested && (
-            <>
-              <View style={s.selectorsContainer}>
-                <View style={s.vehicleRow}>
-                  <View style={s.vehiclePickerWrap}>
-                    <VehiclePicker
-                      selected={selectedVehicleType}
-                      onSelect={setSelectedVehicleType}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={[s.scheduleIconBtn, scheduleRide && { borderColor: T.accent, backgroundColor: T.accent + '10' }]}
-                    onPress={() => setScheduleRide(!scheduleRide)}
-                    activeOpacity={0.8}
-                  >
-                    <Icon.Clock size={22} color="#000000" strokeWidth={2.3} />
-                  </TouchableOpacity>
-                </View>
-                <View style={s.paymentRow}>
-                  <View style={s.paymentPickerWrap}>
-                    <PaymentPicker
-                      selected={selectedPaymentMethod}
-                      onSelect={setSelectedPaymentMethod}
-                    />
-                  </View>
-                  <TripOptionsPicker
-                    onAddStop={() => { }}
-                  />
-                </View>
-                <View style={s.switchRow}>
-                  <View style={s.switchLabelWrap}>
-                    <Icon.Handshake size={22} color="#000000" strokeWidth={2.3} />
-                    <Text style={s.switchLabel}>Modo negociación</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[
-                      s.negotiationToggle,
-                      negotiationMode && s.negotiationToggleActive,
-                    ]}
-                    onPress={() => setNegotiationMode(!negotiationMode)}
-                    activeOpacity={0.85}
-                  >
-                    <Animated.View
-                      style={[
-                        s.negotiationThumb,
-                        {
-                          transform: [{
-                            translateX: toggleAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, 18],
-                            }),
-                          }],
-                        },
-                      ]}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={s.ctaRow}>
-                <TouchableOpacity
-                  style={[s.ctaBtn, isCreatingRide && { opacity: 0.7 }]}
-                  onPress={confirmTrip}
-                  activeOpacity={0.85}
-                  disabled={isCreatingRide}
-                >
-                  {routeLoading || isCreatingRide ? (
-                    <ActivityIndicator size="small" color={T.white} />
-                  ) : (
-                    <Text style={s.ctaBtnText}>Solicitar viaje</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-
-          {rideRequested && (
-            <TouchableOpacity
-              style={s.cancelBtn}
-              onPress={handleCancelRide}
-              activeOpacity={0.8}
-            >
-              <Icon.Close size={16} color={T.danger} />
-              <Text style={s.cancelBtnText}>Cancelar solicitud</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        <RideRequestPanel
+          rideRequested={rideRequested}
+          requestTimeLeft={requestTimeLeft}
+          fmtTimer={fmtTimer}
+          progress={progress}
+          suggestedFare={suggestedFare}
+          originalFare={originalFare}
+          negotiationMode={negotiationMode}
+          onToggleNegotiation={() => setNegotiationMode(!negotiationMode)}
+          showFareEditor={showFareEditor}
+          onToggleFareEditor={() => setShowFareEditor(!showFareEditor)}
+          onDecrementFare={() =>
+            setSuggestedFare(p => p ? Math.max(0.5, +(p - 0.5).toFixed(2)) : p)
+          }
+          onIncrementFare={() =>
+            setSuggestedFare(p => (p ? +(p + 0.5).toFixed(2) : p))
+          }
+          selectedVehicleType={selectedVehicleType}
+          onSelectVehicle={setSelectedVehicleType}
+          scheduleRide={scheduleRide}
+          onToggleSchedule={() => setScheduleRide(!scheduleRide)}
+          selectedPaymentMethod={selectedPaymentMethod}
+          onSelectPayment={setSelectedPaymentMethod}
+          toggleAnim={toggleAnim}
+          isCreatingRide={isCreatingRide}
+          routeLoading={routeLoading}
+          onConfirmTrip={confirmTrip}
+          onCancelRide={handleCancelRide}
+        />
       ) : null}
 
       {/* DRIVER OFFERS - FLOATING BUBBLES */}
-      {showOffersOverlay && driverOffers.length > 0 && (
-        <View style={s.offersBubblesContainer} pointerEvents="box-none">
-          <View style={s.offersBubbles} pointerEvents="box-none">
-            {driverOffers.map((offer, i) => {
-              const created =
-                typeof offer.createdAt === 'string'
-                  ? new Date(offer.createdAt).getTime()
-                  : offer.createdAt || Date.now();
-              // Siempre calcular rem desde createdAt para animación suave y continua.
-              // timeLeftInSeconds del backend se usa solo para filtrar, no para animar.
-              const rem = Math.max(0, 30 - (Date.now() - created) / 1000);
-              // Ocultar la burbuja cuando quedan ≤5 s para evitar que el pasajero
-              // intente aceptar una oferta que expirará antes de llegar al servidor.
-              if (rem <= 5) return null;
-              return (
-                <View
-                  key={offer.offerId || i}
-                  style={s.offerBubble}
-                  pointerEvents="auto"
-                >
-                  <View style={s.offerTopBar}>
-                    <View
-                      style={[
-                        s.offerProgressFill,
-                        { width: `${Math.max(0, (rem - 5) / 25) * 100}%` as any },
-                      ]}
-                    />
-                  </View>
-
-                  <View style={s.offerContent}>
-                    <View style={s.offerHeader}>
-                      {offer.driverProfilePicture ? (
-                        <Image
-                          source={{ uri: offer.driverProfilePicture }}
-                          style={s.offerAvatar}
-                        />
-                      ) : (
-                        <View style={s.offerAvatar}>
-                          <Icon.Car size={24} color={'#9CA3AF'} />
-                        </View>
-                      )}
-
-                      <View style={s.offerInfo}>
-                        <Text style={s.offerVehicleText} numberOfLines={1}>
-                          {offer.vehicleModel || 'Vehículo'}
-                        </Text>
-                        <Text style={s.offerDriverName} numberOfLines={1}>
-                          {offer.driverName || 'Conductor'}
-                        </Text>
-                        <View style={s.offerRatingRow}>
-                          <Icon.Star size={14} color="#F59E0B" />
-                          <Text style={s.offerRatingText}>
-                            {offer.driverRating || '5.0'}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={s.offerRightStats}>
-                        <Text style={s.offerPrice}>
-                          Bs {(offer.proposedPrice || offer.fare || 0).toFixed(2)}
-                        </Text>
-                        <Text style={s.offerStatText}>{Math.round(rem)}s</Text>
-                      </View>
-                    </View>
-
-                    <View style={s.offerActions}>
-                      <TouchableOpacity
-                        style={s.offerRejectBtn}
-                        onPress={() => handleRejectOffer(offer.offerId)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={s.offerRejectText}>Rechazar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={s.offerAcceptBtn}
-                        onPress={() => handleAcceptOffer(offer)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={s.offerAcceptText}>Aceptar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      )}
+      <DriverOfferBubbles
+        offers={showOffersOverlay ? driverOffers : []}
+        onReject={handleRejectOffer}
+        onAccept={handleAcceptOffer}
+      />
 
       <SlideUpMenu
         visible={showClientMenu}
@@ -2285,111 +1760,6 @@ const s = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-  routeTopCard: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    top: 60,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
-    zIndex: 20,
-  },
-  routeTopCollapsed: {
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 48,
-  },
-  routeTopOrigin: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
-  },
-  routeTopDest: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginLeft: 8,
-    justifyContent: 'flex-end',
-  },
-  routeTopDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  routeTopDotGreen: { backgroundColor: '#22C55E' },
-  routeTopDotPurple: { backgroundColor: '#7C3AED' },
-  routeTopAddr: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: T.ink,
-    marginLeft: 8,
-  },
-  routeTopArrow: {
-    marginHorizontal: 6,
-  },
-  routeTopStatsInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-  },
-  routeTopStatItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  routeTopStatText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: T.inkMid,
-  },
-  routeTopStatDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: T.border,
-  },
-  routeTopExpandedDetail: {
-    marginTop: 4,
-  },
-  routeTopDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 4,
-  },
-  routeTopDetailDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginTop: 4,
-    marginRight: 10,
-  },
-  routeTopDetailText: {
-    flex: 1,
-    fontSize: 13,
-    color: T.ink,
-    lineHeight: 18,
-  },
-  routeTopDetailLine: {
-    width: 2,
-    height: 14,
-    backgroundColor: T.border,
-    marginLeft: 3.8,
-    marginVertical: 1,
-  },
   searchModalWrapper: {
     position: 'absolute',
     left: 0,
@@ -2449,124 +1819,11 @@ const s = StyleSheet.create({
   markerLabelTxt: { fontSize: 10, fontWeight: '800', color: T.ink, backgroundColor: T.white, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginBottom: 3, overflow: 'hidden' },
   markerDotLila: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.accent, borderWidth: 2, borderColor: T.white },
 
-  // ── BOTTOM PANEL ──────────────────────────────────────────────────────────
-  panel: { backgroundColor: T.white, marginTop: -24, paddingTop: 20, paddingHorizontal: 20, paddingBottom: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 10 },
-  routePill: { backgroundColor: T.bg, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10 },
-  routeAddr: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  routeDot: { width: 8, height: 8, borderRadius: 4 },
-  routeAddrText: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
-  routeConnector: { paddingLeft: 3, paddingVertical: 3 },
-  routeLine: { width: 1.5, height: 10, backgroundColor: T.border, marginLeft: 3 },
-  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.bg, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 14 },
-  stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  statVal: { fontSize: 13, fontWeight: '600', color: T.ink },
-  statDiv: { width: 1, height: 20, backgroundColor: T.border },
-  fareRow: { marginBottom: 10 },
-
   // ── TOOLBAR flotante ────────────────────────────────────────────────────
-  toolbarFloat: { position: 'absolute', bottom: 60, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 15 },
+  toolbarFloat: { position: 'absolute', bottom: 35, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', zIndex: 15 },
   locBtnStatic: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 4 },
 
-  fareTitle: { fontSize: 13, fontWeight: '700', color: '#000000', letterSpacing: 1.2, lineHeight: 10 },
-  fareWarning: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.accent + '15', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginTop: 2 },
-  fareWarningLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  fareWarningText: { fontSize: 11, fontWeight: '600', color: T.accent },
-  fareTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  fareValue: { fontSize: 35, fontWeight: '800', color: T.accent, fontFamily: 'Montserrat', lineHeight: 38 },
-  fareEditBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: T.accent + '40',
-    backgroundColor: T.accentSoft,
-  },
-  fareEditText: { fontSize: 10, fontWeight: '700', color: T.accent, letterSpacing: 0.5 },
-  fareControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 10 },
-  fareBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
-  timerWrap: { gap: 10 },
-  timerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  timerDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: T.warn },
-  timerLabel: { flex: 1, fontSize: 13, color: T.inkMid, fontWeight: '500' },
-  timerVal: { fontSize: 15, fontWeight: '700', color: T.warn },
-  progressTrack: { height: 3, borderRadius: 2, backgroundColor: T.border, overflow: 'hidden', marginHorizontal: 2 },
-  progressFill: { height: '100%', backgroundColor: T.accent, borderRadius: 2 },
-  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: T.danger },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: T.danger },
 
-  // ── SELECTORS ─────────────────────────────────────────────────────────────
-  selectorsContainer: { marginBottom: 16, gap: 12 },
-  selectorRow: { flexDirection: 'column', gap: 8 },
-  vehicleRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
-  vehiclePickerWrap: { flex: 1 },
-  scheduleIconBtn: {
-    width: 52,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  paymentRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
-  paymentPickerWrap: { flex: 1 },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
-  switchLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  switchLabel: { fontSize: 15, fontWeight: '700', color: '#000000' },
-  negotiationToggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: T.border,
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  negotiationToggleActive: { backgroundColor: T.accent },
-  negotiationThumb: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: T.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 3,
-  },
-
-  ctaRow: { flexDirection: 'row', gap: 10 },
-  ghostBtn: { width: 52, height: 52, borderRadius: 14, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' },
-  ctaBtn: { flex: 1, height: 52, borderRadius: 14, backgroundColor: T.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, shadowColor: T.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
-  ctaBtnText: { fontSize: 15, fontWeight: '700', color: T.white, letterSpacing: 0.2 },
-
-  // ── OFFERS BUBBLES ──────────────────────────────────────────────────────────
-  offersBubblesContainer: { position: 'absolute', top: 140, left: 16, right: 16, alignItems: 'center', justifyContent: 'flex-start', zIndex: 999, pointerEvents: 'box-none' },
-  offersBubbles: { width: '100%', maxWidth: 400, alignItems: 'center', pointerEvents: 'box-none', gap: 12 },
-  offerBubble: { width: '100%', backgroundColor: T.white, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8 },
-  offerTopBar: { height: 4, backgroundColor: '#E5E7EB', width: '100%' },
-  offerProgressFill: { height: '100%', backgroundColor: T.accent },
-  offerContent: { padding: 16 },
-  offerHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 },
-  offerAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  offerInfo: { flex: 1, justifyContent: 'center' },
-  offerVehicleText: { fontSize: 15, fontWeight: '700', color: '#374151', marginBottom: 2 },
-  offerDriverName: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
-  offerRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  offerRatingText: { fontSize: 13, fontWeight: '600', color: '#9CA3AF' },
-  offerRightStats: { alignItems: 'flex-end' },
-  offerPrice: { fontSize: 22, fontWeight: '800', color: T.accent, marginBottom: 4 },
-  offerStatText: { fontSize: 13, color: '#6B7280', fontWeight: '500', marginBottom: 2 },
-  offerActions: { flexDirection: 'row', gap: 12 },
-  offerRejectBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
-  offerRejectText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
-  offerAcceptBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
-  offerAcceptText: { fontSize: 16, fontWeight: '700', color: T.white },
-  offersHint: { fontSize: 11, color: T.inkLight, textAlign: 'center', marginTop: 6, fontStyle: 'italic' },
-
-  // ── MENU ──────────────────────────────────────────────────────────────────
 });
 
 export default MapScreen;
