@@ -24,6 +24,16 @@ interface VehiclePickerProps {
 }
 
 const taxiImg = require('../../assets/taxi.png');
+const motoImg = require('../../assets/moto.png');
+const busImg = require('../../assets/bus.png');
+const minibusImg = require('../../assets/minibus.png');
+
+const VEHICLE_IMAGES: Record<string, any> = {
+  taxi: taxiImg,
+  motorcycle: motoImg,
+  bus: busImg,
+  minibus: minibusImg,
+};
 
 export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect }) => {
   const [open, setOpen] = useState(false);
@@ -36,13 +46,13 @@ export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect
       <TouchableOpacity
         style={[
           s.card,
-          selected === 'taxi' && s.cardWithImg,
+          s.cardWithImg,
         ]}
         onPress={() => setOpen(true)}
         activeOpacity={0.9}
       >
-        {selected === 'taxi' && (
-          <Image source={taxiImg} style={s.vehicleImg} />
+        {VEHICLE_IMAGES[selected] && (
+          <Image source={VEHICLE_IMAGES[selected]} style={s.vehicleImg} />
         )}
         <View style={s.info}>
           <View style={s.nameRow}>
@@ -92,6 +102,7 @@ export const VehiclePicker: React.FC<VehiclePickerProps> = ({ selected, onSelect
                 }}
                 activeOpacity={0.7}
               >
+                <Image source={VEHICLE_IMAGES[type.id]} style={s.itemImg} />
                 <View style={s.itemInfo}>
                   <View style={s.nameRow}>
                     <Text style={[s.itemName, selected === type.id && s.itemNameActive]}>
@@ -191,6 +202,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 12,
     marginBottom: 4,
+  },
+  itemImg: {
+    width: 56,
+    height: 48,
+    resizeMode: 'contain',
+    marginRight: 12,
   },
   itemActive: { backgroundColor: T.accent + '10' },
   itemInfo: { flex: 1 },

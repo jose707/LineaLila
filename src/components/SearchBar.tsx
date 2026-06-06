@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   ActivityIndicator,
 } from "react-native";
+import { X } from "lucide-react-native";
 
 export interface SearchResult {
   address: string;
@@ -23,29 +24,68 @@ interface SearchBarProps {
   currentLon?: number;
   leftIcon?: React.ReactNode;
   onLeftIconPress?: () => void;
+  autoFocus?: boolean;
+  prefixIcon?: React.ReactNode;
+  suffixIcon?: React.ReactNode;
+  onSuffixIconPress?: () => void;
+  initialValue?: string;
+  onClear?: () => void;
+  onResultsChange?: (results: SearchResult[], loading: boolean) => void;
+  onFocusChange?: (focused: boolean) => void;
+  hideResults?: boolean;
 }
 
 const LOCATIONIQ_API_KEY = "pk.2c35bb8a74b61271c3e0f669fb81718d";
 const LOCATIONIQ_BASE_URL = "https://us1.locationiq.com/v1";
 
-const SearchBar: React.FC<SearchBarProps> = ({
+export interface SearchBarRef {
+  focus: () => void;
+}
+
+const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
   onResultSelect,
   placeholder,
   currentLat,
   currentLon,
   leftIcon,
   onLeftIconPress,
-}) => {
-  const [searchText, setSearchText] = useState("");
+  autoFocus,
+  prefixIcon,
+  suffixIcon,
+  onSuffixIconPress,
+  initialValue,
+  onClear,
+  onResultsChange,
+  onFocusChange,
+  hideResults,
+}, ref) => {
+  const [searchText, setSearchText] = useState(initialValue || "");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+  const skipSearchRef = useRef(!!initialValue);
+  const onResultsChangeRef = useRef(onResultsChange);
+  onResultsChangeRef.current = onResultsChange;
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      inputRef.current?.focus();
+    },
+  }));
 
   useEffect(() => {
     if (searchText.length < 2) {
       setResults([]);
       setShowResults(false);
+      return;
+    }
+
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false;
       return;
     }
 
@@ -55,6 +95,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
     return () => clearTimeout(timer);
   }, [searchText]);
+
+  useEffect(() => {
+    if (hideResults && onResultsChangeRef.current) {
+      onResultsChangeRef.current(showResults ? results : [], loading && showResults);
+    }
+  }, [results, loading, showResults, hideResults]);
 
   const searchLocations = async (query: string) => {
     try {
@@ -148,7 +194,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   const handleResultSelect = (result: SearchResult) => {
     onResultSelect(result);
-    setSearchText("");
+    skipSearchRef.current = true;
+    setSearchText(result.display_name || result.address);
     setShowResults(false);
     setResults([]);
   };
@@ -156,6 +203,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.inputContainer}>
+        {prefixIcon && (
+          <View style={styles.prefixIcon}>
+            {prefixIcon}
+          </View>
+        )}
         {leftIcon && isFocused && (
           <TouchableOpacity
             onPress={onLeftIconPress}
@@ -166,73 +218,97 @@ const SearchBar: React.FC<SearchBarProps> = ({
           </TouchableOpacity>
         )}
         <TextInput
+          ref={inputRef}
           style={styles.input}
           placeholder={placeholder}
           placeholderTextColor="#999"
           value={searchText}
           onChangeText={setSearchText}
+          autoFocus={autoFocus}
           onFocus={() => {
             setIsFocused(true);
+            onFocusChangeRef.current?.(true);
             if (searchText.length >= 2) {
               setShowResults(true);
             }
           }}
-          onBlur={() => setIsFocused(false)}
+          onBlur={() => {
+            setIsFocused(false);
+            onFocusChangeRef.current?.(false);
+          }}
         />
-        {searchText.length > 0 && (
+        {isFocused && searchText.length > 0 && (
           <TouchableOpacity
             style={styles.clearButton}
             onPress={() => {
               setSearchText("");
               setResults([]);
               setShowResults(false);
+              onClear?.();
             }}
           >
-            <Text style={styles.clearButtonText}>✕</Text>
+            <X size={10} color="#FFFFFF" strokeWidth={3} />
           </TouchableOpacity>
         )}
+        {isFocused && suffixIcon && onSuffixIconPress ? (
+          <TouchableOpacity
+            style={styles.suffixIconBtn}
+            onPress={onSuffixIconPress}
+            activeOpacity={0.7}
+          >
+            {suffixIcon}
+          </TouchableOpacity>
+        ) : isFocused && suffixIcon ? (
+          <View style={styles.suffixIcon}>
+            {suffixIcon}
+          </View>
+        ) : null}
       </View>
 
-      {loading && showResults && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#7C3AED" />
-        </View>
-      )}
+      {!hideResults && (
+        <>
+          {loading && showResults && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#7C3AED" />
+            </View>
+          )}
 
-      {showResults && results.length > 0 && (
-        <FlatList
-          data={results}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.resultItem}
-              onPress={() => handleResultSelect(item)}
-            >
-              <View style={styles.resultTextContainer}>
-                <Text style={styles.resultAddress} numberOfLines={2}>
-                  {item.address}
+          {showResults && results.length > 0 && (
+            <FlatList
+              data={results}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.resultItem}
+                  onPress={() => handleResultSelect(item)}
+                >
+                  <View style={styles.resultTextContainer}>
+                    <Text style={styles.resultAddress} numberOfLines={2}>
+                      {item.address}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item, index) => `${item.lat}-${item.lon}-${index}`}
+              scrollEnabled={false}
+              style={styles.resultsList}
+            />
+          )}
+
+          {showResults &&
+            searchText.length >= 2 &&
+            results.length === 0 &&
+            !loading && (
+              <View style={styles.noResultsContainer}>
+                <Text style={styles.noResultsText}>
+                  No se encontraron resultados
                 </Text>
               </View>
-            </TouchableOpacity>
-          )}
-          keyExtractor={(item, index) => `${item.lat}-${item.lon}-${index}`}
-          scrollEnabled={false}
-          style={styles.resultsList}
-        />
+            )}
+        </>
       )}
-
-      {showResults &&
-        searchText.length >= 2 &&
-        results.length === 0 &&
-        !loading && (
-          <View style={styles.noResultsContainer}>
-            <Text style={styles.noResultsText}>
-              No se encontraron resultados
-            </Text>
-          </View>
-        )}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -241,28 +317,40 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderColor: "#D0D0D0",
   },
   leftIconBtn: {
     marginRight: 8,
   },
+  prefixIcon: {
+    marginRight: 8,
+  },
+  suffixIcon: {
+    marginLeft: 8,
+  },
+  suffixIconBtn: {
+    marginLeft: 8,
+  },
   input: {
     flex: 1,
     paddingVertical: 12,
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: "600",
     color: "#2D2D2D",
     minHeight: 48,
   },
   clearButton: {
-    padding: 8,
-  },
-  clearButtonText: {
-    fontSize: 18,
-    color: "#999",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
   },
   loadingContainer: {
     padding: 16,

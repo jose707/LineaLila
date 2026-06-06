@@ -1,12 +1,12 @@
 // screens/SearchScreen.tsx
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  ActivityIndicator,
   BackHandler,
   Platform,
   PermissionsAndroid,
@@ -22,8 +22,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { CommonActions } from '@react-navigation/native';
 import Geolocation from '@react-native-community/geolocation';
-import SearchBar, { SearchResult } from '../components/SearchBar';
-import { MapPin, X, Plus, ArrowUpDown } from 'lucide-react-native';
+import SearchBar, { SearchResult, SearchBarRef } from '../components/SearchBar';
+import { MapPin, X } from 'lucide-react-native';
 import { SEARCHSCREEN_COLORS as C } from '../theme/colors';
 import { cacheSearchManager } from '../utils/cacheManager';
 
@@ -67,6 +67,69 @@ const SearchScreen = () => {
     latitude: number;
     longitude: number;
   } | null>(null);
+  const firstSearchRef = useRef<SearchBarRef>(null);
+  const mountedRef = useRef(false);
+  const prevAllFilled = useRef(false);
+  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
+  const [sharedResults, setSharedResults] = useState<SearchResult[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(false);
+
+  useEffect(() => {
+    setTimeout(() => {
+      firstSearchRef.current?.focus();
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      const allFilled = stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
+      prevAllFilled.current = allFilled;
+      if (allFilled && route.params?.pickingMode) {
+        const validStops = stops.filter(isStopFilled);
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [
+              {
+                name: 'Map',
+                params: {
+                  pickupLocation: validStops[0].location,
+                  destinationLocation: validStops[validStops.length - 1].location,
+                  pickupAddress: validStops[0].address,
+                  destinationAddress: validStops[validStops.length - 1].address,
+                  stops: validStops,
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return;
+    }
+    const currentAllFilled = stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
+    if (currentAllFilled && !prevAllFilled.current) {
+      const validStops = stops.filter(isStopFilled);
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'Map',
+              params: {
+                pickupLocation: validStops[0].location,
+                destinationLocation: validStops[validStops.length - 1].location,
+                pickupAddress: validStops[0].address,
+                destinationAddress: validStops[validStops.length - 1].address,
+                stops: validStops,
+              },
+            },
+          ],
+        }),
+      );
+    }
+    prevAllFilled.current = currentAllFilled;
+  }, [stops, navigation, route.params?.pickingMode]);
 
   useEffect(() => {
     const getLocation = async () => {
@@ -95,7 +158,7 @@ const SearchScreen = () => {
     stop.location.latitude !== 0 &&
     stop.location.longitude !== 0;
 
-  const filledStops = stops.filter(isStopFilled);
+  const firstUnfilledIndex = stops.findIndex(s => !isStopFilled(s));
 
   const handleStopSelect = (index: number, result: SearchResult) => {
     const newStops = [...stops];
@@ -110,23 +173,9 @@ const SearchScreen = () => {
     cacheSearchManager.saveSearch(result.display_name);
   };
 
-  const addStopAfter = (index: number) => {
-    if (stops.length >= MAX_STOPS) return;
-    const insertAt = index === stops.length - 1 ? stops.length - 1 : index + 1;
-    const newStops = [...stops];
-    newStops.splice(insertAt, 0, { ...EMPTY_STOP });
-    setStops(newStops);
-  };
-
   const clearStop = (index: number) => {
     const newStops = [...stops];
     newStops[index] = { ...EMPTY_STOP };
-    setStops(newStops);
-  };
-
-  const swapStops = () => {
-    if (stops.length !== 2) return;
-    const newStops = [stops[1], stops[0]];
     setStops(newStops);
   };
 
@@ -136,43 +185,34 @@ const SearchScreen = () => {
     setStops(newStops);
   };
 
-  const confirmLocations = () => {
-    const validStops = stops.filter(isStopFilled);
-
-    if (validStops.length < 2) {
-      Alert.alert(
-        'Información requerida',
-        'Selecciona al menos el punto de partida y el destino.',
-      );
-      return;
-    }
-
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [
-          {
-            name: 'Map',
-            params: {
-              pickupLocation: validStops[0].location,
-              destinationLocation: validStops[validStops.length - 1].location,
-              pickupAddress: validStops[0].address,
-              destinationAddress: validStops[validStops.length - 1].address,
-              stops: validStops,
-            },
-          },
-        ],
-      }),
-    );
-  };
-
   const goBack = () => {
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Map', params: { reset: true } }],
-      }),
-    );
+    const p = route.params;
+    if (p?.destinationLocation) {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'Map',
+              params: {
+                pickupLocation: p.pickupLocation,
+                pickupAddress: p.pickupAddress,
+                destinationLocation: p.destinationLocation,
+                destinationAddress: p.destinationAddress,
+                stops: p.stops,
+              },
+            },
+          ],
+        }),
+      );
+    } else {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Map', params: { reset: true } }],
+        }),
+      );
+    }
   };
 
   const goBackWithPicking = (stopIndex: number) => {
@@ -280,33 +320,38 @@ const SearchScreen = () => {
                     <View style={styles.stopInputRow}>
                       <View style={styles.searchBarWrapper}>
                         {isStopFilled(stop) ? (
-                          <TouchableOpacity
-                            style={styles.filledInput}
-                            onPress={() => clearStop(index)}
-                            activeOpacity={0.8}
-                          >
-                            <MapPin
-                              size={20}
-                              color="#7C3AED"
-                              strokeWidth={2.5}
-                              style={{ marginRight: 8 }}
-                            />
-                            <Text
-                              style={styles.filledInputText}
-                              numberOfLines={1}
-                            >
-                              {stop.address}
-                            </Text>
-                            <TouchableOpacity
-                              style={styles.clearInputBtn}
-                              onPress={() => clearStop(index)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <X size={12} color="#FFFFFF" strokeWidth={4} />
-                            </TouchableOpacity>
-                          </TouchableOpacity>
+                          <SearchBar
+                            ref={index === firstUnfilledIndex ? firstSearchRef : undefined}
+                            placeholder={
+                              isFirst
+                                ? '¿Dónde te recogemos?'
+                                : isLast
+                                  ? '¿Cuál es el destino final?'
+                                  : 'Buscar parada...'
+                            }
+                            initialValue={stop.address}
+                            onClear={() => clearStop(index)}
+                            onResultSelect={(result) =>
+                              handleStopSelect(index, result)
+                            }
+                            currentLat={userLocation?.latitude}
+                            currentLon={userLocation?.longitude}
+                            suffixIcon={<MapPin size={26} color="#7C3AED" strokeWidth={2.5} />}
+                            onSuffixIconPress={() => goBackWithPicking(index)}
+                            hideResults
+                            onResultsChange={(results, loading) => {
+                              if (activeSearchIndex === index) {
+                                setSharedResults(results);
+                                setSharedLoading(loading);
+                              }
+                            }}
+                            onFocusChange={(focused) => {
+                              if (focused) setActiveSearchIndex(index);
+                            }}
+                          />
                         ) : (
                           <SearchBar
+                            ref={index === firstUnfilledIndex ? firstSearchRef : undefined}
                             placeholder={
                               isFirst
                                 ? '¿Dónde te recogemos?'
@@ -319,22 +364,24 @@ const SearchScreen = () => {
                             }
                             currentLat={userLocation?.latitude}
                             currentLon={userLocation?.longitude}
-                            leftIcon={<MapPin size={22} color="#7C3AED" strokeWidth={2.5} />}
-                            onLeftIconPress={() => goBackWithPicking(index)}
+                            suffixIcon={<MapPin size={26} color="#7C3AED" strokeWidth={2.5} />}
+                            onSuffixIconPress={() => goBackWithPicking(index)}
+                            hideResults
+                            onResultsChange={(results, loading) => {
+                              if (activeSearchIndex === index) {
+                                setSharedResults(results);
+                                setSharedLoading(loading);
+                              }
+                            }}
+                            onFocusChange={(focused) => {
+                              if (focused) setActiveSearchIndex(index);
+                            }}
                           />
                         )}
                       </View>
 
                       {/* Right buttons */}
-                      {stops.length === 2 && isLast ? (
-                        <TouchableOpacity
-                          style={styles.swapRowBtn}
-                          onPress={swapStops}
-                          activeOpacity={0.7}
-                        >
-                          <ArrowUpDown size={18} color="#FFFFFF" strokeWidth={3} />
-                        </TouchableOpacity>
-                      ) : stops.length > 2 && !isFirst ? (
+                      {stops.length > 2 && !isFirst ? (
                         <TouchableOpacity
                           style={styles.removeStopBtn}
                           onPress={() => removeStop(index)}
@@ -342,22 +389,6 @@ const SearchScreen = () => {
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
                           <X size={18} color="#7C3AED" strokeWidth={3} />
-                        </TouchableOpacity>
-                      ) : isFirst ? (
-                        <TouchableOpacity
-                          style={[
-                            styles.addStopRowBtn,
-                            stops.length >= MAX_STOPS && styles.addStopRowBtnDisabled,
-                          ]}
-                          onPress={() => addStopAfter(index)}
-                          activeOpacity={stops.length >= MAX_STOPS ? 1 : 0.7}
-                          disabled={stops.length >= MAX_STOPS}
-                        >
-                          <Plus
-                            size={18}
-                            color={stops.length >= MAX_STOPS ? '#9CA3AF' : '#FFFFFF'}
-                            strokeWidth={3}
-                          />
                         </TouchableOpacity>
                       ) : null}
                     </View>
@@ -367,20 +398,42 @@ const SearchScreen = () => {
             </View>
           );
         })}
+
+        {/* Shared results list below all SearchBars */}
+        {activeSearchIndex !== null && (
+          <View style={styles.sharedResults}>
+            {sharedLoading && (
+              <View style={styles.sharedLoading}>
+                <ActivityIndicator size="small" color="#7C3AED" />
+              </View>
+            )}
+            {!sharedLoading && sharedResults.length > 0 && (
+              <View style={styles.sharedResultsList}>
+                {sharedResults.map((item, i) => (
+                  <TouchableOpacity
+                    key={`${item.lat}-${item.lon}-${i}`}
+                    style={styles.sharedResultItem}
+                    onPress={() => {
+                      if (activeSearchIndex !== null) {
+                        handleStopSelect(activeSearchIndex, item);
+                        setSharedResults([]);
+                        setActiveSearchIndex(null);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MapPin size={16} color="#7C3AED" strokeWidth={2} style={styles.sharedResultIcon} />
+                    <Text style={styles.sharedResultAddress} numberOfLines={2}>
+                      {item.address}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
 
-      {/* CONFIRM BUTTON - FIXED BOTTOM */}
-      {filledStops.length >= 2 && (
-        <View style={styles.confirmSection}>
-          <TouchableOpacity
-            style={styles.confirmButton}
-            onPress={confirmLocations}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.confirmButtonText}>Continuar</Text>
-          </TouchableOpacity>
-        </View>
-      )}
     </SafeAreaView>
   );
 };
@@ -512,27 +565,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addStopRowBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#7C3AED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
-  addStopRowBtnDisabled: {
-    backgroundColor: '#E5E7EB',
-  },
-  swapRowBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#7C3AED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
   removeStopBtn: {
     width: 48,
     height: 48,
@@ -543,31 +575,40 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  // CONFIRM BUTTON
-  confirmSection: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+  // SHARED RESULTS
+  sharedResults: {
+    marginTop: 4,
+    paddingHorizontal: 4,
   },
-  confirmButton: {
-    backgroundColor: C.primaryLight,
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
+  sharedLoading: {
+    padding: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: C.primaryLight,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
   },
-  confirmButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: C.white,
-    letterSpacing: 0.5,
+  sharedResultsList: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  sharedResultItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  sharedResultIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  sharedResultAddress: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2D2D2D',
+    fontWeight: '500',
+    lineHeight: 19,
   },
 
 });

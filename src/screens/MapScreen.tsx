@@ -40,6 +40,8 @@ import { Icon } from '../theme/icons';
 import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { SlideUpMenu } from '../components/SlideUpMenu';
 import { RouteSummaryCard } from '../components/RouteSummaryCard';
+import { StopsModal } from '../components/StopsModal';
+import { AddStopModal } from '../components/AddStopModal';
 import { RideRequestPanel } from '../components/RideRequestPanel';
 import { DriverOfferBubbles } from '../components/DriverOfferBubbles';
 import { useAuth } from '../hooks/useAuth';
@@ -275,6 +277,7 @@ const MapScreen = () => {
   const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
   const [initialLocationLoaded, setInitialLocationLoaded] = useState(false); // ── ESTADO DEL MAPA Y UBICACIÓN ──
   const [pickingMode, setPickingMode] = useState<'origin' | 'destination' | null>(null);
+  const [isAddingStop, setIsAddingStop] = useState(false);
   const [mapCenterLocation, setMapCenterLocation] = useState<LatLng | null>(
     null,
   );
@@ -324,7 +327,8 @@ const MapScreen = () => {
   });
   const [recentTrips, setRecentTrips] = useState<any[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [routePanelExpanded, setRoutePanelExpanded] = useState(false);
+  const [showStopsModal, setShowStopsModal] = useState(false);
+  const [showAddStopModal, setShowAddStopModal] = useState(false);
 
   const mapRef = useRef<MapView>(null);
   const lastRegionChangeTime = useRef(0);
@@ -1124,6 +1128,8 @@ const MapScreen = () => {
     setTempPickupAddress('');
     setDestinationLocation(null);
     setDestinationAddress('');
+    setWaypoints([]);
+    setAllStops([]);
     setShowMarker(true);
     setRouteInfo(null);
     setRouteCoordinates([]);
@@ -1237,6 +1243,28 @@ const MapScreen = () => {
         setIsCreatingRide(false);
       }
     })();
+  };
+
+  const handleAddStop = async (result: { lat: string; lon: string; display_name: string }) => {
+    const newLat = parseFloat(result.lat);
+    const newLon = parseFloat(result.lon);
+    const newAddress = result.display_name;
+
+    // Old destination becomes a waypoint
+    if (destinationLocation && destinationAddress) {
+      setWaypoints(prev => [
+        ...prev,
+        {
+          latitude: destinationLocation.latitude,
+          longitude: destinationLocation.longitude,
+          address: destinationAddress,
+        },
+      ]);
+    }
+
+    // New location becomes the destination
+    setDestinationLocation({ latitude: newLat, longitude: newLon });
+    setDestinationAddress(newAddress);
   };
 
   const handleAutoExpireRide = async () => {
@@ -1517,9 +1545,21 @@ const MapScreen = () => {
             destinationAddress={destinationAddress}
             waypoints={waypoints}
             routeInfo={routeInfo}
-            suggestedFare={suggestedFare}
-            expanded={routePanelExpanded}
-            onToggleExpand={() => setRoutePanelExpanded(!routePanelExpanded)}
+            onPressOrigin={() => navigation.navigate('Search', {
+              pickupLocation: pickupLocation || undefined,
+              pickupAddress: pickupAddress || undefined,
+              destinationLocation: destinationLocation || undefined,
+              destinationAddress: destinationAddress || undefined,
+              stops: pickupLocation && destinationLocation
+                ? [
+                    { location: pickupLocation, address: pickupAddress },
+                    ...waypoints.map((wp: any) => ({ location: { latitude: wp.latitude, longitude: wp.longitude }, address: wp.address })),
+                    { location: destinationLocation, address: destinationAddress },
+                  ]
+                : undefined,
+            })}
+            onPressStops={() => setShowStopsModal(true)}
+            onAddStop={() => setShowAddStopModal(true)}
             insetsTop={insets.top}
             fmtDist={fmtDist}
             fmtTime={fmtTime}
@@ -1569,15 +1609,30 @@ const MapScreen = () => {
             elevation: 6,
           }}
           onPress={() => {
+            if (isAddingStop) {
+              const newLat = mapCenterLocation?.latitude;
+              const newLon = mapCenterLocation?.longitude;
+              if (newLat && newLon && destinationLocation && destinationAddress) {
+                setWaypoints(prev => [
+                  ...prev,
+                  { latitude: destinationLocation.latitude, longitude: destinationLocation.longitude, address: destinationAddress },
+                ]);
+                setDestinationLocation({ latitude: newLat, longitude: newLon });
+                setDestinationAddress(tempPickupAddress);
+              }
+              setPickingMode(null);
+              setIsAddingStop(false);
+              return;
+            }
             const updatedStops = allStops.length > 0 && editingStopIndex != null
               ? allStops.map((s: any, i: number) => i === editingStopIndex
                 ? { location: { latitude: mapCenterLocation?.latitude ?? s.location.latitude, longitude: mapCenterLocation?.longitude ?? s.location.longitude }, address: tempPickupAddress || s.address }
                 : s)
               : undefined;
             if (pickingMode === 'origin') {
-              navigation.navigate('Search' as any, { pickupLocation: mapCenterLocation, pickupAddress: tempPickupAddress, destinationLocation, destinationAddress, ...(updatedStops ? { stops: updatedStops } : {}) });
+              navigation.navigate('Search' as any, { pickupLocation: mapCenterLocation, pickupAddress: tempPickupAddress, destinationLocation, destinationAddress, pickingMode, ...(updatedStops ? { stops: updatedStops } : {}) });
             } else {
-              navigation.navigate('Search' as any, { pickupLocation, pickupAddress, destinationLocation: mapCenterLocation, destinationAddress: tempPickupAddress, ...(updatedStops ? { stops: updatedStops } : {}) });
+              navigation.navigate('Search' as any, { pickupLocation, pickupAddress, destinationLocation: mapCenterLocation, destinationAddress: tempPickupAddress, pickingMode, ...(updatedStops ? { stops: updatedStops } : {}) });
             }
             setPickingMode(null);
           }}
@@ -1679,6 +1734,30 @@ const MapScreen = () => {
           overlay: 'rgba(0,0,0,0.4)',
           avatarBg: T.accentSoft,
         }}
+      />
+
+      {/* STOPS MODAL */}
+      <StopsModal
+        visible={showStopsModal}
+        onClose={() => setShowStopsModal(false)}
+        pickupAddress={pickupAddress}
+        tempPickupAddress={tempPickupAddress}
+        destinationAddress={destinationAddress}
+        waypoints={waypoints}
+      />
+
+      {/* ADD STOP MODAL */}
+      <AddStopModal
+        visible={showAddStopModal}
+        onClose={() => setShowAddStopModal(false)}
+        onConfirm={handleAddStop}
+        onPickOnMap={() => {
+          setShowAddStopModal(false);
+          setIsAddingStop(true);
+          setPickingMode('destination');
+        }}
+        currentLat={pickupLocation?.latitude}
+        currentLon={pickupLocation?.longitude}
       />
     </SafeAreaView>
   );
