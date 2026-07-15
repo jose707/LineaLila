@@ -1137,6 +1137,7 @@ const MapScreen = () => {
     setOriginalFare(null);
     setShowFareEditor(false);
     setNegotiationMode(false);
+    centerToUserLocation(false);
   };
 
   const goToSearchScreen = async () => {

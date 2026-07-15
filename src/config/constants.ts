@@ -7,7 +7,7 @@ export const GOOGLE_MAPS_API_KEY = 'AIzaSyDxxxxxxxxxxxxxxxxxxxxxxx'; // ← REEM
 
 // Backend host. For physical device, use your PC IP on the same Wi-Fi.
 // Example: http://192.168.100.133:3000
-export const API_HOST = 'http://192.168.100.133:3000';
+export const API_HOST = 'http://192.168.100.127:3000';
 //export const API_HOST = 'https://lila-backend-xpjy.onrender.com';
 export const API_BASE_URL = `${API_HOST}/api`;
 
