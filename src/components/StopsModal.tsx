@@ -6,9 +6,10 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { X } from 'lucide-react-native';
+import { Minus, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MAPSCREEN_COLORS as T, COLORS } from '../theme/colors';
+import { DestinationFlagIcon, PassengerMapIcon, WaypointMapIcon } from './MapLocationIcons';
 
 interface Props {
   visible: boolean;
@@ -16,15 +17,13 @@ interface Props {
   pickupAddress: string;
   tempPickupAddress: string;
   destinationAddress: string;
-  waypoints: any[];
+  waypoints: { address: string }[];
+  onRemoveWaypoint: (index: number) => void;
 }
 
-const DOT_ORIGIN = COLORS.primary;
-const DOT_STOP = COLORS.primaryLight;
-const DOT_DEST = COLORS.secondary;
-const DOT_SIZE = 10;
+const ICON_SIZE = 28;
 const LINE_WIDTH = 2;
-const LINE_LEFT = DOT_SIZE / 2 - LINE_WIDTH / 2;
+const LINE_LEFT = ICON_SIZE / 2 - LINE_WIDTH / 2;
 
 export const StopsModal: React.FC<Props> = ({
   visible,
@@ -33,6 +32,7 @@ export const StopsModal: React.FC<Props> = ({
   tempPickupAddress,
   destinationAddress,
   waypoints,
+  onRemoveWaypoint,
 }) => {
   const insets = useSafeAreaInsets();
   const originLabel = pickupAddress || tempPickupAddress || '';
@@ -59,7 +59,7 @@ export const StopsModal: React.FC<Props> = ({
           {/* Header */}
           <View style={s.header}>
             <Text style={s.title}>
-              {waypoints.length + 1} {waypoints.length + 1 === 1 ? 'parada' : 'paradas'} de ruta
+              Recorrido
             </Text>
             <TouchableOpacity
               style={s.closeBtn}
@@ -74,9 +74,8 @@ export const StopsModal: React.FC<Props> = ({
           <View style={s.timeline}>
             {/* Origin */}
             <View style={s.row}>
-              <View style={[s.dot, { backgroundColor: DOT_ORIGIN }]} />
+              <PassengerMapIcon size={ICON_SIZE} bare />
               <View style={s.rowContent}>
-                <Text style={s.label}>Recogida</Text>
                 <Text style={s.address} numberOfLines={2}>
                   {originLabel}
                 </Text>
@@ -84,17 +83,25 @@ export const StopsModal: React.FC<Props> = ({
             </View>
 
             {/* Waypoints */}
-            {waypoints.map((wp: any, idx: number) => (
+            {waypoints.map((wp, idx) => (
               <View key={`stop-${idx}`}>
                 <View style={s.line} />
                 <View style={s.row}>
-                  <View style={[s.dot, { backgroundColor: DOT_STOP }]} />
+                  <WaypointMapIcon number={idx + 1} size={28} />
                   <View style={s.rowContent}>
-                    <Text style={s.label}>Parada {idx + 1}</Text>
                     <Text style={s.address} numberOfLines={2}>
                       {wp.address}
                     </Text>
                   </View>
+                  <TouchableOpacity
+                    style={s.removeBtn}
+                    onPress={() => onRemoveWaypoint(idx)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Eliminar P${idx + 1}`}
+                    activeOpacity={0.7}
+                  >
+                    <Minus size={18} color={T.ink} strokeWidth={2.5} />
+                  </TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -102,9 +109,8 @@ export const StopsModal: React.FC<Props> = ({
             {/* Destination */}
             <View style={s.line} />
             <View style={s.row}>
-              <View style={[s.dot, { backgroundColor: DOT_DEST }]} />
+              <DestinationFlagIcon size={ICON_SIZE} bare />
               <View style={s.rowContent}>
-                <Text style={s.label}>Destino</Text>
                 <Text style={s.address} numberOfLines={2}>
                   {destLabel}
                 </Text>
@@ -168,23 +174,19 @@ const s = StyleSheet.create({
     alignItems: 'flex-start',
     minHeight: 44,
   },
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    marginTop: 6,
-  },
   rowContent: {
     flex: 1,
     marginLeft: 14,
+    paddingTop: 3,
   },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: T.inkLight,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 2,
+  removeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   address: {
     fontSize: 15,

@@ -4,8 +4,10 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { Plus } from 'lucide-react-native';
+import { DestinationFlagIcon, PassengerMapIcon, WaypointMapIcon } from './MapLocationIcons';
 import { MAPSCREEN_COLORS as T, COLORS } from '../theme/colors';
 
 interface RouteInfo {
@@ -14,6 +16,8 @@ interface RouteInfo {
 }
 
 interface Props {
+  slideOffset: Animated.Value;
+  disabled?: boolean;
   pickupAddress: string;
   tempPickupAddress: string;
   destinationAddress: string;
@@ -27,16 +31,15 @@ interface Props {
   fmtTime: (sec: number) => string;
 }
 
-const DOT_ORIGIN = COLORS.primary;
-const DOT_STOPS = COLORS.primary;
-const DOT_DEST = COLORS.secondary;
-const DOT_SIZE = 8;
+const ICON_SIZE = 30;
 const CONNECTOR_WIDTH = 1.5;
-const CONNECTOR_HEIGHT = 20;
-const TIMELINE_LEFT = DOT_SIZE / 2 - CONNECTOR_WIDTH / 2;
-const TEXT_LEFT = DOT_SIZE + 10;
+const CONNECTOR_HEIGHT = 12;
+const TIMELINE_LEFT = ICON_SIZE / 2 - CONNECTOR_WIDTH / 2;
+const TEXT_LEFT = 10;
 
 export const RouteSummaryCard: React.FC<Props> = ({
+  slideOffset,
+  disabled = false,
   pickupAddress,
   tempPickupAddress,
   destinationAddress,
@@ -52,10 +55,6 @@ export const RouteSummaryCard: React.FC<Props> = ({
   const hasStops = waypoints.length > 0;
   const originLabel = (pickupAddress || tempPickupAddress || '').split(',')[0];
   const destLabel = (destinationAddress || '').split(',')[0];
-  const totalStops = waypoints.length + 1;
-
-  const stopsLabel = `${totalStops} ${totalStops === 1 ? 'Parada' : 'Paradas'} de Ruta`;
-
   const routeInfoSuffix = routeInfo ? (
     <Text style={s.routeInfoSuffix}>
       {' '}· {fmtDist(routeInfo.distance)} · {fmtTime(routeInfo.duration)}
@@ -63,8 +62,8 @@ export const RouteSummaryCard: React.FC<Props> = ({
   ) : null;
 
   return (
-    <View style={[s.card, { top: 8 + insetsTop }]}>
-      <View style={s.timeline}>
+    <Animated.View pointerEvents={disabled ? 'none' : 'auto'} style={[s.card, { top: 8 + insetsTop, transform: [{ translateY: slideOffset }] }]}>
+      <View>
 
         {/* Origin */}
         <TouchableOpacity
@@ -72,7 +71,9 @@ export const RouteSummaryCard: React.FC<Props> = ({
           onPress={onPressOrigin}
           activeOpacity={0.6}
         >
-          <View style={[s.dot, { backgroundColor: DOT_ORIGIN }]} />
+          <View style={s.iconSlot}>
+            <PassengerMapIcon size={ICON_SIZE} bare />
+          </View>
           <Text style={s.address} numberOfLines={1}>
             {originLabel}
           </Text>
@@ -89,9 +90,12 @@ export const RouteSummaryCard: React.FC<Props> = ({
               onPress={onPressStops}
               activeOpacity={0.6}
             >
-              <View style={[s.dot, { backgroundColor: DOT_STOPS }]} />
+              <View style={s.routeIcons}>
+                {waypoints.map((_, index) => <WaypointMapIcon key={index} number={index + 1} size={22} />)}
+                <DestinationFlagIcon size={ICON_SIZE} bare />
+              </View>
               <Text style={s.address} numberOfLines={1}>
-                {stopsLabel}{routeInfoSuffix}
+                {destLabel}{routeInfoSuffix}
               </Text>
             </TouchableOpacity>
           ) : (
@@ -100,7 +104,9 @@ export const RouteSummaryCard: React.FC<Props> = ({
               onPress={onPressStops}
               activeOpacity={0.6}
             >
-              <View style={[s.dot, { backgroundColor: DOT_DEST }]} />
+              <View style={s.iconSlot}>
+                <DestinationFlagIcon size={ICON_SIZE} bare />
+              </View>
               <Text style={s.address} numberOfLines={1}>
                 {destLabel}{routeInfoSuffix}
               </Text>
@@ -117,7 +123,7 @@ export const RouteSummaryCard: React.FC<Props> = ({
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -130,7 +136,7 @@ const s = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
@@ -140,19 +146,18 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.border,
   },
-  timeline: {
-    paddingVertical: 2,
-  },
   timelineRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 28,
+    minHeight: 32,
   },
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
+  iconSlot: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  routeIcons: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   connector: {
     width: CONNECTOR_WIDTH,
     height: CONNECTOR_HEIGHT,

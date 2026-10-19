@@ -6,6 +6,7 @@ const sequelize           = require('../config/database');
 const setupAssociations   = require('./associations');
 
 const User                = require('./User');
+const UserIdentity        = require('./UserIdentity');
 const Driver              = require('./Driver');
 const Ride                = require('./Ride');
 const RideOffer           = require('./RideOffer');
@@ -33,6 +34,7 @@ setupAssociations();
 module.exports = {
   sequelize,
   User,
+  UserIdentity,
   Driver,
   Ride,
   RideOffer,

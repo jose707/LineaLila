@@ -52,6 +52,8 @@ export interface SignupResponse {
 
 // RIDES
 export interface CreateRideRequest {
+  requestMode?: 'negotiation' | 'quick_assignment';
+  requestKey?: string;
   userId?: string;
   pickupLocation: {
     latitude: number;

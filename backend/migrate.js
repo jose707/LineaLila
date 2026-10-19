@@ -1,58 +1,64 @@
+'use strict';
+
 const sequelize = require('./src/config/database');
 const initialSchema = require('./migrations/00000000-initial-schema');
-const rideWaypoints = require('./migrations/00000001-ride-waypoints');
-const trustedContacts = require('./migrations/00000002-trusted-contacts');
-const panicEvents = require('./migrations/00000003-panic-events');
-const alterNotificationType = require('./migrations/00000004-alter-notification-type');
 
-const runMigrations = async () => {
-  const migrations = [
-    { name: '00000000-initial-schema', migration: initialSchema },
-    { name: '00000001-ride-waypoints', migration: rideWaypoints },
-    { name: '00000002-trusted-contacts', migration: trustedContacts },
-    { name: '00000003-panic-events', migration: panicEvents },
-    { name: '00000004-alter-notification-type', migration: alterNotificationType },
-  ];
+const APP_TABLES = new Set([
+  'users',
+  'user_identities',
+  'drivers',
+  'vehicles',
+  'rides',
+  'ride_offers',
+  'ride_waypoints',
+  'driver_locations',
+  'driver_requests',
+  'documents',
+  'service_areas',
+  'promo_codes',
+  'cancellation_reasons',
+  'payments',
+  'ratings',
+  'notifications',
+  'commission_settlements',
+  'driver_earnings',
+  'pricing_rules',
+  'audit_logs',
+  'emergency_contacts',
+  'emergency_alerts',
+  'emergency_sms_logs',
+  'emergency_recordings',
+  'trusted_contacts',
+  'panic_events',
+]);
 
+async function runMigration() {
   try {
     console.log('🔄 Conectando a la base de datos...');
     await sequelize.authenticate();
-    console.log('✅ Conexión establecida\n');
+    console.log('✅ Conexión establecida');
 
-    let successCount = 0;
-    let skipCount = 0;
+    const tables = await sequelize.getQueryInterface().showAllTables();
+    const existingAppTables = tables
+      .map(table => typeof table === 'string' ? table : table.tableName)
+      .filter(table => APP_TABLES.has(table));
 
-    for (const { name, migration } of migrations) {
-      try {
-        console.log(`🔄 Ejecutando migración: ${name}`);
-        await migration.up(sequelize.queryInterface, sequelize.Sequelize);
-        console.log(`✅ ${name} completada exitosamente\n`);
-        successCount++;
-      } catch (error) {
-        const errorMsg = error.message.toLowerCase();
-        // Ignorar errores si la migración ya fue ejecutada
-        if (
-          errorMsg.includes('already exists') ||
-          errorMsg.includes('duplicate key') ||
-          errorMsg.includes('ya existe') ||
-          errorMsg.includes('clave duplicada') ||
-          errorMsg.includes('type') ||
-          errorMsg.includes('tipo')
-        ) {
-          console.log(`⚠️  ${name} ya fue ejecutada o parcialmente completada (ignorando)\n`);
-          skipCount++;
-        } else {
-          throw error;
-        }
-      }
+    if (existingAppTables.length) {
+      throw new Error(
+        `La base ya contiene tablas de Línea Lila (${existingAppTables.join(', ')}). ` +
+        'La migración maestra solo se ejecuta una vez sobre una base nueva. No se hicieron cambios.',
+      );
     }
 
-    console.log(`✅ Proceso completado: ${successCount} exitosas, ${skipCount} omitidas`);
-    process.exit(0);
+    console.log('🔄 Inicializando esquema con 00000000-initial-schema...');
+    await initialSchema.up(sequelize.getQueryInterface(), sequelize.Sequelize);
+    console.log('✅ Esquema inicial creado correctamente.');
   } catch (error) {
-    console.error('❌ Error al ejecutar migraciones:', error.message);
-    process.exit(1);
+    console.error('❌ No se pudo inicializar la base de datos:', error.message);
+    process.exitCode = 1;
+  } finally {
+    await sequelize.close();
   }
-};
+}
 
-runMigrations();
+runMigration();

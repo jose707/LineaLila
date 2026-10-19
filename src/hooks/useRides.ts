@@ -40,12 +40,6 @@ export interface UseRidesActions {
     page?: number,
     limit?: number,
   ) => Promise<Ride[]>;
-  estimateCost: (
-    pickupLat: number,
-    pickupLon: number,
-    dropoffLat: number,
-    dropoffLon: number,
-  ) => Promise<RideEstimateResponse | null>;
   submitRating: (
     rideId: string,
     score: number,
@@ -352,7 +346,7 @@ export const useRides = (): UseRidesState & UseRidesActions => {
           '⏱️ [useRides] Timeout obteniendo solicitudes (reintentar)',
         );
         setError('Timeout al obtener solicitudes');
-        return [];
+        throw error;
       }
 
       const isNetworkError =
@@ -367,13 +361,13 @@ export const useRides = (): UseRidesState & UseRidesActions => {
       if (isNetworkError) {
         console.warn('📡 [useRides] Error de red, reintentando automáticamente...');
         setLoading(false);
-        return [];
+        throw error;
       }
 
       const errorMsg = error?.message || 'Error al obtener solicitudes';
       setError(errorMsg);
       console.error('useRides - getRideRequests error:', error);
-      return [];
+      throw error;
     }
   }, []);
 
@@ -406,42 +400,6 @@ export const useRides = (): UseRidesState & UseRidesActions => {
     [],
   );
 
-  // ============================
-  // ESTIMAR COSTO DE VIAJE
-  // ============================
-  const estimateCost = useCallback(
-    async (
-      pickupLat: number,
-      pickupLon: number,
-      dropoffLat: number,
-      dropoffLon: number,
-    ): Promise<RideEstimateResponse | null> => {
-      try {
-        setLoading(true);
-        const estimate = await ridesService.estimateRideCost(
-          pickupLat,
-          pickupLon,
-          dropoffLat,
-          dropoffLon,
-        );
-        setState(prev => ({
-          ...prev,
-          estimate,
-          isLoading: false,
-        }));
-        return estimate;
-      } catch (error: any) {
-        const errorMsg = error?.message || 'Error al estimar tarifa';
-        setError(errorMsg);
-        console.error('useRides - estimateCost error:', error);
-        return null;
-      }
-    },
-    [],
-  );
-
-  // ============================
-  // CALIFICAR Y RESEÑAR
   // ============================
   const submitRating = useCallback(
     async (
@@ -510,7 +468,6 @@ export const useRides = (): UseRidesState & UseRidesActions => {
     getActiveRide,
     getRideRequests,
     getRideHistory,
-    estimateCost,
     submitRating,
     clearErrors,
     clearRide,

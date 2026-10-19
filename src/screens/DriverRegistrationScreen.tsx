@@ -1,15 +1,14 @@
+import { privateImageSource } from '../utils/privateImageSource';
 // src/screens/DriverRegistrationScreen.tsx
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   Text,
   ScrollView,
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   StatusBar,
   Image,
   Linking,
@@ -17,6 +16,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import {
   User,
@@ -31,46 +31,158 @@ import {
   ChevronLeft,
   X,
   Upload,
-  Calendar,
+  ScanLine,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { useAuth } from '../hooks/useAuth';
 import { API_BASE_URL } from '../config/constants';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useRoute } from '@react-navigation/native';
-import { VEHICLE_TYPES, vehicleTypeLabel } from '../utils/vehicleTypes';
+import { ocrService } from '../services/ocr.service';
+import { DocumentCameraModal } from '../components/DocumentCameraModal';
+import { ExtractedTextModal } from '../components/ExtractedTextModal';
+import { CiResultModal } from '../components/CiResultModal';
 
-// ─── Tokens ───────────────────────────────────────────────────────────────────
-const C = {
+// ─── Tokens de diseño Línea Lila (acorde a ProfileScreen) ───────────────────
+const COLORS = {
   primary: '#7514C5',
-  primaryGlow: '#7514C510',
-  primaryBorder: '#7514C530',
-  bg: '#FFFFFF',
-  surface: '#FAFAFA',
-  surfaceHigh: '#F3F3F3',
-  border: '#E5E5E5',
-  text: '#0D0D0D',
-  textSub: '#555555',
-  textMuted: '#ADADAD',
+  primaryLight: '#F3EAFC',
+  primaryMid: '#EAD5F8',
+  background: '#FFFFFF',
+  surface: '#FFFFFF',
+  text: '#111118',
+  textSecondary: '#7A7A8A',
+  textTertiary: '#AFAFBF',
+  border: '#E5E5EA',
+  borderSubtle: '#F0F0F5',
   success: '#16A34A',
-  successGlow: '#16A34A10',
-  successBorder: '#16A34A35',
-  error: '#DC2626',
+  successLight: '#DCFCE7',
+  warning: '#D97706',
+  warningLight: '#FEF3C7',
+  danger: '#DC2626',
+  dangerLight: '#FEF2F2',
   white: '#FFFFFF',
 };
 
 type Props = NativeStackScreenProps<any, 'DriverRegistration'>;
 
+// ─── Configuración de OCR ─────────────────────────────────────────────────────
+const OCR_TYPES = [
+  'licenseFront',
+  'licenseBack',
+  'soatPhoto',
+  'ruatPhoto',
+];
+
+/** Campos que usan la cámara inteligente de documentos */
+const CAMERA_FIELDS = [
+  'licenseFront',
+  'licenseBack',
+  'antecedentsPhoto',
+  'ruatPhoto',
+  'carFront',
+  'carBack',
+  'soatPhoto',
+];
+
+const CAMERA_TITLES: Record<string, string> = {
+  licenseFront: 'Licencia — parte frontal',
+  licenseBack: 'Licencia — parte posterior',
+  antecedentsPhoto: 'Certificado de antecedentes',
+  ruatPhoto: 'RUAT — Registro del vehículo (CRPVA)',
+  carFront: 'Vehículo — vista delantera',
+  carBack: 'Vehículo — vista trasera',
+  soatPhoto: 'SOAT — Seguro obligatorio',
+};
+
+const REQUIRED_BY_TYPE: Record<string, string[]> = {
+  licenseFront: ['licenseExpiryDate'],
+  licenseBack: [],
+  soatPhoto: [],
+  ruatPhoto: [
+    'vehiclePlate',
+    'vehicleBrand',
+    'vehicleModel',
+    'vehicleYear',
+    'vehicleColor',
+  ],
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  fullName: 'Nombre completo',
+  ciNumber: 'Nº de CI',
+  birthDate: 'Fecha de nacimiento',
+  issueDate: 'Fecha de emisión',
+  expiryDate: 'Fecha de expiración',
+  birthPlace: 'Lugar de nacimiento',
+  address: 'Domicilio',
+  occupation: 'Profesión',
+  maritalStatus: 'Estado civil',
+  bloodType: 'Grupo sanguíneo',
+  vehicleOwnerCi: 'CI del propietario',
+  registrationMunicipality: 'Radicatoria',
+  crpvaNumber: 'Nro. CRPVA',
+  ruatIssueDate: 'Fecha de emisión RUAT',
+  ownershipStartDate: 'Inicio de propiedad',
+  doorCount: 'Número de puertas',
+  serviceType: 'Tipo de servicio',
+  chassisNumber: 'Número de chasis',
+  engineNumber: 'Número de motor',
+  fuelType: 'Combustible',
+  engineDisplacement: 'Cilindrada',
+  engineType: 'Tipo de motor',
+  legalObservations: 'Observaciones',
+  licenseExpiryDate: 'Vencimiento',
+  licenseCategory: 'Categoría',
+  licenseNumber: 'Nº de licencia',
+  nationality: 'Nacionalidad',
+  glasses: 'Lentes',
+  hearingAid: 'Audífonos',
+  soatExpiryDate: 'Vencimiento',
+  soatRosetteNumber: 'Nº de roseta',
+  soatStartDate: 'Inicio de vigencia',
+  soatUse: 'Uso',
+  vehiclePlate: 'Placa',
+  vehicleBrand: 'Marca',
+  vehicleModel: 'Modelo',
+  vehicleYear: 'Año',
+  vehicleColor: 'Color',
+  vehicleClass: 'Clase',
+  vehicleType: 'Tipo de vehículo',
+  vehiclePassengerCapacity: 'Capacidad',
+  vehicleOwnerName: 'Propietario',
+};
+
+const VEHICLE_TYPE_LABELS: Record<string, string> = {
+  taxi: 'Taxi',
+  minibus: 'Minibus',
+  bus: 'Bus',
+  motorcycle: 'Motocicleta',
+};
+
+const PHOTO_FIELDS = [
+  'licenseFront',
+  'licenseBack',
+  'antecedentsPhoto',
+  'carFront',
+  'carBack',
+  'soatPhoto',
+  'ruatPhoto',
+];
+
 // ─── Section icon map ─────────────────────────────────────────────────────────
 function SectionIcon({
   id,
-  size = 20,
+  size = 25,
   color,
+  strokeWidth = 2.2,
 }: {
   id: string;
   size?: number;
   color: string;
+  strokeWidth?: number;
 }) {
-  const props = { size, color, strokeWidth: 1.8 };
+  const props = { size, color, strokeWidth };
   switch (id) {
     case 'personal':
       return <User {...props} />;
@@ -88,124 +200,6 @@ function SectionIcon({
       return <FileText {...props} />;
   }
 }
-
-// ─── DateInput ────────────────────────────────────────────────────────────────
-function DateInput({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  const p = value ? value.split('/') : ['', '', ''];
-  const [d, setD] = useState(p[0] || '');
-  const [m, setM] = useState(p[1] || '');
-  const [y, setY] = useState(p[2] || '');
-  const mRef = useRef<TextInput>(null);
-  const yRef = useRef<TextInput>(null);
-
-  const emit = (dd: string, mm: string, yy: string) => {
-    if (dd && mm && yy && yy.length === 4) onChange(`${dd}/${mm}/${yy}`);
-  };
-
-  return (
-    <View style={di.wrap}>
-      <View style={di.iconWrap}>
-        <Calendar size={18} color={C.textMuted} strokeWidth={1.8} />
-      </View>
-      <View style={di.fields}>
-        <View style={di.seg}>
-          <Text style={di.lbl}>DÍA</Text>
-          <TextInput
-            style={di.inp}
-            placeholder="01"
-            placeholderTextColor={C.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            value={d}
-            editable={!disabled}
-            onChangeText={t => {
-              setD(t);
-              emit(t, m, y);
-              if (t.length === 2) mRef.current?.focus();
-            }}
-          />
-        </View>
-        <Text style={di.sep}>/</Text>
-        <View style={di.seg}>
-          <Text style={di.lbl}>MES</Text>
-          <TextInput
-            ref={mRef}
-            style={di.inp}
-            placeholder="01"
-            placeholderTextColor={C.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            value={m}
-            editable={!disabled}
-            onChangeText={t => {
-              setM(t);
-              emit(d, t, y);
-              if (t.length === 2) yRef.current?.focus();
-            }}
-          />
-        </View>
-        <Text style={di.sep}>/</Text>
-        <View style={[di.seg, { flex: 2 }]}>
-          <Text style={di.lbl}>AÑO</Text>
-          <TextInput
-            ref={yRef}
-            style={di.inp}
-            placeholder="1990"
-            placeholderTextColor={C.textMuted}
-            keyboardType="number-pad"
-            maxLength={4}
-            value={y}
-            editable={!disabled}
-            onChangeText={t => {
-              setY(t);
-              emit(d, m, t);
-            }}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-const di = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.surfaceHigh,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 12,
-  },
-  iconWrap: { paddingBottom: 2 },
-  fields: { flex: 1, flexDirection: 'row', alignItems: 'flex-end' },
-  seg: { flex: 1, alignItems: 'center' },
-  lbl: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: C.textMuted,
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  inp: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: C.text,
-    textAlign: 'center',
-    padding: 0,
-    width: '100%',
-  },
-  sep: { fontSize: 22, color: C.border, marginBottom: 4, paddingHorizontal: 4 },
-});
 
 // ─── SectionModal ─────────────────────────────────────────────────────────────
 function SectionModal({
@@ -234,16 +228,19 @@ function SectionModal({
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <SafeAreaView style={mo.safe}>
+        <SafeAreaView style={mo.safe} edges={['top', 'left', 'right', 'bottom']}>
           <View style={mo.header}>
-            <TouchableOpacity onPress={onClose} style={mo.closeBtn}>
-              <X size={16} color={C.textSub} strokeWidth={2} />
+            <TouchableOpacity onPress={onClose} style={mo.closeBtn} activeOpacity={0.7}>
+              <X size={18} color={COLORS.textSecondary} strokeWidth={2.4} />
             </TouchableOpacity>
-            <Text style={mo.title}>{title}</Text>
+            <Text style={mo.title} numberOfLines={1}>
+              {title}
+            </Text>
             <TouchableOpacity
               onPress={onDone}
               style={[mo.doneBtn, doneDisabled && mo.doneBtnDis]}
               disabled={doneDisabled}
+              activeOpacity={0.8}
             >
               <Text style={[mo.doneText, doneDisabled && mo.doneTextDis]}>
                 Guardar
@@ -262,42 +259,46 @@ function SectionModal({
     </Modal>
   );
 }
+
 const mo = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: C.bg,
+    borderBottomColor: '#E5E5EA',
+    backgroundColor: '#FFFFFF',
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: C.surfaceHigh,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
   },
   title: {
     flex: 1,
     textAlign: 'center',
     fontSize: 16,
-    fontWeight: '700',
-    color: C.text,
+    fontWeight: '600',
+    color: COLORS.text,
+    paddingHorizontal: 8,
   },
   doneBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: C.primary,
-    borderRadius: 20,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
   },
-  doneBtnDis: { backgroundColor: C.surfaceHigh },
-  doneText: { fontSize: 14, fontWeight: '700', color: C.white },
-  doneTextDis: { color: C.textMuted },
-  content: { padding: 20, paddingBottom: 48 },
+  doneBtnDis: { backgroundColor: '#F3EAFC' },
+  doneText: { fontSize: 13, fontWeight: '600', color: COLORS.white },
+  doneTextDis: { color: COLORS.primary, opacity: 0.5 },
+  content: { padding: 18, paddingBottom: 48, backgroundColor: '#FFFFFF' },
 });
 
 // ─── PhotoSheet ───────────────────────────────────────────────────────────────
@@ -331,17 +332,17 @@ function PhotoSheet({
       <View style={ps.sheet}>
         <View style={ps.handle} />
         {current ? (
-          <Image source={{ uri: current }} style={ps.preview} />
+          <Image source={privateImageSource(current)} style={ps.preview} />
         ) : (
           <View style={ps.empty}>
-            <Upload size={32} color={C.textMuted} strokeWidth={1.5} />
+            <Upload size={28} color={COLORS.textTertiary} strokeWidth={1.6} />
           </View>
         )}
         <Text style={ps.label}>{label}</Text>
         <Text style={ps.sub}>
           {current
-            ? 'Toca una opción para reemplazar'
-            : 'Elige cómo subir la foto'}
+            ? 'Toca una opción para reemplazar la foto'
+            : 'Elige cómo subir la imagen requerida'}
         </Text>
 
         <TouchableOpacity
@@ -350,13 +351,13 @@ function PhotoSheet({
           activeOpacity={0.75}
         >
           <View style={ps.btnIco}>
-            <Camera size={20} color={C.primary} strokeWidth={1.8} />
+            <Camera size={20} color={COLORS.primary} strokeWidth={2} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={ps.btnLbl}>Tomar foto</Text>
-            <Text style={ps.btnSub}>Abre la cámara</Text>
+            <Text style={ps.btnSub}>Abre la cámara del dispositivo</Text>
           </View>
-          <ChevronRight size={18} color={C.textMuted} strokeWidth={2} />
+          <ChevronRight size={18} color={COLORS.textTertiary} strokeWidth={2} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -365,93 +366,95 @@ function PhotoSheet({
           activeOpacity={0.75}
         >
           <View style={ps.btnIco}>
-            <ImageIcon size={20} color={C.primary} strokeWidth={1.8} />
+            <ImageIcon size={20} color={COLORS.primary} strokeWidth={2} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={ps.btnLbl}>Elegir de galería</Text>
-            <Text style={ps.btnSub}>Selecciona foto existente</Text>
+            <Text style={ps.btnSub}>Selecciona una imagen guardada</Text>
           </View>
-          <ChevronRight size={18} color={C.textMuted} strokeWidth={2} />
+          <ChevronRight size={18} color={COLORS.textTertiary} strokeWidth={2} />
         </TouchableOpacity>
 
-        <TouchableOpacity style={ps.cancel} onPress={onClose}>
+        <TouchableOpacity style={ps.cancel} onPress={onClose} activeOpacity={0.7}>
           <Text style={ps.cancelTxt}>Cancelar</Text>
         </TouchableOpacity>
       </View>
     </Modal>
   );
 }
+
 const ps = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: {
-    backgroundColor: C.bg,
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
-    paddingBottom: 40,
-    paddingTop: 14,
+    paddingBottom: 36,
+    paddingTop: 12,
   },
   handle: {
     width: 36,
     height: 4,
-    backgroundColor: C.border,
+    backgroundColor: '#E5E5EA',
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 18,
+    marginBottom: 16,
   },
   preview: {
     width: '100%',
-    height: 190,
-    borderRadius: 14,
+    height: 170,
+    borderRadius: 12,
     resizeMode: 'cover',
     marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
   },
   empty: {
     width: '100%',
-    height: 90,
-    borderRadius: 14,
-    backgroundColor: C.surfaceHigh,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: '#F7F7F9',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
     borderStyle: 'dashed',
   },
-  label: { fontSize: 18, fontWeight: '700', color: C.text, marginBottom: 4 },
-  sub: { fontSize: 13, color: C.textMuted, marginBottom: 20 },
+  label: { fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
+  sub: { fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surfaceHigh,
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 10,
-    gap: 14,
+    gap: 12,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
   },
   btnIco: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: C.primaryGlow,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F3EAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.primaryBorder,
   },
-  btnLbl: { fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 },
-  btnSub: { fontSize: 12, color: C.textMuted },
+  btnLbl: { fontSize: 15, fontWeight: '600', color: COLORS.text, marginBottom: 2 },
+  btnSub: { fontSize: 12, color: COLORS.textSecondary },
   cancel: {
-    paddingVertical: 14,
+    paddingVertical: 13,
     alignItems: 'center',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.border,
+    backgroundColor: '#F7F7F9',
     marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
   },
-  cancelTxt: { fontSize: 15, color: C.textSub, fontWeight: '600' },
+  cancelTxt: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '600' },
 });
 
 // ─── PhotoField ───────────────────────────────────────────────────────────────
@@ -460,284 +463,376 @@ function PhotoField({
   photo,
   onPress,
   required = true,
+  extracting = false,
 }: {
   label: string;
   photo: string | null;
   onPress: () => void;
   required?: boolean;
+  extracting?: boolean;
 }) {
   return (
     <TouchableOpacity
       style={[pf.btn, !!photo && pf.btnDone]}
       onPress={onPress}
       activeOpacity={0.7}
+      disabled={extracting}
     >
       <View style={[pf.thumb, !!photo && pf.thumbDone]}>
         {photo ? (
-          <Image source={{ uri: photo }} style={pf.img} />
+          <Image source={privateImageSource(photo)} style={pf.img} />
         ) : (
-          <Camera size={20} color={C.textMuted} strokeWidth={1.6} />
+          <Camera size={20} color={COLORS.textTertiary} strokeWidth={1.8} />
         )}
       </View>
       <View style={{ flex: 1 }}>
         <Text style={pf.label}>
           {label}
-          {required && !photo && <Text style={{ color: C.error }}> *</Text>}
+          {required && !photo && <Text style={{ color: COLORS.danger }}> *</Text>}
         </Text>
         <Text style={[pf.status, !!photo && pf.statusDone]}>
-          {photo ? 'Foto cargada · toca para cambiar' : 'Toca para subir'}
+          {extracting
+            ? 'Analizando documento…'
+            : photo
+            ? 'Foto cargada · toca para cambiar'
+            : 'Toca para agregar foto'}
         </Text>
       </View>
-      {photo ? (
+      {extracting ? (
+        <ActivityIndicator size="small" color={COLORS.primary} />
+      ) : photo ? (
         <View style={pf.check}>
-          <Check size={14} color={C.white} strokeWidth={2.5} />
+          <Check size={13} color={COLORS.success} strokeWidth={2.8} />
         </View>
       ) : (
-        <Upload size={18} color={C.textMuted} strokeWidth={1.6} />
+        <View style={pf.uploadCircle}>
+          <Upload size={15} color={COLORS.textTertiary} strokeWidth={1.8} />
+        </View>
       )}
     </TouchableOpacity>
   );
 }
+
 const pf = StyleSheet.create({
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surfaceHigh,
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     gap: 12,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
   },
-  btnDone: { borderColor: C.successBorder, backgroundColor: C.successGlow },
+  btnDone: {
+    borderColor: '#E5E5EA',
+    backgroundColor: '#FFFFFF',
+  },
   thumb: {
-    width: 50,
-    height: 50,
+    width: 48,
+    height: 48,
     borderRadius: 10,
-    backgroundColor: C.surface,
+    backgroundColor: '#F7F7F9',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
     overflow: 'hidden',
   },
-  thumbDone: { borderColor: C.successBorder },
-  img: { width: 50, height: 50, resizeMode: 'cover' },
-  label: { fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 3 },
-  status: { fontSize: 12, color: C.textMuted },
-  statusDone: { color: C.success },
+  thumbDone: { borderColor: '#E5E5EA' },
+  img: { width: 48, height: 48, resizeMode: 'cover' },
+  label: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 3 },
+  status: { fontSize: 12, color: COLORS.textSecondary },
+  statusDone: { color: COLORS.primary, fontWeight: '500' },
   check: {
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: C.success,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F3EAFC',
     alignItems: 'center',
     justifyContent: 'center',
   },
 });
 
-// ─── InputField ───────────────────────────────────────────────────────────────
-function InputField({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType = 'default',
-  maxLength,
-  autoCapitalize = 'sentences',
-  editable = true,
-}: any) {
+// ─── OcrSummary: muestra los datos detectados automáticamente ────────────────
+function OcrSummary({
+  result,
+  showTypeLabels = false,
+}: {
+  result: { fields: Record<string, string>; missing: string[]; error?: string } | undefined;
+  showTypeLabels?: boolean;
+}) {
+  if (!result) return null;
+  const entries = Object.entries(result.fields || {}).filter(
+    ([k, v]) => FIELD_LABELS[k] && v,
+  );
+
   return (
-    <View style={{ marginBottom: 18 }}>
-      <Text style={ifl.lbl}>{label.toUpperCase()}</Text>
-      <TextInput
-        style={[ifl.inp, !editable && { opacity: 0.4 }]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={C.textMuted}
-        keyboardType={keyboardType}
-        maxLength={maxLength}
-        autoCapitalize={autoCapitalize}
-        editable={editable}
-      />
+    <View style={oc.box}>
+      <View style={oc.titleRow}>
+        <View style={oc.titleIcon}>
+          <ScanLine size={14} color={COLORS.primary} strokeWidth={2.2} />
+        </View>
+        <Text style={oc.title}>Datos detectados automáticamente</Text>
+      </View>
+
+      {entries.map(([k, v], idx) => {
+        const display =
+          k === 'vehicleType' && showTypeLabels && VEHICLE_TYPE_LABELS[v]
+            ? VEHICLE_TYPE_LABELS[v]
+            : v;
+        const isLast = idx === entries.length - 1;
+        return (
+          <View key={k} style={[oc.row, !isLast && oc.rowBorder]}>
+            <Text style={oc.k}>{FIELD_LABELS[k]}</Text>
+            <Text style={oc.v}>{display}</Text>
+          </View>
+        );
+      })}
+
+      {entries.length === 0 && (
+        <Text style={oc.emptyTxt}>Aún no se detectaron datos.</Text>
+      )}
+
+      {result.error ? (
+        <View style={oc.warnRow}>
+          <AlertTriangle size={13} color={COLORS.danger} strokeWidth={2.2} />
+          <Text style={[oc.warnTxt, { color: COLORS.danger }]}>
+            {result.error}
+          </Text>
+        </View>
+      ) : (
+        result.missing &&
+        result.missing.length > 0 && (
+          <View style={oc.warnRow}>
+            <AlertTriangle size={13} color={COLORS.warning} strokeWidth={2.2} />
+            <Text style={oc.warnTxt}>
+              No se detectó:{' '}
+              {result.missing
+                .map((k) => FIELD_LABELS[k] || k)
+                .join(', ')}
+              . Sube una foto más clara.
+            </Text>
+          </View>
+        )
+      )}
     </View>
   );
 }
-const ifl = StyleSheet.create({
-  lbl: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: C.textMuted,
-    letterSpacing: 1.2,
-    marginBottom: 8,
-  },
-  inp: {
-    backgroundColor: C.surfaceHigh,
+
+const oc = StyleSheet.create({
+  box: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: C.text,
+    borderColor: COLORS.primaryMid,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  titleIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderSubtle,
+  },
+  k: { fontSize: 13, color: COLORS.textSecondary },
+  v: { fontSize: 13, fontWeight: '700', color: COLORS.text, maxWidth: '60%', textAlign: 'right' },
+  emptyTxt: { fontSize: 12, color: COLORS.textTertiary, paddingVertical: 4 },
+  warnRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 10,
+    backgroundColor: COLORS.warningLight,
+    borderRadius: 10,
+    padding: 10,
+  },
+  warnTxt: { flex: 1, fontSize: 12, color: COLORS.warning, lineHeight: 16 },
 });
 
-// ─── SectionRow ───────────────────────────────────────────────────────────────
+// ─── SectionRow (Tarjeta de Sección en la lista principal) ─────────────────────
 function SectionRow({
   id,
   title,
   subtitle,
   done,
+  warning,
   onPress,
 }: {
   id: string;
   title: string;
   subtitle: string;
   done: boolean;
+  warning?: string;
   onPress: () => void;
 }) {
   return (
     <TouchableOpacity
-      style={[sr.row, done && sr.rowDone]}
+      style={[sr.row, done && sr.rowDone, !!warning && sr.rowWarn]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={[sr.ico, done && sr.icoDone]}>
+      <View style={sr.ico}>
         {done ? (
-          <Check size={20} color={C.white} strokeWidth={2.5} />
+          <Check size={24} color={COLORS.success} strokeWidth={2.8} />
         ) : (
-          <SectionIcon id={id} size={20} color={C.textSub} />
+          <SectionIcon id={id} size={25} color={COLORS.primary} strokeWidth={2.2} />
         )}
       </View>
       <View style={{ flex: 1 }}>
         <Text style={sr.title}>{title}</Text>
-        <Text style={[sr.sub, done && sr.subDone]}>
-          {done ? 'Completado' : subtitle}
+        <Text style={[sr.sub, done && sr.subDone, !!warning && sr.subWarn]} numberOfLines={1}>
+          {done ? 'Completado' : warning ? warning : subtitle}
         </Text>
       </View>
+
+      {done && (
+        <View style={sr.doneBadge}>
+          <Text style={sr.doneBadgeText}>Listo</Text>
+        </View>
+      )}
+
+      {!!warning && (
+        <View style={sr.warnBadge}>
+          <Text style={sr.warnBadgeText}>Observado</Text>
+        </View>
+      )}
+
       <ChevronRight
-        size={18}
-        color={done ? C.success : C.textMuted}
+        size={20}
+        color={done ? COLORS.success : COLORS.textTertiary}
         strokeWidth={2}
       />
     </TouchableOpacity>
   );
 }
+
 const sr = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     marginBottom: 10,
     gap: 14,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
   },
-  rowDone: { borderColor: C.successBorder, backgroundColor: C.successGlow },
+  rowDone: {
+    borderColor: '#E5E5EA',
+    backgroundColor: '#FFFFFF',
+  },
+  rowWarn: {
+    borderColor: '#D9770640',
+    backgroundColor: '#FFFFFF',
+  },
   ico: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: C.surfaceHigh,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.border,
   },
-  icoDone: { backgroundColor: C.success, borderColor: C.success },
-  title: { fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 3 },
-  sub: { fontSize: 12, color: C.textMuted },
-  subDone: { color: C.success },
+  title: { fontSize: 15, fontWeight: '600', color: COLORS.text, marginBottom: 2 },
+  sub: { fontSize: 13, color: COLORS.textSecondary },
+  subDone: { color: COLORS.success, fontWeight: '500' },
+  subWarn: { color: COLORS.warning, fontWeight: '500' },
+  doneBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  doneBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.success,
+  },
+  warnBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  warnBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.warning,
+  },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function DriverRegistrationScreen({ navigation }: Props) {
-  const { user: currentUser, token } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { token } = useAuth();
   const route = useRoute<any>();
   const navigationParams = route.params;
 
-  // Committed state
-  const [birthDate, setBirthDate] = useState('');
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
-  const [ciNumber, setCiNumber] = useState('');
-  const [ciFront, setCiFront] = useState<string | null>(null);
-  const [ciBack, setCiBack] = useState<string | null>(null);
-  const [licenseFront, setLicenseFront] = useState<string | null>(null);
-  const [licenseBack, setLicenseBack] = useState<string | null>(null);
-  const [licenseExpiryDate, setLicenseExpiryDate] = useState('');
-  const [antecedentsPhoto, setAntecedentsPhoto] = useState<string | null>(null);
-  const [antecedentsDate, setAntecedentsDate] = useState('');
-  const [vehicleBrand, setVehicleBrand] = useState('');
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [vehicleType, setVehicleType] = useState('');
-  const [vehiclePlate, setVehiclePlate] = useState('');
-  const [vehicleYear, setVehicleYear] = useState('');
-  const [vehicleColor, setVehicleColor] = useState('');
-  const [vehiclePassengerCapacity, setVehiclePassengerCapacity] = useState('');
-  const [carFront, setCarFront] = useState<string | null>(null);
-  const [carBack, setCarBack] = useState<string | null>(null);
-  const [carLeft, setCarLeft] = useState<string | null>(null);
-  const [carRight, setCarRight] = useState<string | null>(null);
-  const [soatPhoto, setSoatPhoto] = useState<string | null>(null);
-  const [ruatPhoto, setRuatPhoto] = useState<string | null>(null);
+  // Fotos subidas por campo
+  const [photos, setPhotos] = useState<Record<string, string | null>>(
+    Object.fromEntries(PHOTO_FIELDS.map((f) => [f, null])),
+  );
 
-  // Tmp state (edited in modal, committed on Save)
-  const [tmp, setTmp] = useState<Record<string, any>>({});
-  const setT = (key: string, val: any) =>
-    setTmp(prev => ({ ...prev, [key]: val }));
+  // Resultados OCR por campo
+  const [ocrResults, setOcrResults] = useState<
+    Record<string, { fields: Record<string, string>; missing: string[]; rawText: string; error?: string }>
+  >({});
 
-  // UI
+  // UI State
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('Procesando…');
   const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState<string | null>(null);
+  const [cameraField, setCameraField] = useState<string | null>(null);
+  const [extractedText, setExtractedText] = useState<{
+    field: string;
+    text: string;
+    missing: string[];
+    image?: string;
+  } | null>(null);
+  const [ciResultVisible, setCiResultVisible] = useState(false);
+  const [rejectedView, setRejectedView] = useState<{
+    field: string;
+    text: string;
+    image?: string;
+  } | null>(null);
   const [photoSheet, setPhotoSheet] = useState<{
     visible: boolean;
-    setter: ((v: string | null) => void) | null;
+    field: string | null;
     label: string;
     current: string | null;
-  }>({ visible: false, setter: null, label: '', current: null });
+  }>({ visible: false, field: null, label: '', current: null });
 
-  // Completion checks
-  const calcAge = (s: string) => {
-    const [d, m, y] = s.split('/').map(Number);
-    if (!d || !m || !y) return 0;
-    const b = new Date(y, m - 1, d),
-      t = new Date();
-    let a = t.getFullYear() - b.getFullYear();
-    const mo = t.getMonth() - b.getMonth();
-    if (mo < 0 || (mo === 0 && t.getDate() < b.getDate())) a--;
-    return a;
-  };
-
-  const done = {
-    personal: !!(birthDate && calcAge(birthDate) >= 18 && profilePhoto),
-    ci: !!(ciNumber && ciFront && ciBack),
-    license: !!(licenseFront && licenseBack && licenseExpiryDate),
-    antecedents: !!antecedentsPhoto,
-    vehicle: !!(
-      vehicleBrand &&
-      vehicleModel &&
-      vehicleType &&
-      vehiclePlate &&
-      vehicleYear &&
-      vehicleColor &&
-      vehiclePassengerCapacity &&
-      carFront &&
-      carBack &&
-      carLeft &&
-      carRight
-    ),
-    docs: !!soatPhoto,
-  };
-  const completedCount = Object.values(done).filter(Boolean).length;
-  const allDone = completedCount === 6;
-
-  // Redirect if rejected
+  // Redirigir si ya fue rechazada
   React.useEffect(() => {
     const check = async () => {
       try {
@@ -756,19 +851,132 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
       } catch {}
     };
     if (token) check();
-  }, [token]);
+  }, [token, navigation, navigationParams?.isResubmission]);
 
-  // Photo picking
-  const openPhoto = (
-    setter: (v: string | null) => void,
-    label: string,
-    current: string | null,
-  ) => setPhotoSheet({ visible: true, setter, label, current });
+  // ── OCR ─────────────────────────────────────────────────────────────────────
+  const runOcr = async (
+    field: string,
+    uri: string,
+    crop?: { screenW: number; screenH: number; x: number; y: number; w: number; h: number },
+  ) => {
+    setExtracting(field);
+    try {
+      const res = await ocrService.extractDocument(uri, field, token || '', {
+        crop,
+      });
+
+      if (res.rejected) {
+        setPhotos((prev) => ({ ...prev, [field]: null }));
+        setOcrResults((prev) => ({
+          ...prev,
+          [field]: {
+            fields: {},
+            missing: REQUIRED_BY_TYPE[field] || [],
+            rawText: '',
+            error: res.rejectReason || 'Documento incorrecto',
+          },
+        }));
+        const buttons =
+          CAMERA_FIELDS.includes(field)
+            ? [
+                { text: 'Cancelar', style: 'cancel' as const },
+                { text: 'Ver texto leído', onPress: () => setRejectedView({ field, text: res.rawText || '', image: res.previewBase64 }) },
+                { text: 'Reintentar', onPress: () => setCameraField(field) },
+              ]
+            : [{ text: 'OK' }];
+        Alert.alert(
+          'Foto rechazada',
+          res.rejectReason || 'El documento no es válido.',
+          buttons,
+        );
+        return;
+      }
+
+      setOcrResults((prev) => ({
+        ...prev,
+        [field]: {
+          fields: res.fields || {},
+          missing: res.missing || [],
+          rawText: res.rawText || '',
+        },
+      }));
+
+      // Frente: confirmar el OCR antes de continuar con el reverso.
+      if (field === 'ciFront' || field === 'licenseFront') {
+        setExtractedText({
+          field,
+          text: res.rawText || '',
+          missing: (res.missing || []).map(
+            (k) => FIELD_LABELS[k] || k,
+          ),
+          image: res.previewBase64,
+        });
+      } else if (field === 'ciBack') {
+        setCiResultVisible(true);
+      } else if (field === 'licenseBack') {
+        setExtractedText({
+          field,
+          text: res.rawText || '',
+          missing: [],
+          image: res.previewBase64,
+        });
+      } else if (field === 'ruatPhoto' || field === 'soatPhoto') {
+        setExtractedText({
+          field,
+          text: res.rawText || '',
+          missing: (res.missing || []).map(
+            (k) => FIELD_LABELS[k] || k,
+          ),
+          image: res.previewBase64,
+        });
+      }
+    } catch (e: any) {
+      setOcrResults((prev) => ({
+        ...prev,
+        [field]: {
+          fields: {},
+          missing: REQUIRED_BY_TYPE[field] || [],
+          rawText: '',
+          error: e?.message || 'Error de OCR',
+        },
+      }));
+      Alert.alert(
+        'No se pudo extraer',
+        e?.message
+          ? `${e.message}`
+          : 'No pudimos leer esta foto. Vuelve a subir una imagen más clara.',
+      );
+    } finally {
+      setExtracting(null);
+    }
+  };
+
+  const applyPhoto = (
+    field: string,
+    uri: string,
+    crop?: { screenW: number; screenH: number; x: number; y: number; w: number; h: number },
+  ) => {
+    setPhotos((prev) => ({ ...prev, [field]: uri }));
+    if (OCR_TYPES.includes(field)) runOcr(field, uri, crop);
+  };
+
+  // ── Photo picking ───────────────────────────────────────────────────────────
+  const openPhoto = (field: string, label: string) =>
+    setPhotoSheet({
+      visible: true,
+      field,
+      label,
+      current: photos[field] || null,
+    });
 
   const handleCamera = async () => {
-    if (!photoSheet.setter) return;
-    const s = photoSheet.setter;
-    setPhotoSheet(p => ({ ...p, visible: false }));
+    const field = photoSheet.field;
+    if (!field) return;
+    setPhotoSheet((p) => ({ ...p, visible: false }));
+    if (CAMERA_FIELDS.includes(field)) {
+      setCameraField(field);
+      return;
+    }
     try {
       const r = await launchCamera({
         mediaType: 'photo',
@@ -784,226 +992,202 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
             { text: 'Cancelar', style: 'cancel' },
           ],
         );
-      } else if (r.assets?.[0]?.uri) s(r.assets[0].uri);
+      } else if (r.assets?.[0]?.uri) applyPhoto(field, r.assets[0].uri, undefined);
     } catch {
       Alert.alert('Error', 'No se pudo acceder a la cámara.');
     }
   };
 
   const handleGallery = async () => {
-    if (!photoSheet.setter) return;
-    const s = photoSheet.setter;
-    setPhotoSheet(p => ({ ...p, visible: false }));
+    const field = photoSheet.field;
+    if (!field) return;
+    setPhotoSheet((p) => ({ ...p, visible: false }));
     try {
       const r = await launchImageLibrary({ mediaType: 'photo', quality: 0.7 });
-      if (r.assets?.[0]?.uri) s(r.assets[0].uri);
+      if (r.assets?.[0]?.uri) applyPhoto(field, r.assets[0].uri);
     } catch {
       Alert.alert('Error', 'No se pudo abrir la galería.');
     }
   };
 
-  // Open modal → seed tmp
-  const openModal = (key: string) => {
-    const seed: Record<string, any> = {};
-    if (key === 'personal') {
-      seed.birthDate = birthDate;
-      seed.profilePhoto = profilePhoto;
-    }
-    if (key === 'ci') {
-      seed.ciNumber = ciNumber;
-      seed.ciFront = ciFront;
-      seed.ciBack = ciBack;
-    }
-    if (key === 'license') {
-      seed.licenseFront = licenseFront;
-      seed.licenseBack = licenseBack;
-      seed.licenseExpiryDate = licenseExpiryDate;
-    }
-    if (key === 'antecedents') {
-      seed.antecedentsPhoto = antecedentsPhoto;
-      seed.antecedentsDate = antecedentsDate;
-    }
-    if (key === 'vehicle') {
-      seed.vehicleBrand = vehicleBrand;
-      seed.vehicleModel = vehicleModel;
-      seed.vehicleType = vehicleType;
-      seed.vehiclePlate = vehiclePlate;
-      seed.vehicleYear = vehicleYear;
-      seed.vehicleColor = vehicleColor;
-      seed.vehiclePassengerCapacity = vehiclePassengerCapacity;
-      seed.carFront = carFront;
-      seed.carBack = carBack;
-      seed.carLeft = carLeft;
-      seed.carRight = carRight;
-    }
-    if (key === 'docs') {
-      seed.soatPhoto = soatPhoto;
-      seed.ruatPhoto = ruatPhoto;
-    }
-    setTmp(seed);
-    setActiveModal(key);
+  // ── Completion ──────────────────────────────────────────────────────────────
+  const missingFor = (field: string): string[] => {
+    const res = ocrResults[field];
+    if (!res) return REQUIRED_BY_TYPE[field] || [];
+    if (res.error) return REQUIRED_BY_TYPE[field] || [];
+    return res.missing || [];
   };
 
-  // Save modal → commit
-  const saveModal = (key: string) => {
-    if (key === 'personal') {
-      if (!tmp.birthDate) {
-        Alert.alert('Campo requerido', 'Ingresa tu fecha de nacimiento');
-        return;
-      }
-      if (calcAge(tmp.birthDate) < 18) {
-        Alert.alert('Edad insuficiente', 'Debes ser mayor de 18 años');
-        return;
-      }
-      if (!tmp.profilePhoto) {
-        Alert.alert('Campo requerido', 'Sube tu foto de rostro');
-        return;
-      }
-      setBirthDate(tmp.birthDate);
-      setProfilePhoto(tmp.profilePhoto);
-    }
-    if (key === 'ci') {
-      if (!tmp.ciNumber?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa tu número de CI');
-        return;
-      }
-      if (!tmp.ciFront) {
-        Alert.alert('Campo requerido', 'Sube la foto frontal de tu CI');
-        return;
-      }
-      if (!tmp.ciBack) {
-        Alert.alert('Campo requerido', 'Sube la foto posterior de tu CI');
-        return;
-      }
-      setCiNumber(tmp.ciNumber);
-      setCiFront(tmp.ciFront);
-      setCiBack(tmp.ciBack);
-    }
-    if (key === 'license') {
-      if (!tmp.licenseFront) {
-        Alert.alert('Campo requerido', 'Sube la foto frontal de tu licencia');
-        return;
-      }
-      if (!tmp.licenseBack) {
-        Alert.alert('Campo requerido', 'Sube la foto posterior de tu licencia');
-        return;
-      }
-      if (!tmp.licenseExpiryDate) {
-        Alert.alert(
-          'Campo requerido',
-          'Ingresa la fecha de expiración de la licencia',
-        );
-        return;
-      }
-      setLicenseFront(tmp.licenseFront);
-      setLicenseBack(tmp.licenseBack);
-      setLicenseExpiryDate(tmp.licenseExpiryDate);
-    }
-    if (key === 'antecedents') {
-      if (!tmp.antecedentsPhoto) {
-        Alert.alert('Campo requerido', 'Sube tu certificado de antecedentes');
-        return;
-      }
-      setAntecedentsPhoto(tmp.antecedentsPhoto);
-      setAntecedentsDate(tmp.antecedentsDate || '');
-    }
-    if (key === 'vehicle') {
-      if (!tmp.vehicleBrand?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa la marca del vehículo');
-        return;
-      }
-      if (!tmp.vehicleModel?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa el modelo del vehículo');
-        return;
-      }
-      if (!tmp.vehicleType) {
-        Alert.alert('Campo requerido', 'Selecciona el tipo de vehículo');
-        return;
-      }
-      if (!tmp.vehiclePlate?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa la placa');
-        return;
-      }
-      if (!tmp.vehicleYear?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa el año del vehículo');
-        return;
-      }
-      if (!tmp.vehicleColor?.trim()) {
-        Alert.alert('Campo requerido', 'Ingresa el color del vehículo');
-        return;
-      }
-      if (!tmp.vehiclePassengerCapacity?.toString().trim()) {
-        Alert.alert('Campo requerido', 'Ingresa la capacidad de pasajeros');
-        return;
-      }
-      const cap = Number(tmp.vehiclePassengerCapacity);
-      if (!Number.isFinite(cap) || cap < 1 || cap > 80) {
-        Alert.alert('Valor inválido', 'Capacidad de pasajeros inválida');
-        return;
-      }
-      if (!tmp.carFront || !tmp.carBack || !tmp.carLeft || !tmp.carRight) {
-        Alert.alert('Campo requerido', 'Sube todas las fotos del vehículo');
-        return;
-      }
-      setVehicleBrand(tmp.vehicleBrand);
-      setVehicleModel(tmp.vehicleModel);
-      setVehicleType(tmp.vehicleType);
-      setVehiclePlate(tmp.vehiclePlate);
-      setVehicleYear(tmp.vehicleYear);
-      setVehicleColor(tmp.vehicleColor);
-      setVehiclePassengerCapacity(String(cap));
-      setCarFront(tmp.carFront);
-      setCarBack(tmp.carBack);
-      setCarLeft(tmp.carLeft);
-      setCarRight(tmp.carRight);
-    }
-    if (key === 'docs') {
-      if (!tmp.soatPhoto) {
-        Alert.alert('Campo requerido', 'Sube la foto del SOAT');
-        return;
-      }
-      setSoatPhoto(tmp.soatPhoto);
-      setRuatPhoto(tmp.ruatPhoto || null);
-    }
-    setActiveModal(null);
+  const licenseFrontFields = ocrResults.licenseFront?.fields || {};
+  const licenseBackFields = ocrResults.licenseBack?.fields || {};
+  const licenseSidesMatch =
+    licenseFrontFields.licenseNumber === licenseBackFields.licenseNumber &&
+    licenseFrontFields.issueDate === licenseBackFields.issueDate &&
+    licenseFrontFields.licenseExpiryDate === licenseBackFields.licenseExpiryDate &&
+    licenseFrontFields.licenseCategory === licenseBackFields.licenseCategory;
+
+  const done = {
+    license:
+      !!photos.licenseFront &&
+      !!photos.licenseBack &&
+      missingFor('licenseFront').length === 0 &&
+      missingFor('licenseBack').length === 0 &&
+      licenseSidesMatch,
+    antecedents: !!photos.antecedentsPhoto,
+    vehicle:
+      !!photos.ruatPhoto &&
+      !!photos.carFront &&
+      !!photos.carBack &&
+      missingFor('ruatPhoto').length === 0,
+    docs: !!photos.soatPhoto,
   };
 
-  // Submit
+  const warningText = (key: keyof typeof done): string | undefined => {
+    const photosOk: Record<string, boolean> = {
+      license: !!photos.licenseFront && !!photos.licenseBack,
+      antecedents: !!photos.antecedentsPhoto,
+      vehicle:
+        !!photos.ruatPhoto &&
+        !!photos.carFront &&
+        !!photos.carBack,
+      docs: !!photos.soatPhoto,
+    };
+    if (!photosOk[key]) return undefined;
+    if (key === 'license' && !licenseSidesMatch) {
+      return 'Los datos del frente y reverso no coinciden';
+    }
+    const missingKey = key === 'license' ? 'licenseFront' : key === 'vehicle' ? 'ruatPhoto' : null;
+    if (!missingKey) return undefined;
+    const missing = missingFor(missingKey);
+    if (missing.length === 0) return undefined;
+    return `Faltan datos: ${missing.map((k) => FIELD_LABELS[k] || k).join(', ')}`;
+  };
+
+  const completedCount = Object.values(done).filter(Boolean).length;
+  const allDone = completedCount === 4;
+
+  // ── Guía Licencia: cámara directa, primero frontal y luego trasera ────────
+  const openLicenseSection = () => {
+    if (!photos.licenseFront || missingFor('licenseFront').length > 0) {
+      setCameraField('licenseFront');
+      return;
+    }
+    if (!photos.licenseBack || missingFor('licenseBack').length > 0) {
+      setCameraField('licenseBack');
+      return;
+    }
+    setActiveModal('license');
+  };
+
+  // ── Guía Vehículo: cámara directa (RUAT -> Frente -> Trasera) ─────────────
+  const openVehicleSection = () => {
+    if (!photos.ruatPhoto || missingFor('ruatPhoto').length > 0) {
+      setCameraField('ruatPhoto');
+      return;
+    }
+    if (!photos.carFront) {
+      setCameraField('carFront');
+      return;
+    }
+    if (!photos.carBack) {
+      setCameraField('carBack');
+      return;
+    }
+    setActiveModal('vehicle');
+  };
+
+  // ── Guía SOAT: cámara directa ─────────────────────────────────────────────
+  const openSoatSection = () => {
+    if (!photos.soatPhoto) {
+      setCameraField('soatPhoto');
+      return;
+    }
+    setActiveModal('docs');
+  };
+
+  // ── Modal de texto extraído (frente de CI, licencia o RUAT) ───────────────
+  const handleExtractedContinue = () => {
+    const current = extractedText;
+    setExtractedText(null);
+    if (current?.field === 'licenseFront' && !photos.licenseBack) {
+      setCameraField('licenseBack');
+    } else if (current?.field === 'ruatPhoto') {
+      if (!photos.carFront) {
+        setCameraField('carFront');
+      } else if (!photos.carBack) {
+        setCameraField('carBack');
+      }
+    }
+  };
+
+  const handleExtractedRepeat = () => {
+    const current = extractedText;
+    setExtractedText(null);
+    if (current) setCameraField(current.field);
+  };
+
+  // ── Modal de resultado (ambos lados) ───────────────────────────────────────
+  const handleCiResultContinue = () => {
+    setCiResultVisible(false);
+  };
+
+  const handleCiResultRepeatBack = () => {
+    setCiResultVisible(false);
+    setCameraField('ciBack');
+  };
+
+  // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!allDone) return;
+
+    const lic = ocrResults.licenseFront?.fields || {};
+    const soat = ocrResults.soatPhoto?.fields || {};
+    const ruat = ocrResults.ruatPhoto?.fields || {};
+
     setLoading(true);
     try {
       if (!token) throw new Error('No hay sesión activa.');
       const form = new FormData();
-      form.append('birthDate', birthDate);
-      form.append('ciNumber', ciNumber);
-      form.append('antecedentsDate', antecedentsDate);
-      form.append('vehicleType', vehicleType);
-      form.append('vehicleBrand', vehicleBrand);
-      form.append('vehicleModel', vehicleModel);
-      form.append('vehiclePlate', vehiclePlate);
-      form.append('vehicleYear', vehicleYear);
-      form.append('vehicleColor', vehicleColor);
-      form.append('vehiclePassengerCapacity', vehiclePassengerCapacity);
-      form.append('licenseExpiryDate', licenseExpiryDate);
+      form.append('licenseExpiryDate', lic.licenseExpiryDate || '');
+      form.append('licenseCategory', lic.licenseCategory || '');
+      form.append('licenseNumber', lic.licenseNumber || '');
+      form.append('licenseIssueDate', lic.issueDate || '');
+      form.append('licenseNationality', lic.nationality || '');
+      form.append('licenseGlasses', (ocrResults.licenseBack?.fields || {}).glasses || '');
+      form.append('licenseHearingAid', (ocrResults.licenseBack?.fields || {}).hearingAid || '');
+      form.append('vehicleType', ruat.vehicleType || 'taxi');
+      form.append('vehicleBrand', ruat.vehicleBrand || '');
+      form.append('vehicleModel', ruat.vehicleModel || '');
+      form.append('vehiclePlate', ruat.vehiclePlate || '');
+      form.append('vehicleYear', ruat.vehicleYear || '');
+      form.append('vehicleColor', ruat.vehicleColor || '');
+      form.append(
+        'vehiclePassengerCapacity',
+        String(ruat.vehiclePassengerCapacity || 4),
+      );
       form.append('status', 'pending');
+
       const add = (k: string, uri: string | null, msg: string) => {
         if (!uri) return;
         setLoadingMsg(msg);
         form.append(k, { uri, type: 'image/jpeg', name: `${k}.jpg` } as any);
       };
-      add('profilePhoto', profilePhoto, 'Subiendo foto de rostro…');
-      add('ciFront', ciFront, 'Subiendo CI frontal…');
-      add('ciBack', ciBack, 'Subiendo CI posterior…');
-      add('licenseFront', licenseFront, 'Subiendo licencia de conducir…');
-      add('licenseBack', licenseBack, 'Subiendo licencia de conducir…');
-      add('antecedentsPhoto', antecedentsPhoto, 'Subiendo antecedentes…');
-      add('carFront', carFront, 'Subiendo fotos del vehículo…');
-      add('carBack', carBack, 'Subiendo fotos del vehículo…');
-      add('carLeft', carLeft, 'Subiendo fotos del vehículo…');
-      add('carRight', carRight, 'Subiendo fotos del vehículo…');
-      add('soatPhoto', soatPhoto, 'Subiendo SOAT…');
-      add('ruatPhoto', ruatPhoto, 'Subiendo RUAT…');
+      add('licenseFront', photos.licenseFront, 'Subiendo licencia de conducir…');
+      add('licenseBack', photos.licenseBack, 'Subiendo licencia de conducir…');
+      add('antecedentsPhoto', photos.antecedentsPhoto, 'Subiendo antecedentes…');
+      add('carFront', photos.carFront, 'Subiendo fotos del vehículo…');
+      add('carBack', photos.carBack, 'Subiendo fotos del vehículo…');
+      add('soatPhoto', photos.soatPhoto, 'Subiendo SOAT…');
+      add('ruatPhoto', photos.ruatPhoto, 'Subiendo RUAT…');
+
+      // Texto OCR crudo por documento para verificación del admin
+      const ocrPayload: Record<string, any> = {};
+      Object.entries(ocrResults).forEach(([k, res]) => {
+        if (!res) return;
+        ocrPayload[k] = { fields: res.fields, text: res.rawText };
+      });
+      form.append('ocrData', JSON.stringify(ocrPayload));
+
       setLoadingMsg('Enviando solicitud…');
       const res = await fetch(`${API_BASE_URL}/requests/register`, {
         method: 'POST',
@@ -1018,7 +1202,7 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
         throw new Error(e.error || `Error ${res.status}`);
       }
       Alert.alert(
-        'Solicitud enviada',
+        'Solicitud enviada con éxito',
         'Revisaremos tu aplicación en 24–48 horas y te notificaremos por correo.',
         [{ text: 'Listo', onPress: () => navigation.navigate('Map' as never) }],
       );
@@ -1032,84 +1216,89 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+    <SafeAreaView style={s.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
 
-      {/* Header */}
+      {/* Header Minimalista (consistente con ProfileScreen) */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <ChevronLeft size={20} color={C.text} strokeWidth={2} />
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={s.backBtn}
+          activeOpacity={0.7}
+        >
+          <ChevronLeft size={22} color={COLORS.text} strokeWidth={2.4} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Registrar cuenta</Text>
+        <Text style={s.headerTitle}>Registro de Conductor</Text>
+        <View style={{ width: 36 }} />
       </View>
 
-      {/* Progress */}
-      <View style={s.progressRow}>
-        <View style={s.track}>
-          <View style={[s.fill, { width: `${(completedCount / 6) * 100}%` }]} />
-        </View>
-        <Text style={s.progressTxt}>
-          <Text style={s.progressNum}>{completedCount}</Text>
-          <Text style={s.progressOf}> de 6 ítems</Text>
-        </Text>
-      </View>
-
-      {/* Section list */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}
       >
-        <SectionRow
-          id="personal"
-          title="Información personal"
-          subtitle="Haz clic para ingresar la información"
-          done={done.personal}
-          onPress={() => openModal('personal')}
-        />
-        <SectionRow
-          id="ci"
-          title="Cédula de identidad"
-          subtitle="Por ambos lados"
-          done={done.ci}
-          onPress={() => openModal('ci')}
-        />
+        {/* Barra de progreso minimalista */}
+        <View style={s.progressRow}>
+          <View style={s.track}>
+            <View style={[s.fill, { width: `${(completedCount / 4) * 100}%` }]} />
+          </View>
+          <View style={s.progressBadge}>
+            <Text style={s.progressBadgeNum}>{completedCount}</Text>
+            <Text style={s.progressBadgeOf}> de 4</Text>
+          </View>
+        </View>
+
+        {/* Lista de Secciones */}
         <SectionRow
           id="license"
           title="Licencia de conducir"
-          subtitle="Foto y fecha de vencimiento"
+          subtitle="Por ambos lados (cámara directa)"
           done={done.license}
-          onPress={() => openModal('license')}
+          warning={warningText('license')}
+          onPress={openLicenseSection}
         />
         <SectionRow
           id="antecedents"
           title="Antecedentes policiales"
-          subtitle="Certificado vigente"
+          subtitle={
+            photos.antecedentsPhoto
+              ? 'Certificado oficial registrado'
+              : 'Certificado oficial (cámara directa)'
+          }
           done={done.antecedents}
-          onPress={() => openModal('antecedents')}
+          onPress={() => setCameraField('antecedentsPhoto')}
         />
         <SectionRow
           id="vehicle"
           title="Información del vehículo"
-          subtitle="Haz clic para ingresar la información"
+          subtitle={
+            done.vehicle
+              ? 'RUAT y vehículo registrados'
+              : photos.ruatPhoto
+              ? 'Faltan fotos del vehículo (cámara directa)'
+              : 'RUAT y vehículo (cámara directa)'
+          }
           done={done.vehicle}
-          onPress={() => openModal('vehicle')}
+          warning={warningText('vehicle')}
+          onPress={openVehicleSection}
         />
         <SectionRow
           id="docs"
           title="SOAT — Póliza de seguro"
-          subtitle="Haz clic para subir el documento"
+          subtitle={
+            done.docs
+              ? 'Póliza SOAT registrada'
+              : 'Póliza vigente (cámara directa)'
+          }
           done={done.docs}
-          onPress={() => openModal('docs')}
+          onPress={openSoatSection}
         />
       </ScrollView>
 
-      {/* Footer */}
-      <View style={s.footer}>
+      {/* Footer Minimalista Fijo */}
+      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom + 14, 24) }]}>
         {!allDone && (
-          <Text style={s.hint}>
-            Completa todas las secciones para continuar
-          </Text>
+          <Text style={s.footerHint}>Completar campos obligatorios</Text>
         )}
         <TouchableOpacity
           style={[s.submitBtn, !allDone && s.submitBtnOff]}
@@ -1118,128 +1307,37 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
           activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color={C.white} size="small" />
+            <ActivityIndicator color={COLORS.white} size="small" />
           ) : (
             <Text style={[s.submitTxt, !allDone && s.submitTxtOff]}>
-              Enviar solicitud
+              {allDone ? 'Registrar como conductor' : `Completar registro (${completedCount}/4)`}
             </Text>
           )}
         </TouchableOpacity>
       </View>
-
-      {/* ── MODAL: Personal ─────────────────────────────────────────────────── */}
-      <SectionModal
-        visible={activeModal === 'personal'}
-        title="Información personal"
-        onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('personal')}
-        doneDisabled={!tmp.birthDate || !tmp.profilePhoto}
-      >
-        <InputField
-          label="Nombre completo"
-          value={currentUser?.name || ''}
-          editable={false}
-        />
-        <View style={{ marginBottom: 18 }}>
-          <Text style={ifl.lbl}>FECHA DE NACIMIENTO *</Text>
-          <DateInput
-            value={tmp.birthDate || ''}
-            onChange={v => setT('birthDate', v)}
-          />
-          <Text style={s.fieldHint}>Debes ser mayor de 18 años</Text>
-        </View>
-        <Text style={ifl.lbl}>FOTO DE ROSTRO (SELFIE) *</Text>
-        <PhotoField
-          label="Selfie / Foto de rostro"
-          photo={tmp.profilePhoto || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('profilePhoto', v),
-              'Foto de rostro',
-              tmp.profilePhoto || null,
-            )
-          }
-        />
-      </SectionModal>
-
-      {/* ── MODAL: CI ───────────────────────────────────────────────────────── */}
-      <SectionModal
-        visible={activeModal === 'ci'}
-        title="Cédula de Identidad"
-        onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('ci')}
-        doneDisabled={!tmp.ciNumber || !tmp.ciFront || !tmp.ciBack}
-      >
-        <InputField
-          label="Número de CI *"
-          value={tmp.ciNumber || ''}
-          onChangeText={(v: string) => setT('ciNumber', v)}
-          placeholder="Ej: 1234567 LP"
-        />
-        <Text style={ifl.lbl}>FOTOS DEL DOCUMENTO *</Text>
-        <PhotoField
-          label="CI — parte frontal"
-          photo={tmp.ciFront || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('ciFront', v),
-              'CI frontal',
-              tmp.ciFront || null,
-            )
-          }
-        />
-        <PhotoField
-          label="CI — parte posterior"
-          photo={tmp.ciBack || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('ciBack', v),
-              'CI posterior',
-              tmp.ciBack || null,
-            )
-          }
-        />
-      </SectionModal>
 
       {/* ── MODAL: Licencia ─────────────────────────────────────────────────── */}
       <SectionModal
         visible={activeModal === 'license'}
         title="Licencia de conducir"
         onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('license')}
-        doneDisabled={
-          !tmp.licenseFront || !tmp.licenseBack || !tmp.licenseExpiryDate
-        }
+        onDone={() => setActiveModal(null)}
+        doneDisabled={!photos.licenseFront || !photos.licenseBack}
       >
-        <Text style={ifl.lbl}>FOTOS DE LICENCIA *</Text>
+        <Text style={s.lbl}>FOTOS DE LICENCIA *</Text>
         <PhotoField
           label="Licencia — parte frontal"
-          photo={tmp.licenseFront || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('licenseFront', v),
-              'Licencia frontal',
-              tmp.licenseFront || null,
-            )
-          }
+          photo={photos.licenseFront}
+          extracting={extracting === 'licenseFront'}
+          onPress={() => openPhoto('licenseFront', 'Licencia frontal')}
         />
         <PhotoField
           label="Licencia — parte posterior"
-          photo={tmp.licenseBack || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('licenseBack', v),
-              'Licencia posterior',
-              tmp.licenseBack || null,
-            )
-          }
+          photo={photos.licenseBack}
+          extracting={extracting === 'licenseBack'}
+          onPress={() => openPhoto('licenseBack', 'Licencia posterior')}
         />
-        <View style={{ height: 8 }} />
-        <Text style={ifl.lbl}>FECHA DE EXPIRACIÓN *</Text>
-        <DateInput
-          value={tmp.licenseExpiryDate || ''}
-          onChange={v => setT('licenseExpiryDate', v)}
-        />
+        <OcrSummary result={ocrResults.licenseFront} />
       </SectionModal>
 
       {/* ── MODAL: Antecedentes ─────────────────────────────────────────────── */}
@@ -1247,26 +1345,16 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
         visible={activeModal === 'antecedents'}
         title="Antecedentes policiales"
         onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('antecedents')}
-        doneDisabled={!tmp.antecedentsPhoto}
+        onDone={() => setActiveModal(null)}
+        doneDisabled={!photos.antecedentsPhoto}
       >
-        <Text style={ifl.lbl}>CERTIFICADO DE ANTECEDENTES *</Text>
+        <Text style={s.lbl}>CERTIFICADO DE ANTECEDENTES *</Text>
         <PhotoField
           label="Certificado de antecedentes"
-          photo={tmp.antecedentsPhoto || null}
+          photo={photos.antecedentsPhoto}
           onPress={() =>
-            openPhoto(
-              v => setT('antecedentsPhoto', v),
-              'Certificado de antecedentes',
-              tmp.antecedentsPhoto || null,
-            )
+            openPhoto('antecedentsPhoto', 'Certificado de antecedentes')
           }
-        />
-        <View style={{ height: 8 }} />
-        <Text style={ifl.lbl}>FECHA DE EMISIÓN (OPCIONAL)</Text>
-        <DateInput
-          value={tmp.antecedentsDate || ''}
-          onChange={v => setT('antecedentsDate', v)}
         />
       </SectionModal>
 
@@ -1275,179 +1363,188 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
         visible={activeModal === 'vehicle'}
         title="Información del vehículo"
         onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('vehicle')}
+        onDone={() => setActiveModal(null)}
         doneDisabled={
-          !tmp.vehicleBrand ||
-          !tmp.vehicleModel ||
-          !tmp.vehicleType ||
-          !tmp.vehiclePlate ||
-          !tmp.vehicleYear ||
-          !tmp.vehicleColor ||
-          !tmp.vehiclePassengerCapacity ||
-          !tmp.carFront ||
-          !tmp.carBack ||
-          !tmp.carLeft ||
-          !tmp.carRight
+          !photos.ruatPhoto ||
+          !photos.carFront ||
+          !photos.carBack
         }
       >
-        <InputField
-          label="Marca del vehículo *"
-          value={tmp.vehicleBrand || ''}
-          onChangeText={(v: string) => setT('vehicleBrand', v)}
-          placeholder="Ej: Toyota, Hyundai, Kia"
-          autoCapitalize="words"
+        <Text style={s.lbl}>RUAT — DATOS DEL VEHÍCULO *</Text>
+        <PhotoField
+          label="Foto del RUAT"
+          photo={photos.ruatPhoto}
+          extracting={extracting === 'ruatPhoto'}
+          onPress={() => openPhoto('ruatPhoto', 'RUAT')}
         />
-        <InputField
-          label="Modelo del vehículo *"
-          value={tmp.vehicleModel || ''}
-          onChangeText={(v: string) => setT('vehicleModel', v)}
-          placeholder="Ej: Corolla, Tucson, Sportage"
-          autoCapitalize="words"
-        />
-        <Text style={ifl.lbl}>TIPO DE VEHÍCULO *</Text>
-        <View style={s.chipRow}>
-          {VEHICLE_TYPES.map(({ value, label }) => (
-            <TouchableOpacity
-              key={value}
-              style={[s.chip, tmp.vehicleType === value && s.chipOn]}
-              onPress={() => setT('vehicleType', value)}
-            >
-              <Text
-                style={[s.chipTxt, tmp.vehicleType === value && s.chipTxtOn]}
-              >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={{ height: 18 }} />
-        <InputField
-          label="Placa *"
-          value={tmp.vehiclePlate || ''}
-          onChangeText={(v: string) => setT('vehiclePlate', v.toUpperCase())}
-          placeholder="Ej: 1234 ABC"
-          autoCapitalize="characters"
-        />
-        <InputField
-          label="Año del vehículo *"
-          value={tmp.vehicleYear || ''}
-          onChangeText={(v: string) => setT('vehicleYear', v)}
-          placeholder="Ej: 2022"
-          keyboardType="number-pad"
-          maxLength={4}
-        />
-        <InputField
-          label="Color del vehículo *"
-          value={tmp.vehicleColor || ''}
-          onChangeText={(v: string) => setT('vehicleColor', v)}
-          placeholder="Ej: Blanco"
-        />
-        <InputField
-          label="Capacidad de pasajeros *"
-          value={tmp.vehiclePassengerCapacity?.toString() || ''}
-          onChangeText={(v: string) =>
-            setT('vehiclePassengerCapacity', v.replace(/[^\d]/g, ''))
-          }
-          placeholder="Ej: 4"
-          keyboardType="number-pad"
-          maxLength={2}
-        />
-        <Text style={ifl.lbl}>FOTOS DEL VEHÍCULO *</Text>
+        <OcrSummary result={ocrResults.ruatPhoto} showTypeLabels />
+        <View style={{ height: 14 }} />
+        <Text style={s.lbl}>FOTOS DEL VEHÍCULO *</Text>
         <PhotoField
           label="Vista delantera"
-          photo={tmp.carFront || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('carFront', v),
-              'Vista delantera',
-              tmp.carFront || null,
-            )
-          }
+          photo={photos.carFront}
+          onPress={() => openPhoto('carFront', 'Vista delantera')}
         />
         <PhotoField
           label="Vista trasera"
-          photo={tmp.carBack || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('carBack', v),
-              'Vista trasera',
-              tmp.carBack || null,
-            )
-          }
-        />
-        <PhotoField
-          label="Lateral izquierda"
-          photo={tmp.carLeft || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('carLeft', v),
-              'Lateral izquierda',
-              tmp.carLeft || null,
-            )
-          }
-        />
-        <PhotoField
-          label="Lateral derecha"
-          photo={tmp.carRight || null}
-          onPress={() =>
-            openPhoto(
-              v => setT('carRight', v),
-              'Lateral derecha',
-              tmp.carRight || null,
-            )
-          }
+          photo={photos.carBack}
+          onPress={() => openPhoto('carBack', 'Vista trasera')}
         />
       </SectionModal>
 
       {/* ── MODAL: Docs ─────────────────────────────────────────────────────── */}
       <SectionModal
         visible={activeModal === 'docs'}
-        title="SOAT y RUAT"
+        title="SOAT"
         onClose={() => setActiveModal(null)}
-        onDone={() => saveModal('docs')}
-        doneDisabled={!tmp.soatPhoto}
+        onDone={() => setActiveModal(null)}
+        doneDisabled={!photos.soatPhoto}
       >
-        <Text style={ifl.lbl}>SOAT — SEGURO OBLIGATORIO *</Text>
+        <Text style={s.lbl}>SOAT — SEGURO OBLIGATORIO *</Text>
         <PhotoField
           label="Foto del SOAT"
-          photo={tmp.soatPhoto || null}
-          onPress={() =>
-            openPhoto(v => setT('soatPhoto', v), 'SOAT', tmp.soatPhoto || null)
-          }
+          photo={photos.soatPhoto}
+          extracting={extracting === 'soatPhoto'}
+          onPress={() => openPhoto('soatPhoto', 'SOAT')}
         />
-        <View style={{ height: 18 }} />
-        <Text style={ifl.lbl}>RUAT (OPCIONAL)</Text>
-        <PhotoField
-          label="Foto del RUAT"
-          photo={tmp.ruatPhoto || null}
-          required={false}
-          onPress={() =>
-            openPhoto(v => setT('ruatPhoto', v), 'RUAT', tmp.ruatPhoto || null)
-          }
-        />
+        <OcrSummary result={ocrResults.soatPhoto} />
         <View style={s.infoBox}>
           <Text style={s.infoTxt}>
-            El SOAT es obligatorio. El RUAT es opcional pero acelera la
-            aprobación.
+            El SOAT es obligatorio y debe encontrarse vigente.
           </Text>
         </View>
       </SectionModal>
 
-      {/* Photo sheet */}
+      {/* Photo sheet selector */}
       <PhotoSheet
         visible={photoSheet.visible}
         label={photoSheet.label}
         current={photoSheet.current}
         onCamera={handleCamera}
         onGallery={handleGallery}
-        onClose={() => setPhotoSheet(p => ({ ...p, visible: false }))}
+        onClose={() => setPhotoSheet((p) => ({ ...p, visible: false }))}
       />
+
+      {/* Cámara de documentos */}
+      <DocumentCameraModal
+        visible={cameraField !== null}
+        title={cameraField ? CAMERA_TITLES[cameraField] || 'Documento' : ''}
+        documentType={
+          cameraField === 'antecedentsPhoto'
+            ? 'certificate'
+            : cameraField === 'soatPhoto'
+            ? 'soat'
+            : cameraField === 'ruatPhoto'
+            ? 'ruat'
+            : cameraField === 'carFront' || cameraField === 'carBack'
+            ? 'vehicle'
+            : 'card'
+        }
+        frameLabel={
+          cameraField === 'ciFront'
+            ? 'Coloca el frente de la cédula dentro del recuadro'
+            : cameraField === 'ciBack'
+            ? 'Coloca la parte trasera de la cédula dentro del recuadro'
+            : cameraField === 'licenseFront'
+            ? 'Coloca el frente de la licencia dentro del recuadro'
+            : cameraField === 'licenseBack'
+            ? 'Coloca la parte trasera de la licencia dentro del recuadro'
+            : cameraField === 'antecedentsPhoto'
+            ? 'Encuadra el certificado de antecedentes completo'
+            : cameraField === 'ruatPhoto'
+            ? 'Encuadra el documento RUAT (CRPVA) horizontal completo'
+            : cameraField === 'soatPhoto'
+            ? 'Encuadra el certificado o comprobante SOAT completo'
+            : cameraField === 'carFront'
+            ? 'Encuadra la parte delantera de tu vehículo'
+            : cameraField === 'carBack'
+            ? 'Encuadra la parte trasera con la placa visible'
+            : ''
+        }
+        autoCapture={false}
+        onCapture={(uri: string, frame?: { screenW: number; screenH: number; x: number; y: number; w: number; h: number }) => {
+          const field = cameraField;
+          setCameraField(null);
+          if (field) {
+            applyPhoto(field, uri, frame);
+            if (field === 'carFront' && !photos.carBack) {
+              setTimeout(() => setCameraField('carBack'), 350);
+            }
+          }
+        }}
+        onClose={() => setCameraField(null)}
+      />
+
+      {/* Texto extraído del documento */}
+      <ExtractedTextModal
+        visible={extractedText !== null}
+        title={
+          extractedText
+            ? CAMERA_TITLES[extractedText.field] || 'Texto extraído'
+            : ''
+        }
+        text={extractedText?.text || ''}
+        missing={extractedText?.missing || []}
+        image={extractedText?.image}
+        continueLabel={
+          extractedText?.field === 'ciFront' || extractedText?.field === 'licenseFront'
+            ? 'Continuar con la parte trasera'
+            : extractedText?.field === 'ruatPhoto'
+            ? 'Continuar con fotos del vehículo'
+            : 'Listo'
+        }
+        onContinue={handleExtractedContinue}
+        onRepeat={handleExtractedRepeat}
+        onClose={() => setExtractedText(null)}
+      />
+
+      {/* Resultado combinado de ambos lados */}
+      <CiResultModal
+        visible={ciResultVisible}
+        front={ocrResults.ciFront || null}
+        back={ocrResults.ciBack || null}
+        onContinue={handleCiResultContinue}
+        onRepeatBack={handleCiResultRepeatBack}
+        onClose={() => setCiResultVisible(false)}
+      />
+
+      {/* Texto leído en una foto rechazada (diagnóstico) */}
+      <ExtractedTextModal
+        visible={rejectedView !== null}
+        title={
+          rejectedView
+            ? CAMERA_TITLES[rejectedView.field] || 'Texto leído'
+            : ''
+        }
+        text={rejectedView?.text || ''}
+        missing={[]}
+        image={rejectedView?.image}
+        continueLabel="Entendido"
+        onContinue={() => setRejectedView(null)}
+        onRepeat={() => {
+          const field = rejectedView?.field || null;
+          setRejectedView(null);
+          if (field) setCameraField(field);
+        }}
+        onClose={() => setRejectedView(null)}
+      />
+
+      {/* Overlay de análisis OCR */}
+      {extracting !== null && (
+        <View style={s.analyzingOverlay}>
+          <View style={s.analyzingBox}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={s.analyzingTxt}>Analizando documento…</Text>
+            <Text style={s.analyzingSub}>Esto puede tomar unos segundos</Text>
+          </View>
+        </View>
+      )}
 
       {/* Loading overlay */}
       <Modal visible={loading} transparent animationType="fade">
         <View style={s.loadOverlay}>
           <View style={s.loadBox}>
-            <ActivityIndicator size="large" color={C.primary} />
+            <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={s.loadMsg}>{loadingMsg}</Text>
             <Text style={s.loadSub}>No cierres la aplicación</Text>
           </View>
@@ -1459,134 +1556,205 @@ export default function DriverRegistrationScreen({ navigation }: Props) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 14,
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
   },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: C.surface,
-    alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.border,
+    alignItems: 'center',
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: C.text },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
 
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
+    backgroundColor: '#FFFFFF',
+  },
+
+  /* Progress Row Minimalista */
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    gap: 14,
+    marginBottom: 16,
+    gap: 12,
   },
   track: {
     flex: 1,
-    height: 5,
-    backgroundColor: C.surfaceHigh,
+    height: 6,
+    backgroundColor: COLORS.borderSubtle,
     borderRadius: 3,
     overflow: 'hidden',
   },
-  fill: { height: '100%', backgroundColor: C.primary, borderRadius: 3 },
-  progressTxt: {},
-  progressNum: { fontSize: 15, fontWeight: '800', color: C.primary },
-  progressOf: { fontSize: 13, color: C.textMuted },
-
-  listContent: { paddingHorizontal: 16, paddingBottom: 20 },
-
-  footer: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 30,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    backgroundColor: C.bg,
+  fill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 3,
   },
-  hint: {
+  progressBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  progressBadgeNum: {
     fontSize: 12,
-    color: C.textMuted,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  progressBadgeOf: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: COLORS.primary,
+  },
+
+  lbl: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textTertiary,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  sectionNote: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 17,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+
+  /* Footer */
+  footer: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5EA',
+    backgroundColor: '#FFFFFF',
+  },
+  footerHint: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   submitBtn: {
-    backgroundColor: C.primary,
-    borderRadius: 16,
-    paddingVertical: 18,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    height: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitBtnOff: {
-    backgroundColor: C.surfaceHigh,
-    borderWidth: 1,
-    borderColor: C.border,
+    backgroundColor: '#F3EAFC',
+    borderWidth: 0,
   },
   submitTxt: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: C.white,
-    letterSpacing: 0.3,
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.white,
   },
-  submitTxtOff: { color: C.textMuted },
-
-  fieldHint: { fontSize: 11, color: C.textMuted, marginTop: 6 },
-
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surfaceHigh,
+  submitTxtOff: {
+    color: COLORS.primary,
+    opacity: 0.6,
   },
-  chipOn: { backgroundColor: C.primary, borderColor: C.primary },
-  chipTxt: { fontSize: 14, fontWeight: '600', color: C.textSub },
-  chipTxtOn: { color: C.white },
 
   infoBox: {
-    backgroundColor: C.surfaceHigh,
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
     marginTop: 8,
     borderLeftWidth: 3,
-    borderLeftColor: C.primary,
+    borderLeftColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
   },
-  infoTxt: { fontSize: 13, color: C.textSub, lineHeight: 18 },
+  infoTxt: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18 },
 
+  /* Overlays */
   loadOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadBox: {
-    backgroundColor: C.bg,
-    borderRadius: 20,
-    padding: 32,
+  analyzingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 40,
+  },
+  analyzingBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
     alignItems: 'center',
     width: '75%',
+    maxWidth: 280,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  analyzingTxt: {
+    marginTop: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+  analyzingSub: {
+    marginTop: 4,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  loadBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    width: '80%',
     maxWidth: 300,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: '#E5E5EA',
   },
   loadMsg: {
     marginTop: 16,
     fontSize: 15,
     fontWeight: '600',
-    color: C.text,
+    color: COLORS.text,
     textAlign: 'center',
   },
   loadSub: {
-    marginTop: 6,
-    fontSize: 13,
-    color: C.textMuted,
+    marginTop: 4,
+    fontSize: 12,
+    color: COLORS.textSecondary,
     textAlign: 'center',
   },
 });

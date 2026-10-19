@@ -11,8 +11,17 @@ import {
   FareSettingsResponse,
 } from '../types/api';
 import { Ride } from '../types/models';
+import { QuickAssignmentResponse } from '../types/quickAssignment';
+import { serverClockOffset } from '../utils/offerCountdown';
 
 export const ridesService = {
+  reserveQuick: (data: CreateRideRequest): Promise<QuickAssignmentResponse> =>
+    api.post('/rides/quick/reserve', data),
+  currentQuick: (role: 'passenger' | 'driver' = 'passenger'): Promise<QuickAssignmentResponse> =>
+    api.get(`/rides/quick/current?role=${role}`),
+  getQuick: (rideId: string): Promise<QuickAssignmentResponse> => api.get(`/rides/${rideId}/quick`),
+  confirmQuick: (rideId: string): Promise<QuickAssignmentResponse> => api.post(`/rides/${rideId}/quick/confirm`, {}),
+  cancelQuick: (rideId: string): Promise<QuickAssignmentResponse> => api.post(`/rides/${rideId}/quick/cancel`, {}),
   // ============================
   // SOLICITUD DE VIAJES (CLIENT)
   // ============================
@@ -45,6 +54,9 @@ export const ridesService = {
       return null;
     }
   },
+
+  getTripRoute: (rideId: string): Promise<{ polyline: string }> =>
+    api.get(`/rides/${rideId}/route`),
 
   getFareSettings: async (lat?: number, lng?: number): Promise<FareSettingsResponse | null> => {
     try {
@@ -231,7 +243,7 @@ export const ridesService = {
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('abort')) {
         console.warn('⏱️ Timeout al obtener solicitudes de viaje (reintentar)');
-        return [];
+        throw error;
       }
       const isNetworkError =
         error.message?.includes('Network request failed') ||
@@ -244,7 +256,7 @@ export const ridesService = {
           '📡 Error de red al obtener solicitudes (reintentar):',
           error.message,
         );
-        return [];
+        throw error;
       }
       console.error('Error fetching ride requests:', error);
       throw error;
@@ -283,20 +295,32 @@ export const ridesService = {
     proposedPrice: number,
   ): Promise<any> => {
     try {
+      const clientSentAt = Date.now();
       const response: any = await api.post(`/rides/${rideId}/counter-offer`, {
         proposedPrice,
       });
-      return response.offer || response;
+      const clientReceivedAt = Date.now();
+      return response.offer
+        ? {
+            ...response.offer,
+            serverOffsetMs: serverClockOffset(clientSentAt, clientReceivedAt, response.serverClock),
+          }
+        : response;
     } catch (error) {
       console.error('Error submitting counter offer:', error);
       throw error;
     }
   },
 
-  getCounterOffers: async (rideId: string): Promise<any[]> => {
+  getCounterOffers: async (rideId: string): Promise<{ offers: any[]; serverOffsetMs: number }> => {
     try {
+      const clientSentAt = Date.now();
       const response: any = await api.get(`/rides/${rideId}/counter-offers`);
-      return Array.isArray(response) ? response : response.offers || [];
+      const clientReceivedAt = Date.now();
+      return {
+        offers: Array.isArray(response) ? response : response.offers || [],
+        serverOffsetMs: serverClockOffset(clientSentAt, clientReceivedAt, response.serverClock),
+      };
     } catch (error: any) {
       const status = error?.status;
       if (status !== 404 && status !== 410) {
@@ -306,7 +330,7 @@ export const ridesService = {
           ') — se reintentará en el próximo poll.',
         );
       }
-      return [];
+      return { offers: [], serverOffsetMs: 0 };
     }
   },
 

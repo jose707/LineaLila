@@ -23,9 +23,11 @@ import { RootStackParamList, Stop } from '../navigation/AppNavigator';
 import { CommonActions } from '@react-navigation/native';
 import Geolocation from '@react-native-community/geolocation';
 import SearchBar, { SearchResult, SearchBarRef } from '../components/SearchBar';
+import PlaceSuggestionLabel from '../components/PlaceSuggestionLabel';
+import { DestinationFlagIcon, PassengerMapIcon, WaypointMapIcon } from '../components/MapLocationIcons';
 import { MapPin, X } from 'lucide-react-native';
 import { SEARCHSCREEN_COLORS as C } from '../theme/colors';
-import { cacheSearchManager } from '../utils/cacheManager';
+import { PlaceSuggestion } from '../services/places.service';
 
 type SearchScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -33,7 +35,10 @@ type SearchScreenNavigationProp = NativeStackNavigationProp<
 >;
 type SearchScreenRouteProp = RouteProp<RootStackParamList, 'Search'>;
 
-const EMPTY_STOP: Stop = { location: { latitude: 0, longitude: 0 }, address: '' };
+const EMPTY_STOP: Stop = {
+  location: { latitude: 0, longitude: 0 },
+  address: '',
+};
 
 const SearchScreen = () => {
   const navigation = useNavigation<SearchScreenNavigationProp>();
@@ -60,7 +65,13 @@ const SearchScreen = () => {
       : { location: { latitude: 0, longitude: 0 }, address: '' };
 
     return [pickup, destination];
-  }, []);
+  }, [
+    route.params?.stops,
+    route.params?.pickupLocation,
+    route.params?.pickupAddress,
+    route.params?.destinationLocation,
+    route.params?.destinationAddress,
+  ]);
 
   const [stops, setStops] = useState<Stop[]>(initialStops);
   const [userLocation, setUserLocation] = useState<{
@@ -68,11 +79,23 @@ const SearchScreen = () => {
     longitude: number;
   } | null>(null);
   const firstSearchRef = useRef<SearchBarRef>(null);
+  const searchBars = useRef<Record<number, SearchBarRef | null>>({});
   const mountedRef = useRef(false);
   const prevAllFilled = useRef(false);
-  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
-  const [sharedResults, setSharedResults] = useState<SearchResult[]>([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(
+    null,
+  );
+  const [sharedResults, setSharedResults] = useState<PlaceSuggestion[]>([]);
   const [sharedLoading, setSharedLoading] = useState(false);
+  const [sharedError, setSharedError] = useState('');
+  const [sharedEmpty, setSharedEmpty] = useState(false);
+
+  const cameraForPickup = (pickup: Stop['location']) => {
+    const previous = route.params?.pickupLocation;
+    if (!previous || Math.abs(previous.latitude - pickup.latitude) > 0.000001 ||
+      Math.abs(previous.longitude - pickup.longitude) > 0.000001) return undefined;
+    return route.params?.mapRegion;
+  };
 
   useEffect(() => {
     setTimeout(() => {
@@ -83,7 +106,8 @@ const SearchScreen = () => {
   useEffect(() => {
     if (!mountedRef.current) {
       mountedRef.current = true;
-      const allFilled = stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
+      const allFilled =
+        stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
       prevAllFilled.current = allFilled;
       if (allFilled && route.params?.pickingMode) {
         const validStops = stops.filter(isStopFilled);
@@ -95,9 +119,11 @@ const SearchScreen = () => {
                 name: 'Map',
                 params: {
                   pickupLocation: validStops[0].location,
-                  destinationLocation: validStops[validStops.length - 1].location,
+                  destinationLocation:
+                    validStops[validStops.length - 1].location,
                   pickupAddress: validStops[0].address,
                   destinationAddress: validStops[validStops.length - 1].address,
+                  mapRegion: cameraForPickup(validStops[0].location),
                   stops: validStops,
                 },
               },
@@ -107,7 +133,8 @@ const SearchScreen = () => {
       }
       return;
     }
-    const currentAllFilled = stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
+    const currentAllFilled =
+      stops.filter(isStopFilled).length === stops.length && stops.length >= 2;
     if (currentAllFilled && !prevAllFilled.current) {
       const validStops = stops.filter(isStopFilled);
       navigation.dispatch(
@@ -121,6 +148,7 @@ const SearchScreen = () => {
                 destinationLocation: validStops[validStops.length - 1].location,
                 pickupAddress: validStops[0].address,
                 destinationAddress: validStops[validStops.length - 1].address,
+                mapRegion: cameraForPickup(validStops[0].location),
                 stops: validStops,
               },
             },
@@ -161,6 +189,7 @@ const SearchScreen = () => {
   const firstUnfilledIndex = stops.findIndex(s => !isStopFilled(s));
 
   const handleStopSelect = (index: number, result: SearchResult) => {
+    prevAllFilled.current = false;
     const newStops = [...stops];
     newStops[index] = {
       location: {
@@ -170,7 +199,10 @@ const SearchScreen = () => {
       address: result.display_name,
     };
     setStops(newStops);
-    cacheSearchManager.saveSearch(result.display_name);
+    setSharedResults([]);
+    setSharedLoading(false);
+    setSharedError('');
+    setActiveSearchIndex(null);
   };
 
   const clearStop = (index: number) => {
@@ -185,7 +217,7 @@ const SearchScreen = () => {
     setStops(newStops);
   };
 
-  const goBack = () => {
+  const goBack = useCallback(() => {
     const p = route.params;
     if (p?.destinationLocation) {
       navigation.dispatch(
@@ -199,6 +231,7 @@ const SearchScreen = () => {
                 pickupAddress: p.pickupAddress,
                 destinationLocation: p.destinationLocation,
                 destinationAddress: p.destinationAddress,
+                mapRegion: p.mapRegion,
                 stops: p.stops,
               },
             },
@@ -213,10 +246,10 @@ const SearchScreen = () => {
         }),
       );
     }
-  };
+  }, [navigation, route.params]);
 
   const goBackWithPicking = (stopIndex: number) => {
-    const currentStops = stops.map((s) =>
+    const currentStops = stops.map(s =>
       isStopFilled(s) ? s : { ...EMPTY_STOP },
     );
 
@@ -238,10 +271,12 @@ const SearchScreen = () => {
                 : undefined,
               destinationAddress:
                 currentStops[currentStops.length - 1].address || undefined,
+              mapRegion: route.params?.mapRegion,
               stops: currentStops,
-              pickingMode: stopIndex === 0
-                ? 'origin'
-                : stopIndex === currentStops.length - 1
+              pickingMode:
+                stopIndex === 0
+                  ? 'origin'
+                  : stopIndex === currentStops.length - 1
                   ? 'destination'
                   : 'origin',
               editingStopIndex: stopIndex,
@@ -296,88 +331,67 @@ const SearchScreen = () => {
 
           return (
             <View key={`stop-${index}`}>
-              
-
               {/* STOP ROW */}
               <View style={styles.section}>
                 <View style={styles.sectionRow}>
-                  {/* Step indicator */}
+                  {/* Route point icon */}
                   <View style={styles.stepColumn}>
-                    <View
-                      style={[
-                        styles.stepIndicator,
-                        {
-                          backgroundColor: '#7C3AED',
-                        },
-                      ]}
-                    >
-                      <Text style={styles.stepNumber}>{index + 1}</Text>
-                    </View>
+                    {isFirst ? <PassengerMapIcon size={40} />
+                      : isLast ? <DestinationFlagIcon size={40} />
+                      : <WaypointMapIcon number={index} />}
                   </View>
 
                   {/* Content */}
                   <View style={styles.stopContent}>
                     <View style={styles.stopInputRow}>
                       <View style={styles.searchBarWrapper}>
-                        {isStopFilled(stop) ? (
-                          <SearchBar
-                            ref={index === firstUnfilledIndex ? firstSearchRef : undefined}
-                            placeholder={
-                              isFirst
-                                ? '¿Dónde te recogemos?'
-                                : isLast
-                                  ? '¿Cuál es el destino final?'
-                                  : 'Buscar parada...'
+                        <SearchBar
+                          ref={instance => {
+                            searchBars.current[index] = instance;
+                            if (index === firstUnfilledIndex)
+                              firstSearchRef.current = instance;
+                          }}
+                          placeholder={
+                            isFirst
+                              ? '¿Dónde te recogemos?'
+                              : isLast
+                              ? '¿Cuál es el destino final?'
+                              : 'Buscar parada...'
+                          }
+                          initialValue={stop.address}
+                          onClear={() => clearStop(index)}
+                          onResultSelect={result =>
+                            handleStopSelect(index, result)
+                          }
+                          currentLat={userLocation?.latitude}
+                          currentLon={userLocation?.longitude}
+                          suffixIcon={
+                            <MapPin
+                              size={26}
+                              color="#7C3AED"
+                              strokeWidth={2.5}
+                            />
+                          }
+                          onSuffixIconPress={() => goBackWithPicking(index)}
+                          hideResults
+                          onResultsChange={(results, loading, error, empty) => {
+                            if (activeSearchIndex === index) {
+                              setSharedResults(results);
+                              setSharedLoading(loading);
+                              setSharedError(error);
+                              setSharedEmpty(empty);
                             }
-                            initialValue={stop.address}
-                            onClear={() => clearStop(index)}
-                            onResultSelect={(result) =>
-                              handleStopSelect(index, result)
+                          }}
+                          onFocusChange={focused => {
+                            if (focused) {
+                              setSharedResults([]);
+                              setSharedError('');
+                              setSharedLoading(false);
+                              setSharedEmpty(false);
+                              setActiveSearchIndex(index);
                             }
-                            currentLat={userLocation?.latitude}
-                            currentLon={userLocation?.longitude}
-                            suffixIcon={<MapPin size={26} color="#7C3AED" strokeWidth={2.5} />}
-                            onSuffixIconPress={() => goBackWithPicking(index)}
-                            hideResults
-                            onResultsChange={(results, loading) => {
-                              if (activeSearchIndex === index) {
-                                setSharedResults(results);
-                                setSharedLoading(loading);
-                              }
-                            }}
-                            onFocusChange={(focused) => {
-                              if (focused) setActiveSearchIndex(index);
-                            }}
-                          />
-                        ) : (
-                          <SearchBar
-                            ref={index === firstUnfilledIndex ? firstSearchRef : undefined}
-                            placeholder={
-                              isFirst
-                                ? '¿Dónde te recogemos?'
-                                : isLast
-                                  ? '¿Cuál es el destino final?'
-                                  : 'Buscar parada...'
-                            }
-                            onResultSelect={(result) =>
-                              handleStopSelect(index, result)
-                            }
-                            currentLat={userLocation?.latitude}
-                            currentLon={userLocation?.longitude}
-                            suffixIcon={<MapPin size={26} color="#7C3AED" strokeWidth={2.5} />}
-                            onSuffixIconPress={() => goBackWithPicking(index)}
-                            hideResults
-                            onResultsChange={(results, loading) => {
-                              if (activeSearchIndex === index) {
-                                setSharedResults(results);
-                                setSharedLoading(loading);
-                              }
-                            }}
-                            onFocusChange={(focused) => {
-                              if (focused) setActiveSearchIndex(index);
-                            }}
-                          />
-                        )}
+                          }}
+                        />
                       </View>
 
                       {/* Right buttons */}
@@ -407,38 +421,64 @@ const SearchScreen = () => {
                 <ActivityIndicator size="small" color="#7C3AED" />
               </View>
             )}
-            {!sharedLoading && sharedResults.length > 0 && (
+            {!!sharedError && (
+              <Text accessibilityRole="alert" style={styles.searchError}>
+                {sharedError}
+              </Text>
+            )}
+            {sharedEmpty && !sharedLoading && !sharedError && (
+              <Text style={styles.attribution}>
+                No se encontraron destinos en La Paz.
+              </Text>
+            )}
+            {!sharedLoading && !sharedError && sharedResults.length > 0 && (
               <View style={styles.sharedResultsList}>
-                {sharedResults.map((item, i) => (
-                  <TouchableOpacity
-                    key={`${item.lat}-${item.lon}-${i}`}
-                    style={styles.sharedResultItem}
-                    onPress={() => {
-                      if (activeSearchIndex !== null) {
-                        handleStopSelect(activeSearchIndex, item);
-                        setSharedResults([]);
-                        setActiveSearchIndex(null);
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MapPin size={16} color="#7C3AED" strokeWidth={2} style={styles.sharedResultIcon} />
-                    <Text style={styles.sharedResultAddress} numberOfLines={2}>
-                      {item.address}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {sharedResults.map((item, index) => {
+                  const isLastItem = index === sharedResults.length - 1;
+                  return (
+                    <TouchableOpacity
+                      key={item.placeId}
+                      style={[
+                        styles.sharedResultItem,
+                        isLastItem && styles.sharedResultItemLast,
+                      ]}
+                      onPress={() => {
+                        if (activeSearchIndex !== null) {
+                          searchBars.current[activeSearchIndex]?.select(item);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.sharedResultIconContainer}>
+                        <MapPin
+                          size={22}
+                          color="#7C3AED"
+                          strokeWidth={2.2}
+                        />
+                      </View>
+                      <PlaceSuggestionLabel suggestion={item} />
+                    </TouchableOpacity>
+                  );
+                })}
+                <Text style={styles.attribution}>Google Maps</Text>
               </View>
             )}
           </View>
         )}
       </ScrollView>
-
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  attribution: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#5E5E5E',
+    padding: 12,
+    textAlign: 'right',
+  },
+  searchError: { fontSize: 14, color: '#B91C1C', padding: 12 },
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -484,7 +524,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
 
-  
   // CONNECTOR
   connectorRow: {
     width: 48,
@@ -510,19 +549,6 @@ const styles = StyleSheet.create({
   stepColumn: {
     width: 48,
     alignItems: 'center',
-  },
-  stepIndicator: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
-  stepNumber: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
 
   // STOP CONTENT
@@ -577,8 +603,9 @@ const styles = StyleSheet.create({
 
   // SHARED RESULTS
   sharedResults: {
-    marginTop: 4,
-    paddingHorizontal: 4,
+    marginTop: 8,
+    paddingHorizontal: 2,
+    marginBottom: 20,
   },
   sharedLoading: {
     padding: 16,
@@ -586,31 +613,36 @@ const styles = StyleSheet.create({
   },
   sharedResultsList: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#EDE9FE',
     overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   sharedResultItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#F3F4F6',
   },
-  sharedResultIcon: {
-    marginRight: 10,
-    marginTop: 2,
+  sharedResultItemLast: {
+    borderBottomWidth: 0,
   },
-  sharedResultAddress: {
-    flex: 1,
-    fontSize: 14,
-    color: '#2D2D2D',
-    fontWeight: '500',
-    lineHeight: 19,
+  sharedResultIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-
 });
 
 export default SearchScreen;

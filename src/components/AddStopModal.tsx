@@ -85,6 +85,7 @@ export const AddStopModal: React.FC<Props> = ({
               showsVerticalScrollIndicator={false}
             >
               <SearchBar
+                key={visible ? 'open' : 'closed'}
                 ref={searchRef}
                 onResultSelect={handleSelect}
                 placeholder="Buscar ubicación..."

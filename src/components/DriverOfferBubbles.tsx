@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 import React from 'react';
 import {
   View,
@@ -5,15 +6,20 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
+  ScrollView,
 } from 'react-native';
 import { Icon } from '../theme/icons';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
+import { offerSecondsLeft } from '../utils/offerCountdown';
 
 interface DriverOffer {
   offerId?: string;
-  createdAt?: string | number;
+  expiresAt?: string;
+  serverOffsetMs?: number;
   driverProfilePicture?: string;
   vehicleModel?: string;
+  vehicleColor?: string;
+  licensePlate?: string;
   driverName?: string;
   driverRating?: number | string;
   proposedPrice?: number;
@@ -24,21 +30,23 @@ interface Props {
   offers: DriverOffer[];
   onReject: (offerId: string) => void;
   onAccept: (offer: DriverOffer) => void;
+  bottomOffset?: number;
 }
 
-export const DriverOfferBubbles: React.FC<Props> = ({ offers, onReject, onAccept }) => {
+export const DriverOfferBubbles: React.FC<Props> = ({ offers, onReject, onAccept, bottomOffset = 340 }) => {
   if (offers.length === 0) return null;
 
   return (
-    <View style={s.offersBubblesContainer} pointerEvents="box-none">
-      <View style={s.offersBubbles} pointerEvents="box-none">
+    <View style={[s.offersBubblesContainer, { bottom: bottomOffset }]} pointerEvents="box-none">
+      <ScrollView
+        style={s.offersScroll}
+        contentContainerStyle={s.offersBubbles}
+        showsVerticalScrollIndicator={offers.length > 1}
+      >
         {offers.map((offer, i) => {
-          const created =
-            typeof offer.createdAt === 'string'
-              ? new Date(offer.createdAt).getTime()
-              : offer.createdAt || Date.now();
-          const rem = Math.max(0, 30 - (Date.now() - created) / 1000);
-          if (rem <= 5) return null;
+          const rem = offerSecondsLeft(offer.expiresAt, Date.now(), offer.serverOffsetMs);
+          if (rem <= 0) return null;
+          const price = Number(offer.proposedPrice ?? offer.fare ?? 0);
 
           return (
             <View
@@ -46,63 +54,60 @@ export const DriverOfferBubbles: React.FC<Props> = ({ offers, onReject, onAccept
               style={s.offerBubble}
               pointerEvents="auto"
             >
-              <View style={s.offerTopBar}>
-                <View
-                  style={[
-                    s.offerProgressFill,
-                    { width: `${Math.max(0, (rem - 5) / 25) * 100}%` as any },
-                  ]}
-                />
-              </View>
-
               <View style={s.offerContent}>
                 <View style={s.offerHeader}>
                   {offer.driverProfilePicture ? (
                     <Image
-                      source={{ uri: offer.driverProfilePicture }}
+                      source={privateImageSource(offer.driverProfilePicture)}
                       style={s.offerAvatar}
                     />
                   ) : (
                     <View style={s.offerAvatar}>
-                      <Icon.Car size={24} color={'#9CA3AF'} />
+                      <Icon.Car size={28} color="#7514C5" />
                     </View>
                   )}
 
                   <View style={s.offerInfo}>
-                    <Text style={s.offerVehicleText} numberOfLines={1}>
-                      {offer.vehicleModel || 'Vehículo'}
-                    </Text>
-                    <Text style={s.offerDriverName} numberOfLines={1}>
-                      {offer.driverName || 'Conductor'}
-                    </Text>
-                    <View style={s.offerRatingRow}>
-                      <Icon.Star size={14} color="#F59E0B" />
-                      <Text style={s.offerRatingText}>
-                        {offer.driverRating || '5.0'}
+                    <View style={s.offerNameRow}>
+                      <Text style={s.offerDriverName} numberOfLines={1}>
+                        {offer.driverName || 'Conductor'}
                       </Text>
+                      <Text style={s.offerPrice}>Bs {Number.isFinite(price) ? price.toFixed(2) : '0.00'}</Text>
                     </View>
-                  </View>
-
-                  <View style={s.offerRightStats}>
-                    <Text style={s.offerPrice}>
-                      Bs {(offer.proposedPrice || offer.fare || 0).toFixed(2)}
-                    </Text>
-                    <Text style={s.offerStatText}>{Math.round(rem)}s</Text>
+                    <View style={s.offerVehicleRow}>
+                      <Text style={s.offerVehicleText} numberOfLines={1}>
+                        {offer.vehicleModel || 'Vehículo'}
+                        {offer.vehicleColor ? ` · ${offer.vehicleColor}` : ''}
+                      </Text>
+                      <View style={s.offerRatingRow}>
+                        <Icon.Star size={13} color={T.accent} />
+                        <Text style={s.offerRatingText}>{offer.driverRating ?? '5.0'}</Text>
+                      </View>
+                    </View>
+                    <View style={s.offerBottomRow}>
+                      <View style={s.offerPlateBadge}>
+                        <Text style={s.offerPlateText}>{offer.licensePlate || '—'}</Text>
+                      </View>
+                      <View style={[s.offerTimerRow, rem <= 10 && s.offerTimerUrgent]}>
+                        <Icon.Clock size={14} color={rem <= 10 ? '#B45309' : '#64748B'} />
+                        <Text style={[s.offerStatText, rem <= 10 && s.offerStatUrgent]}>{rem}s</Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
 
                 <View style={s.offerActions}>
                   <TouchableOpacity
                     style={s.offerRejectBtn}
-                    onPress={() => onReject(offer.offerId!)}
-                    activeOpacity={0.7}
+                    onPress={() => offer.offerId && onReject(offer.offerId)}
+                    activeOpacity={0.8}
                   >
                     <Text style={s.offerRejectText}>Rechazar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={s.offerAcceptBtn}
                     onPress={() => onAccept(offer)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.8}
                   >
                     <Text style={s.offerAcceptText}>Aceptar</Text>
                   </TouchableOpacity>
@@ -111,31 +116,37 @@ export const DriverOfferBubbles: React.FC<Props> = ({ offers, onReject, onAccept
             </View>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 };
 
 const s = StyleSheet.create({
-  offersBubblesContainer: { position: 'absolute', top: 140, left: 16, right: 16, alignItems: 'center', justifyContent: 'flex-start', zIndex: 999, pointerEvents: 'box-none' },
-  offersBubbles: { width: '100%', maxWidth: 400, alignItems: 'center', pointerEvents: 'box-none', gap: 12 },
-  offerBubble: { width: '100%', backgroundColor: T.white, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8 },
-  offerTopBar: { height: 4, backgroundColor: '#E5E7EB', width: '100%' },
-  offerProgressFill: { height: '100%', backgroundColor: T.accent },
-  offerContent: { padding: 16 },
-  offerHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 },
-  offerAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  offerInfo: { flex: 1, justifyContent: 'center' },
-  offerVehicleText: { fontSize: 15, fontWeight: '700', color: '#374151', marginBottom: 2 },
-  offerDriverName: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
-  offerRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  offerRatingText: { fontSize: 13, fontWeight: '600', color: '#9CA3AF' },
-  offerRightStats: { alignItems: 'flex-end' },
-  offerPrice: { fontSize: 22, fontWeight: '800', color: T.accent, marginBottom: 4 },
-  offerStatText: { fontSize: 13, color: '#6B7280', fontWeight: '500', marginBottom: 2 },
-  offerActions: { flexDirection: 'row', gap: 12 },
-  offerRejectBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
-  offerRejectText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
-  offerAcceptBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
-  offerAcceptText: { fontSize: 16, fontWeight: '700', color: T.white },
+  offersBubblesContainer: { position: 'absolute', top: 112, left: 16, right: 16, zIndex: 50, elevation: 22, alignItems: 'center' },
+  offersScroll: { flex: 1, width: '100%', maxWidth: 400 },
+  offersBubbles: { gap: 12, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 12 },
+  offerBubble: { width: '100%', backgroundColor: T.white, borderRadius: 24, borderWidth: 1, borderColor: '#EEE8F4', shadowColor: '#170B22', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 18, elevation: 8 },
+  offerContent: { padding: 18 },
+  offerHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  offerAvatar: { width: 64, height: 64, borderRadius: 20, backgroundColor: '#F3EAFC', alignItems: 'center', justifyContent: 'center', transform: [{ translateY: 4 }] },
+  offerInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  offerNameRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 6 },
+  offerDriverName: { flex: 1, minWidth: 0, fontSize: 18, lineHeight: 22, includeFontPadding: false, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
+  offerVehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 0 },
+  offerVehicleText: { flexShrink: 1, fontSize: 13, lineHeight: 16, includeFontPadding: false, fontWeight: '500', color: '#64748B' },
+  offerRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#F3EAFC', borderRadius: 9, paddingHorizontal: 6 },
+  offerRatingText: { fontSize: 12, fontWeight: '800', color: T.accent },
+  offerBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 3 },
+  offerPlateBadge: { backgroundColor: '#111118', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 2 },
+  offerPlateText: { fontSize: 12, lineHeight: 14, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.6 },
+  offerTimerRow: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#F1F5F9', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2 },
+  offerTimerUrgent: { backgroundColor: '#FEF3C7' },
+  offerStatText: { fontSize: 12, lineHeight: 14, color: '#475569', fontWeight: '700' },
+  offerStatUrgent: { color: '#B45309' },
+  offerPrice: { fontSize: 31, lineHeight: 31, fontWeight: '800', color: '#0F172A', letterSpacing: -0.8 },
+  offerActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  offerRejectBtn: { flex: 1, minHeight: 52, borderRadius: 12, backgroundColor: '#F7F7F9', alignItems: 'center', justifyContent: 'center' },
+  offerRejectText: { fontSize: 19, fontWeight: '700', color: '#000000' },
+  offerAcceptBtn: { flex: 1.35, minHeight: 52, borderRadius: 14, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
+  offerAcceptText: { fontSize: 18, fontWeight: '800', color: T.white },
 });

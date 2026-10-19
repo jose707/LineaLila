@@ -9,6 +9,11 @@ const path = require('path');
 // Cargar variables de entorno PRIMERO (independiente del cwd)
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+if (process.env.NODE_ENV === 'production') {
+  require('./services/identitySessionCrypto').storageKey();
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('Configure a strong JWT_SECRET before starting production');
+}
+
 const sequelize = require('./config/database');
 
 // Importar modelos e inicializar asociaciones (todo en uno, desde index.js)
@@ -54,6 +59,8 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Servir archivos estáticos de uploads CON HEADERS ANTI-CACHE
 app.use(
   '/uploads',
+  require('./middleware/auth').authMiddleware,
+  require('./middleware/documentAccess'),
   (req, res, next) => {
     // Agregar headers para prevenir caching
     res.set(
@@ -73,6 +80,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/requests', require('./routes/requests')); // Nuevo: manejar requests versionadas
 app.use('/api/drivers', require('./routes/drivers'));
 app.use('/api/rides', require('./routes/rides'));
+app.use('/api/places', require('./routes/places'));
 app.use('/api/ratings', require('./routes/ratings'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/ride-offers', require('./routes/rideOffers'));
@@ -140,8 +148,20 @@ const startServer = async () => {
     await sequelize.sync(syncOptions);
     console.log('✅ Base de datos sincronizada correctamente\n');
 
+    // Marcar como expirados los rides vencidos que quedaron huérfanos
+    await sequelize.query(`
+      UPDATE rides
+      SET status = 'expired'
+      WHERE status IN ('requested', 'offered') AND expires_at < NOW()
+    `);
+
     const httpServer = http.createServer(app);
     initializeSocket(httpServer);
+    const { expireReservations } = require('./services/quickAssignmentService');
+    const reservationTimer = setInterval(() => {
+      expireReservations().catch(error => console.error('Reservation expiry:', error.message));
+    }, 1000);
+    reservationTimer.unref();
     httpServer.listen(PORT, () => {
       console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
       console.log(`Entorno: ${process.env.NODE_ENV || 'development'}`);

@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 // src/screens/DocumentResubmissionScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
@@ -117,7 +118,7 @@ function PhotoSheet({
       <View style={ps.sheet}>
         <View style={ps.handle} />
         {current ? (
-          <Image source={{ uri: current }} style={ps.preview} />
+          <Image source={privateImageSource(current)} style={ps.preview} />
         ) : (
           <View style={ps.empty}>
             <Upload size={28} color={C.textMuted} strokeWidth={1.5} />
@@ -258,7 +259,7 @@ function DocRow({
       {/* Thumb */}
       <View style={[dr.thumb, doc.photo && dr.thumbDone]}>
         {doc.photo ? (
-          <Image source={{ uri: doc.photo }} style={dr.thumbImg} />
+          <Image source={privateImageSource(doc.photo)} style={dr.thumbImg} />
         ) : (
           <Camera size={18} color={C.textMuted} strokeWidth={1.6} />
         )}

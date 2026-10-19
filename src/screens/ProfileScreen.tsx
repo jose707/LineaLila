@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -285,7 +286,7 @@ const ProfileScreen = () => {
             .filter(Boolean);
           const documents = status?.request?.documents || {};
           const approvedDocs = Object.entries(documents)
-            .filter(([_, doc]: [string, any]) => doc?.status === 'approved')
+            .filter(([_, doc]: [string, any]) => doc?.status === 'verified')
             .map(([key]) => docKeyToName[key] || key)
             .filter(Boolean);
           Alert.alert(
@@ -389,7 +390,7 @@ const ProfileScreen = () => {
             <View style={[styles.avatarWrapperNew, isDark && styles.avatarWrapperDark]}>
               {profilePhotoUrl ? (
                 <Image
-                  source={{ uri: profilePhotoUrl }}
+                  source={privateImageSource(profilePhotoUrl)}
                   style={styles.avatarImage}
                 />
               ) : (

@@ -3,6 +3,7 @@
 // Loaded once from index.js — do NOT call sequelize.define() here.
 
 const User                = require('./User');
+const UserIdentity        = require('./UserIdentity');
 const Driver              = require('./Driver');
 const Ride                = require('./Ride');
 const RideOffer           = require('./RideOffer');
@@ -31,6 +32,8 @@ const setupAssociations = () => {
   // ─────────────────────────────────────────
   User.hasOne(Driver, { foreignKey: 'userId', as: 'driverProfile' });
   Driver.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  User.hasOne(UserIdentity, { foreignKey: 'userId', as: 'identity', onDelete: 'CASCADE' });
+  UserIdentity.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
   // ─────────────────────────────────────────
   // USER ↔ RIDE (as passenger)
@@ -65,7 +68,8 @@ const setupAssociations = () => {
   DriverRequest.belongsTo(User, { foreignKey: 'userId' });
 
   // ─────────────────────────────────────────
-  // DRIVER REQUEST ↔ REQUEST FILE
+  // DRIVER REQUEST ↔ DOCUMENTS
+  // RequestFile es el modelo de compatibilidad que usa la tabla documents.
   // ─────────────────────────────────────────
   DriverRequest.hasMany(RequestFile, { foreignKey: 'requestId', onDelete: 'CASCADE' });
   RequestFile.belongsTo(DriverRequest, { foreignKey: 'requestId' });

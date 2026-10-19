@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 // src/screens/AdminDriverRegistrationScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
@@ -103,7 +104,7 @@ interface DriverApplication {
     updatedAt: string;
   };
   approvedDocuments?: Record<string, boolean>;
-  documentStatus?: Record<string, 'pending' | 'approved'>;
+  documentStatus?: Record<string, 'pending' | 'verified' | 'rejected'>;
   documents?: Record<string, string | undefined>;
 }
 
@@ -111,6 +112,7 @@ interface DriverApplication {
 const statusMeta = (status: string) => {
   switch (status) {
     case 'approved':
+    case 'verified':
       return {
         color: C.success,
         bg: C.successLight,
@@ -153,7 +155,7 @@ const docKeys: Array<{ key: string; label: string; optional?: boolean }> = [
 function StatusBadge({ status, small }: { status: string; small?: boolean }) {
   const m = statusMeta(status);
   const Icon =
-    status === 'approved' ? Check : status === 'rejected' ? X : Clock;
+    status === 'approved' || status === 'verified' ? Check : status === 'rejected' ? X : Clock;
   return (
     <View
       style={[
@@ -269,7 +271,7 @@ function DocButton({
   label: string;
   docKey: string;
   app: DriverApplication;
-  docStatus: Record<string, 'pending' | 'approved' | 'rejected'>;
+  docStatus: Record<string, 'pending' | 'verified' | 'rejected'>;
   locked: boolean;
   optional?: boolean;
   onPress: (url: string, key: string) => void;
@@ -289,10 +291,10 @@ function DocButton({
     ? optional
       ? 'Opcional'
       : 'Sin enviar'
-    : status === 'approved'
+    : status === 'verified'
     ? locked
-      ? '✓ Pre-aprobado'
-      : 'Aprobado'
+      ? '✓ Verificado previamente'
+      : 'Verificado'
     : status === 'rejected'
     ? 'Rechazado'
     : 'Pendiente';
@@ -373,7 +375,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   const [docImageModal, setDocImageModal] = useState(false);
   const [currentDocKey, setCurrentDocKey] = useState<string | null>(null);
   const [docStatus, setDocStatus] = useState<
-    Record<string, 'pending' | 'approved' | 'rejected'>
+    Record<string, 'pending' | 'verified' | 'rejected'>
   >({});
   const [lockedDocs, setLockedDocs] = useState<Set<string>>(new Set());
   const [applications, setApplications] = useState<DriverApplication[]>([]);
@@ -427,7 +429,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const initDocStatus = (app: DriverApplication) => {
-    const s: Record<string, 'pending' | 'approved' | 'rejected'> = {};
+    const s: Record<string, 'pending' | 'verified' | 'rejected'> = {};
     const locked = new Set<string>();
     docKeys.forEach(d => {
       s[d.key] = 'pending';
@@ -440,7 +442,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
           // solo se bloquean si la solicitud es un reenvío (version > 1) y el doc
           // ya venía aprobado desde la BD (no es un archivo recién enviado).
           if (
-            v.status === 'approved' &&
+            v.status === 'verified' &&
             (app.currentRequest?.version ?? 1) > 1
           ) {
             locked.add(k);
@@ -459,7 +461,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const approvedDocs = Object.entries(docStatus)
-    .filter(([, v]) => v === 'approved')
+    .filter(([, v]) => v === 'verified')
     .map(([k]) => docKeys.find(d => d.key === k)?.label || k);
   const rejectedDocs = Object.entries(docStatus)
     .filter(([, v]) => v === 'rejected')
@@ -501,6 +503,9 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
     try {
       await AdminService.approveDriver(
         selectedApp.currentRequest?.id || selectedApp.id,
+        Object.entries(docStatus)
+          .filter(([, status]) => status === 'verified')
+          .map(([key]) => key),
       );
       setApplications(prev =>
         prev.map(a =>
@@ -973,37 +978,11 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                   </View>
                 )}
 
-              {/* Actions */}
-              {selectedApp.status === 'pending' && (
-                <View style={s.actions}>
-                  <TouchableOpacity
-                    style={[s.approveBtn, isSubmitting && { opacity: 0.6 }]}
-                    onPress={handleApprove}
-                    disabled={isSubmitting}
-                    activeOpacity={0.8}
-                  >
-                    {isSubmitting ? (
-                      <ActivityIndicator color={C.white} size="small" />
-                    ) : (
-                      <>
-                        <Check size={16} color={C.white} strokeWidth={2.5} />
-                        <Text style={s.actionTxt}>Aprobar conductor</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.rejectBtn, isSubmitting && { opacity: 0.6 }]}
-                    onPress={() => setRejectModalVisible(true)}
-                    disabled={isSubmitting}
-                    activeOpacity={0.8}
-                  >
-                    <X size={16} color={C.error} strokeWidth={2.5} />
-                    <Text style={[s.actionTxt, { color: C.error }]}>
-                      Rechazar conductor
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              <View style={s.summaryBox}>
+                <Text style={s.notesTxt}>
+                  Resultado generado automáticamente por las validaciones del sistema. Esta pantalla es solo de consulta.
+                </Text>
+              </View>
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -1094,7 +1073,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
           <View style={s.imgModal}>
             {docImageUrl && (
               <Image
-                source={{ uri: docImageUrl }}
+                source={privateImageSource(docImageUrl)}
                 style={s.docImg}
                 resizeMode="contain"
               />
@@ -1125,58 +1104,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                   </Text>
                 </View>
               </View>
-            ) : (
-              <View style={s.imgActions}>
-                <TouchableOpacity
-                  style={[
-                    s.imgBtn,
-                    {
-                      backgroundColor: C.errorLight,
-                      borderColor: C.errorBorder,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (currentDocKey) {
-                      setDocStatus(p => ({
-                        ...p,
-                        [currentDocKey]: 'rejected',
-                      }));
-                    }
-                    setDocImageModal(false);
-                    setCurrentDocKey(null);
-                  }}
-                >
-                  <X size={16} color={C.error} strokeWidth={2.5} />
-                  <Text style={[s.imgBtnTxt, { color: C.error }]}>
-                    Rechazar
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    s.imgBtn,
-                    {
-                      backgroundColor: C.successLight,
-                      borderColor: C.successBorder,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (currentDocKey) {
-                      setDocStatus(p => ({
-                        ...p,
-                        [currentDocKey]: 'approved',
-                      }));
-                    }
-                    setDocImageModal(false);
-                    setCurrentDocKey(null);
-                  }}
-                >
-                  <Check size={16} color={C.success} strokeWidth={2.5} />
-                  <Text style={[s.imgBtnTxt, { color: C.success }]}>
-                    Aprobar
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            ) : null}
             <TouchableOpacity
               style={s.imgCloseBtn}
               onPress={() => {

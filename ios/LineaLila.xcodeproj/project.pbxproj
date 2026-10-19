@@ -12,6 +12,10 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		24069C714A0646D889A748DC /* Montserrat.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 50662E7E768A44E58D79F85A /* Montserrat.ttf */; };
+		F10000000000000000000001 /* FaceLivenessBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000003 /* FaceLivenessBridge.m */; };
+		F10000000000000000000010 /* FaceLivenessModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* FaceLivenessModule.swift */; };
+		F10000000000000000000002 /* FaceLiveness in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000006 /* FaceLiveness */; };
+		F10000000000000000000009 /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000008 /* Amplify */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +30,8 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = LineaLila/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		50662E7E768A44E58D79F85A /* Montserrat.ttf */ = {isa = PBXFileReference; name = "Montserrat.ttf"; path = "../assets/fonts/Montserrat.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		F10000000000000000000004 /* FaceLivenessModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FaceLivenessModule.swift; path = LineaLila/FaceLivenessModule.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 /* FaceLivenessBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FaceLivenessBridge.m; path = LineaLila/FaceLivenessBridge.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,6 +40,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				0C80B921A6F3F58F76C31292 /* libPods-LineaLila.a in Frameworks */,
+				F10000000000000000000002 /* FaceLiveness in Frameworks */,
+				F10000000000000000000009 /* Amplify in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -45,6 +53,8 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				F10000000000000000000004 /* FaceLivenessModule.swift */,
+				F10000000000000000000003 /* FaceLivenessBridge.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -132,6 +142,10 @@
 			productName = LineaLila;
 			productReference = 13B07F961A680F5B00A75B9A /* LineaLila.app */;
 			productType = "com.apple.product-type.application";
+			packageProductDependencies = (
+				F10000000000000000000006 /* FaceLiveness */,
+				F10000000000000000000008 /* Amplify */,
+			);
 		};
 /* End PBXNativeTarget section */
 
@@ -158,6 +172,10 @@
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				F10000000000000000000005 /* XCRemoteSwiftPackageReference "amplify-ui-swift-liveness" */,
+				F10000000000000000000007 /* XCRemoteSwiftPackageReference "amplify-swift" */,
+			);
 			targets = (
 				13B07F861A680F5B00A75B9A /* LineaLila */,
 			);
@@ -258,10 +276,30 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				F10000000000000000000010 /* FaceLivenessModule.swift in Sources */,
+				F10000000000000000000001 /* FaceLivenessBridge.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F10000000000000000000005 /* XCRemoteSwiftPackageReference "amplify-ui-swift-liveness" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aws-amplify/amplify-ui-swift-liveness";
+			requirement = {kind = upToNextMajorVersion; minimumVersion = 1.4.5; };
+		};
+		F10000000000000000000007 /* XCRemoteSwiftPackageReference "amplify-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aws-amplify/amplify-swift";
+			requirement = {kind = upToNextMajorVersion; minimumVersion = 2.0.0; };
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F10000000000000000000006 /* FaceLiveness */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "amplify-ui-swift-liveness" */; productName = FaceLiveness; };
+		F10000000000000000000008 /* Amplify */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000007 /* XCRemoteSwiftPackageReference "amplify-swift" */; productName = Amplify; };
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {

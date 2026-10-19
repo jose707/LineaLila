@@ -237,9 +237,9 @@ export const getDriverById = async (
 /**
  * Aprobar una solicitud de conductor
  */
-export const approveDriver = async (requestId: string): Promise<any> => {
+export const approveDriver = async (requestId: string, verifiedDocuments: string[]): Promise<any> => {
   try {
-    const response = await api.put(`/admin/requests/${requestId}/approve`, {});
+    const response = await api.put(`/admin/requests/${requestId}/approve`, { verifiedDocuments });
     return response;
   } catch (error: any) {
     console.error('Error approving driver:', error);

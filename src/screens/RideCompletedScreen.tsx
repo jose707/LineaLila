@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -9,10 +10,10 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
-  Dimensions,
   Image,
   BackHandler,
 } from 'react-native';
+import { Banknote, Car, Check, CreditCard, Star, User, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useNavigation,
@@ -26,22 +27,21 @@ import { useAuth } from '../hooks/useAuth';
 import { ridesService } from '../services/rides.service';
 import { authService } from '../services/auth.service';
 import { ratingsService } from '../services/ratings.service';
-
-const { width } = Dimensions.get('window');
+import { DestinationFlagIcon, PassengerMapIcon, WaypointMapIcon } from '../components/MapLocationIcons';
+import ConfirmBottomSheet from '../components/ConfirmBottomSheet';
 
 const COLORS = {
   primary: '#7514C5',
   primaryLight: '#9B45E4',
-  primaryUltraLight: '#F3E8FF',
-  primaryMuted: '#EDE0FA',
-  black: '#0A0A0A',
+  primaryUltraLight: '#F3EAFC',
+  primaryMuted: '#F3EAFC',
+  black: '#111118',
   gray900: '#1A1A1A',
-  gray600: '#6B6B6B',
-  gray400: '#A0A0A0',
-  gray200: '#E8E8E8',
-  gray100: '#F7F7F7',
+  gray600: '#7A7A8A',
+  gray400: '#AFAFBF',
+  gray200: '#E5E5EA',
+  gray100: '#F7F7F9',
   white: '#FFFFFF',
-  gold: '#F59E0B',
   success: '#10B981',
 };
 
@@ -62,6 +62,7 @@ interface CompletedRide {
   otherUserRating: number;
   pickupLocation: string;
   dropoffLocation: string;
+  waypoints: { address: string; sequence: number }[];
   fare: number;
   distance: number;
   duration: number;
@@ -70,18 +71,13 @@ interface CompletedRide {
   completedAt: string;
 }
 
-const StarIcon = ({
-  filled,
-  size = 28,
-}: {
-  filled: boolean;
-  size?: number;
-}) => (
-  <Text
-    style={{ fontSize: size, color: filled ? COLORS.gold : COLORS.gray200 }}
-  >
-    ★
-  </Text>
+const StarIcon = ({ filled, size = 28 }: { filled: boolean; size?: number }) => (
+  <Star
+    size={size}
+    color={filled ? COLORS.primary : COLORS.gray400}
+    fill={filled ? COLORS.primary : 'transparent'}
+    strokeWidth={1.8}
+  />
 );
 
 const RideCompletedScreen = () => {
@@ -97,6 +93,7 @@ const RideCompletedScreen = () => {
   const [reviewText, setReviewText] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
   // 🔥 RESETEAR NAVEGACIÓN AL IR A INICIO
@@ -126,11 +123,7 @@ const RideCompletedScreen = () => {
     }, [goToHome]),
   );
 
-  useEffect(() => {
-    loadRideDetails();
-  }, []);
-
-  const loadRideDetails = async () => {
+  const loadRideDetails = useCallback(async () => {
     try {
       setIsLoading(true);
       const rideData: any = await ridesService.getRideById(rideId);
@@ -166,6 +159,9 @@ const RideCompletedScreen = () => {
           rideData.pickupLocation?.address || 'Ubicación de recogida',
         dropoffLocation:
           rideData.dropoffLocation?.address || 'Ubicación de destino',
+        waypoints: (rideData.waypoints ?? [])
+          .map((stop: { address: string; sequence: number }) => ({ address: stop.address, sequence: stop.sequence }))
+          .sort((a: { sequence: number }, b: { sequence: number }) => a.sequence - b.sequence),
         fare: rideData.finalFare || rideData.totalFare || 0,
         distance: (rideData.distance || 0) / 1000,
         duration: Math.floor((rideData.duration || 0) / 60),
@@ -179,7 +175,11 @@ const RideCompletedScreen = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [rideId, isDriverMode]);
+
+  useEffect(() => {
+    loadRideDetails();
+  }, [loadRideDetails]);
   const handleSubmitReview = async () => {
     if (selectedRating === 0) {
       Alert.alert('', 'Por favor selecciona una calificación');
@@ -261,16 +261,7 @@ const RideCompletedScreen = () => {
   };
 
   const handleSkipReview = () => {
-    Alert.alert('¿Omitir reseña?', 'Nos gustaría saber tu experiencia', [
-      { text: 'Escribir reseña', style: 'cancel' },
-      {
-        text: 'Omitir',
-        onPress: () => {
-          goToHome();
-        },
-        style: 'destructive',
-      },
-    ]);
+    setShowSkipConfirm(true);
   };
 
   if (isLoading) {
@@ -302,9 +293,7 @@ const RideCompletedScreen = () => {
       <SafeAreaView style={s.container}>
         <View style={s.centered}>
           <View style={s.successRing}>
-            <View style={s.successCircle}>
-              <Text style={s.successCheck}>✓</Text>
-            </View>
+            <Check size={38} color={COLORS.primary} strokeWidth={2.5} />
           </View>
           <Text style={s.successTitle}>¡Viaje completado!</Text>
           <Text style={s.successSub}>Tu reseña fue enviada exitosamente</Text>
@@ -332,32 +321,46 @@ const RideCompletedScreen = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={s.scrollContent}
       >
-        {/* HERO HEADER */}
+        {/* RESUMEN DEL VIAJE */}
         <View style={s.hero}>
-          <View style={s.heroBadge}>
-            <Text style={s.heroBadgeText}>COMPLETADO</Text>
+          <View style={s.heroText}>
+            <Text style={s.heroTitle}>Viaje completado</Text>
+            <Text style={s.heroFare} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+              Bs. {ride.fare}
+            </Text>
+            <Text style={s.heroLabel}>Total a pagar</Text>
           </View>
-          <Text style={s.heroFare}>Bs. {ride.fare}</Text>
-          <Text style={s.heroLabel}>Total pagado</Text>
+          <View style={s.heroStatusIcon}>
+            <Check size={38} color={COLORS.white} strokeWidth={2.8} />
+          </View>
         </View>
 
         {/* ROUTE CARD */}
         <View style={s.card}>
           <View style={s.routeRow}>
             <View style={s.routeDots}>
-              <View style={s.dotOrigin} />
+              <PassengerMapIcon size={30} bare />
+              {ride.waypoints.map((stop, index) => (
+                <React.Fragment key={`${stop.sequence}-${index}`}>
+                  <View style={s.routeLine} />
+                  <WaypointMapIcon number={index + 1} size={28} />
+                </React.Fragment>
+              ))}
               <View style={s.routeLine} />
-              <View style={s.dotDest} />
+              <DestinationFlagIcon size={30} bare />
             </View>
             <View style={s.routeAddresses}>
               <View style={s.routeAddress}>
-                <Text style={s.routeAddressLabel}>Origen</Text>
                 <Text style={s.routeAddressText} numberOfLines={1}>
                   {ride.pickupLocation}
                 </Text>
               </View>
+              {ride.waypoints.map((stop, index) => (
+                <View key={`${stop.sequence}-${index}`} style={s.routeAddress}>
+                  <Text style={s.routeAddressText} numberOfLines={1}>{stop.address}</Text>
+                </View>
+              ))}
               <View style={s.routeAddress}>
-                <Text style={s.routeAddressLabel}>Destino</Text>
                 <Text style={s.routeAddressText} numberOfLines={1}>
                   {ride.dropoffLocation}
                 </Text>
@@ -369,24 +372,22 @@ const RideCompletedScreen = () => {
 
           {/* STATS ROW */}
           <View style={s.statsRow}>
-            <View style={s.stat}>
+            <View style={s.stat} accessible accessibilityLabel={`Distancia: ${ride.distance.toFixed(1)} kilómetros`}>
               <Text style={s.statValue}>{ride.distance.toFixed(1)}</Text>
               <Text style={s.statUnit}>km</Text>
-              <Text style={s.statLabel}>Distancia</Text>
             </View>
             <View style={s.statSep} />
-            <View style={s.stat}>
+            <View style={s.stat} accessible accessibilityLabel={`Tiempo: ${ride.duration} minutos`}>
               <Text style={s.statValue}>{ride.duration}</Text>
               <Text style={s.statUnit}>min</Text>
-              <Text style={s.statLabel}>Tiempo</Text>
             </View>
             <View style={s.statSep} />
-            <View style={s.stat}>
-              <Text style={s.statValue}>
-                {ride.paymentMethod === 'Efectivo' ? '💵' : '💳'}
-              </Text>
-              <Text style={s.statUnit}> </Text>
-              <Text style={s.statLabel}>{ride.paymentMethod}</Text>
+            <View style={s.stat} accessible accessibilityLabel={`Método de pago: ${ride.paymentMethod}`}>
+              {ride.paymentMethod === 'Efectivo' ? (
+                <Banknote size={26} color={COLORS.primary} strokeWidth={1.8} />
+              ) : (
+                <CreditCard size={26} color={COLORS.primary} strokeWidth={1.8} />
+              )}
             </View>
           </View>
         </View>
@@ -398,35 +399,32 @@ const RideCompletedScreen = () => {
               {isDriverMode ? (
                 ride.passengerProfilePicture ? (
                   <Image
-                    source={{ uri: ride.passengerProfilePicture }}
+                    source={privateImageSource(ride.passengerProfilePicture)}
                     style={s.userAvatarImage}
                   />
                 ) : (
-                  <Text style={s.userAvatarEmoji}>👤</Text>
+                  <User size={27} color={COLORS.primary} strokeWidth={1.8} />
                 )
               ) : ride.driverProfilePicture ? (
                 <Image
-                  source={{ uri: ride.driverProfilePicture }}
+                  source={privateImageSource(ride.driverProfilePicture)}
                   style={s.userAvatarImage}
                 />
               ) : (
-                <Text style={s.userAvatarEmoji}>🚗</Text>
+                <Car size={27} color={COLORS.primary} strokeWidth={1.8} />
               )}
             </View>
             <View style={s.userInfo}>
               <Text style={s.userName}>
                 {isDriverMode ? ride.passengerName : ride.driverName}
               </Text>
-              <Text style={s.personRole}>
-                {isDriverMode ? 'Pasajero' : 'Conductor'}
-              </Text>
               <View style={s.userRatingRow}>
+                <Star size={14} color={COLORS.primary} fill={COLORS.primary} />
                 <Text style={s.userRating}>
-                  ⭐{' '}
-                  {isDriverMode
-                    ? ride.passengerRating.toFixed(1)
-                    : ride.driverRating.toFixed(1)}
+                  {isDriverMode ? ride.passengerRating.toFixed(1) : ride.driverRating.toFixed(1)}
                 </Text>
+                <Text style={s.userRatingDot}>•</Text>
+                <Text style={s.personRole}>{isDriverMode ? 'Pasajero' : 'Conductor'}</Text>
               </View>
             </View>
           </View>
@@ -463,6 +461,8 @@ const RideCompletedScreen = () => {
                 key={star}
                 onPress={() => setSelectedRating(star)}
                 style={s.starBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`${star} ${star === 1 ? 'estrella' : 'estrellas'}`}
               >
                 <StarIcon filled={selectedRating >= star} size={36} />
               </TouchableOpacity>
@@ -489,6 +489,19 @@ const RideCompletedScreen = () => {
         </TouchableOpacity>
       </View>
 
+      <ConfirmBottomSheet
+        visible={showSkipConfirm}
+        title="¿Omitir reseña?"
+        message="Puedes continuar sin calificar este viaje."
+        confirmLabel="Omitir reseña"
+        cancelLabel="Calificar"
+        onConfirm={() => {
+          setShowSkipConfirm(false);
+          goToHome();
+        }}
+        onCancel={() => setShowSkipConfirm(false)}
+      />
+
       {/* REVIEW MODAL */}
       <Modal
         visible={showReviewModal}
@@ -507,7 +520,7 @@ const RideCompletedScreen = () => {
                 onPress={() => setShowReviewModal(false)}
                 style={s.closeBtn}
               >
-                <Text style={s.closeBtnText}>✕</Text>
+                <X size={22} color={COLORS.primary} strokeWidth={2.5} />
               </TouchableOpacity>
             </View>
 
@@ -523,6 +536,8 @@ const RideCompletedScreen = () => {
                       key={star}
                       onPress={() => setSelectedRating(star)}
                       style={s.starBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${star} ${star === 1 ? 'estrella' : 'estrellas'}`}
                     >
                       <StarIcon filled={selectedRating >= star} size={40} />
                     </TouchableOpacity>
@@ -575,7 +590,7 @@ const RideCompletedScreen = () => {
 };
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.gray100 },
+  container: { flex: 1, backgroundColor: COLORS.white },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -612,147 +627,116 @@ const s = StyleSheet.create({
 
   // SUCCESS
   successRing: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: COLORS.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
   },
-  successCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  successCheck: { fontSize: 32, color: COLORS.white, fontWeight: '700' },
   successTitle: {
-    fontSize: 26,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '700',
     color: COLORS.black,
     marginTop: 20,
     marginBottom: 8,
-    letterSpacing: -0.5,
   },
   successSub: {
-    fontSize: 14,
+    fontSize: 15,
     color: COLORS.gray600,
-    marginBottom: 36,
+    marginBottom: 28,
     textAlign: 'center',
   },
 
   // SCROLL
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 110 },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 120,
+    gap: 12,
+  },
 
   // HERO
   hero: {
-    backgroundColor: COLORS.primary,
-    paddingTop: 36,
-    paddingBottom: 44,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
   },
-  heroBadge: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-    marginBottom: 18,
+  heroText: { flex: 1, alignItems: 'flex-start' },
+  heroStatusIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  heroBadgeText: {
-    color: COLORS.white,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
+  heroTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.black,
+    lineHeight: 21,
   },
   heroFare: {
-    fontSize: 52,
-    fontWeight: '800',
-    color: COLORS.white,
-    letterSpacing: -1,
+    fontSize: 48,
+    fontWeight: '700',
+    color: COLORS.black,
+    letterSpacing: -1.2,
+    lineHeight: 52,
   },
   heroLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.65)',
-    marginTop: 4,
-    fontWeight: '500',
+    fontSize: 14,
+    color: COLORS.gray600,
+    lineHeight: 18,
   },
 
   // CARD
   card: {
     backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: COLORS.black,
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+    borderRadius: 12,
+    padding: 16,
   },
 
   // ROUTE
   routeRow: { flexDirection: 'row', alignItems: 'stretch' },
-  routeDots: { alignItems: 'center', marginRight: 14, paddingVertical: 4 },
-  dotOrigin: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-  },
+  routeDots: { width: 30, alignItems: 'center', marginRight: 14, paddingVertical: 4 },
   routeLine: {
     flex: 1,
-    width: 2,
+    width: 1.5,
     backgroundColor: COLORS.gray200,
     marginVertical: 4,
-    minHeight: 24,
-  },
-  dotDest: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    backgroundColor: COLORS.black,
+    minHeight: 12,
   },
   routeAddresses: { flex: 1, justifyContent: 'space-between' },
   routeAddress: { paddingVertical: 4 },
-  routeAddressLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: COLORS.gray400,
-    letterSpacing: 1,
-    marginBottom: 2,
-    textTransform: 'uppercase',
-  },
-  routeAddressText: { fontSize: 14, color: COLORS.black, fontWeight: '600' },
+  routeAddressText: { fontSize: 15, color: COLORS.black, fontWeight: '500' },
 
-  divider: { height: 1, backgroundColor: COLORS.gray200, marginVertical: 18 },
+  divider: { height: 1, backgroundColor: COLORS.gray200, marginVertical: 14 },
 
   // STATS
   statsRow: { flexDirection: 'row', alignItems: 'center' },
   stat: { flex: 1, alignItems: 'center' },
   statValue: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.black,
-    letterSpacing: -0.5,
   },
   statUnit: {
-    fontSize: 12,
-    color: COLORS.primary,
-    fontWeight: '700',
-    marginTop: -2,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: COLORS.gray400,
-    marginTop: 4,
+    fontSize: 13,
+    color: COLORS.gray600,
     fontWeight: '500',
   },
-  statSep: { width: 1, height: 36, backgroundColor: COLORS.gray200 },
+  statSep: { width: 1, height: 28, backgroundColor: COLORS.gray200 },
 
   // PERSON
   personRow: { flexDirection: 'row', alignItems: 'center' },
@@ -795,9 +779,11 @@ const s = StyleSheet.create({
     gap: 12,
   },
   userAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
     backgroundColor: COLORS.primaryUltraLight,
     alignItems: 'center',
     justifyContent: 'center',
@@ -806,29 +792,28 @@ const s = StyleSheet.create({
   userAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
-  },
-  userAvatarEmoji: {
-    fontSize: 24,
+    borderRadius: 30,
   },
   userInfo: {
     flex: 1,
   },
   userName: {
-    fontSize: 15,
+    fontSize: 20,
     fontWeight: '700',
     color: COLORS.black,
-    marginBottom: 4,
+    marginBottom: 5,
   },
   userRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
   },
   userRating: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: COLORS.gray600,
+    color: COLORS.black,
   },
+  userRatingDot: { color: COLORS.gray400, marginHorizontal: 4 },
   vehicleSection: {
     marginTop: 12,
     paddingTop: 12,
@@ -837,11 +822,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   vehicleText: {
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.gray600,
     fontWeight: '500',
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   plateBadge: {
     backgroundColor: COLORS.black,
@@ -859,65 +844,56 @@ const s = StyleSheet.create({
 
   // RATING
   ratingTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.black,
-    marginBottom: 6,
-    textAlign: 'center',
+    marginBottom: 12,
   },
   ratingLabelText: {
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.primary,
     fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   starsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
-    marginTop: 4,
+    gap: 8,
+    marginTop: 2,
   },
-  starBtn: { padding: 6 },
+  starBtn: { padding: 5, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 
   // FOOTER
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingBottom: 28,
+    paddingTop: 12,
+    paddingBottom: 16,
     backgroundColor: COLORS.white,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray200,
-    gap: 10,
+    gap: 12,
   },
   ghostBtn: {
     flex: 1,
-    paddingVertical: 15,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: COLORS.gray200,
+    minHeight: 52,
+    borderRadius: 12,
+    backgroundColor: COLORS.gray100,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ghostBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.gray600 },
+  ghostBtnText: { fontSize: 15, fontWeight: '600', color: COLORS.gray600 },
   primaryBtn: {
     backgroundColor: COLORS.primary,
-    paddingVertical: 15,
+    minHeight: 52,
     paddingHorizontal: 28,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '600',
     color: COLORS.white,
-    letterSpacing: 0.3,
   },
   footerPrimary: { flex: 1 },
   btnDisabled: { opacity: 0.35 },
@@ -930,9 +906,9 @@ const s = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: COLORS.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingBottom: 34,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 24,
     maxHeight: '90%',
   },
   modalHandle: {
@@ -950,29 +926,22 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray200,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: COLORS.black,
-    letterSpacing: -0.3,
   },
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.gray100,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeBtnText: { fontSize: 14, color: COLORS.gray600, fontWeight: '700' },
-
   modalBody: { paddingHorizontal: 20, paddingTop: 20 },
 
   modalStarsSection: { alignItems: 'center', marginBottom: 28 },
-  modalStarsRow: { flexDirection: 'row', gap: 4 },
+  modalStarsRow: { flexDirection: 'row', gap: 8 },
   modalRatingLabel: {
     marginTop: 8,
     fontSize: 14,
@@ -1014,9 +983,9 @@ const s = StyleSheet.create({
   catLabelActive: { color: COLORS.primary },
 
   reviewInput: {
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: COLORS.gray200,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 14,
@@ -1035,9 +1004,7 @@ const s = StyleSheet.create({
 
   modalFooter: {
     paddingHorizontal: 20,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray200,
+    paddingTop: 8,
   },
   modalConfirmBtn: { width: '100%' },
 });

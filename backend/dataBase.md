@@ -2,6 +2,8 @@
 
 > PostgreSQL con extensión PostGIS | ORM: Sequelize
 
+`migrations/00000000-initial-schema.js` es la única migración y crea el esquema completo para una instalación nueva, incluidas las reglas de asignación rápida. `migrate.js` la ejecuta una sola vez y se detiene si encuentra tablas existentes de la aplicación; para reinicializar, usa una base de datos vacía. El OCR de CI se procesa en una sola solicitud. El esquema de CI no incluye tablas de sesión OCR o revisión manual, apellidos combinados ni un estado separado de aprobación documental.
+
 ---
 
 ## Índice
@@ -39,8 +41,10 @@ La base de datos soporta una aplicación de transporte donde pasajeros solicitan
 ```
 users ──────────────────── drivers ──────── vehicles
   │                           │
+  ├── user_identities          ├── documents
+  ├── documents ───────────────┘
   │                           ├── driver_locations
-  │                           ├── driver_requests ── request_files
+  │                           ├── driver_requests ── documents
   │                           ├── driver_earnings ── commission_settlements
   │                           ├── ride_offers
   │                           └── (panicEvents)
@@ -78,21 +82,48 @@ Todos los usuarios de la app, tanto pasajeros como conductores. Un mismo usuario
 | `id` | UUID | NO | | Identificador único |
 | `firebase_uid` | VARCHAR | NO | | ID de autenticación Firebase |
 | `fcm_token` | VARCHAR | YES | | Firebase Device Token para Notificaciones Push |
-| `name` | VARCHAR | NO | | Nombre completo |
 | `email` | VARCHAR | YES | | Correo electrónico |
 | `phone` | VARCHAR | YES | | Teléfono |
 | `password` | VARCHAR | YES | | Contraseña hasheada |
 | `role` | ENUM | NO | | `passenger`, `driver`, `admin` |
 | `current_mode` | VARCHAR | YES | | Modo activo si el usuario tiene doble rol |
-| `profile_photo` | VARCHAR | YES | | URL de la foto de perfil |
+| `profile_photo` | VARCHAR | YES | | Ruta autenticada de la foto obtenida en Face Liveness (`/api/users/:id/profile-photo`) después de verificar la identidad |
 | `is_active` | BOOLEAN | NO | true | Si la cuenta está activa |
-| `is_verified` | BOOLEAN | NO | false | Si el correo/teléfono fue verificado |
+| `phone_verified` | BOOLEAN | NO | false | Si el número de celular fue validado mediante OTP |
 | `last_login` | TIMESTAMPTZ | YES | | Último inicio de sesión |
 | `deleted_at` | TIMESTAMPTZ | YES | | Soft delete — no se borra físicamente |
 | `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
 | `updated_at` | TIMESTAMPTZ | NO | | Fecha de última modificación |
 
 > ⚠️ `total_trips` fue eliminado — se calcula con `SELECT COUNT(*) FROM rides WHERE passenger_id = ?`
+>
+> ⚠️ `users` no guarda nombre ni estado de identidad. Para mostrar el nombre y validar identidad se consulta `user_identities`.
+
+---
+
+### `user_identities`
+
+Datos oficiales de la cédula. Tiene una relación 1:1 con `users`; se mantiene fuera de `users` porque es información sensible.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | UUID | NO | Identificador |
+| `user_id` | UUID | NO | FK única → `users` |
+| `first_names` | VARCHAR(150) | NO | Nombres |
+| `paternal_surname` | VARCHAR(100) | YES | Apellido paterno |
+| `maternal_surname` | VARCHAR(100) | YES | Apellido materno |
+| `ci_number` | VARCHAR(20) | NO | Número de CI, único |
+| `birth_date`, `issue_date`, `expiry_date` | DATE | | Fechas del CI |
+| `birth_place`, `address`, `occupation` | VARCHAR | YES | Datos personales extraídos |
+| `marital_status`, `blood_type` | VARCHAR | YES | Estado civil y grupo sanguíneo |
+| `verification_status` | VARCHAR(20) | NO | `pending`, `verified`, `rejected` |
+| `verified_at`, `verified_by`, `rejection_reason` | TIMESTAMPTZ/UUID/TEXT | YES | Resultado de verificación |
+
+La identidad solo pasa a `verified` después de que el OCR valida los campos requeridos, Face Liveness supera su umbral y Rekognition compara su imagen de referencia con el rostro del frente del CI. El OCR admite la CI actual y la anterior: en la anterior los nombres se leen tras `A:`, el nacimiento tras `Nacido el` y el lugar de nacimiento tras `EN` en el reverso; las fechas impresas con meses en letras se normalizan antes de validar. El lugar de nacimiento es obligatorio para ambos formatos. No se exige MRZ en el diseño anterior. Las dos imágenes del CI y una versión reducida de la foto de referencia se conservan cifradas tras la aprobación.
+
+El registro actual envía ambas caras del CI y el identificador de la prueba de vida al backend en una sola solicitud. El servidor obtiene el resultado y la foto de referencia directamente de la Lambda; la app no envía una selfie separada. La foto de referencia aprobada se guarda como documento `profilePhoto` cifrado y se sirve solo mediante una ruta autenticada.
+
+El registro envía ambas imágenes juntas. El OCR y la validación se ejecutan antes de guardar; si todos los campos requeridos son válidos, la identidad y las referencias cifradas de documentos se guardan en una transacción. No existe guardado de borradores OCR en la base de datos.
 
 ---
 
@@ -103,8 +134,12 @@ Perfil del conductor vinculado a un `user`. Solo existe si el usuario solicitó 
 |---|---|---|---|---|
 | `id` | UUID | NO | | Identificador único |
 | `user_id` | UUID | NO | | FK → users |
-| `license_number` | VARCHAR | YES | | Número de licencia de conducir |
-| `license_expiry` | TIMESTAMPTZ | YES | | Fecha de vencimiento de la licencia |
+| `license_number` | VARCHAR | YES | | Número de licencia; debe coincidir con el CI |
+| `license_nationality` | VARCHAR | YES | | Nacionalidad impresa en la licencia |
+| `license_issue_date`, `license_expiry` | DATE | YES | | Emisión y vencimiento |
+| `license_category` | VARCHAR(20) | YES | | Categoría de conducir |
+| `license_wears_glasses`, `license_uses_hearing_aid` | BOOLEAN | YES | | Restricciones indicadas en la licencia |
+| `license_verification_status`, `license_verified_at` | VARCHAR/TIMESTAMPTZ | NO/YES | | Estado y fecha de revisión |
 | `status` | ENUM | NO | | `pending`, `approved`, `rejected`, `suspended` |
 | `is_available` | BOOLEAN | NO | false | Si está disponible para recibir viajes |
 | `rejection_reason` | VARCHAR | YES | | Razón si fue rechazado |
@@ -133,6 +168,12 @@ Vehículo(s) registrado(s) por el conductor. Un conductor puede tener múltiples
 | `plate` | VARCHAR | NO | | Placa — UNIQUE |
 | `capacity` | INTEGER | NO | 4 | Número de pasajeros |
 | `vehicle_type` | ENUM | NO | `taxi` | `taxi`, `minibus`, `bus`, `motorcycle` |
+| `registration_municipality`, `crpva_number` | VARCHAR | YES | | Radicatoria y código CRPVA del RUAT |
+| `ruat_issue_date`, `ownership_start_date` | DATE | YES | | Emisión del RUAT e inicio de la propiedad actual |
+| `door_count`, `service_type` | INTEGER/VARCHAR | YES | | Número de puertas y tipo de servicio declarado |
+| `chassis_number`, `engine_number` | VARCHAR | YES | | Identificadores técnicos del vehículo |
+| `fuel_type`, `engine_displacement`, `engine_type` | VARCHAR | YES | | Combustible, cilindrada y tipo de motor |
+| `legal_observations` | TEXT | YES | | Restricciones u observaciones legales del RUAT |
 | `status` | ENUM | NO | `active` | `active`, `inactive`, `suspended` |
 | `ruat_file` | VARCHAR | YES | | Nombre del archivo RUAT en `/uploads/drivers/`. `NULL` = sin RUAT o rechazado. Presente = en revisión o aprobado (ver `ruat_verified`) |
 | `ruat_verified` | BOOLEAN | NO | `false` | `true` = RUAT aprobado por el admin. Vehículo verificado |
@@ -140,6 +181,10 @@ Vehículo(s) registrado(s) por el conductor. Un conductor puede tener múltiples
 | `ruat_required` | BOOLEAN | NO | `false` | `true` = el admin exige que el conductor envíe el RUAT urgentemente |
 | `ruat_required_reason` | ENUM | YES | | Motivo del requerimiento: `accident`, `vehicle_mismatch`, `suspension_reactivation`, `criminal_record` |
 | `ruat_required_at` | TIMESTAMPTZ | YES | | Fecha en que el admin activó el requerimiento |
+| `soat_rosette_number` | VARCHAR | YES | | Número de roseta del SOAT vigente |
+| `soat_start_date`, `soat_expiry_date` | DATE | YES | | Inicio y vencimiento de vigencia; el estado se calcula por vencimiento |
+| `soat_use` | VARCHAR | YES | | Uso declarado: `PUBLICO` o `PARTICULAR` |
+| `soat_verification_status`, `soat_verified_at` | VARCHAR/TIMESTAMPTZ | NO/YES | | Estado y fecha de revisión del SOAT |
 | `deleted_at` | TIMESTAMPTZ | YES | | Soft delete |
 | `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
 | `updated_at` | TIMESTAMPTZ | NO | | Fecha de última modificación |
@@ -387,19 +432,23 @@ Solicitudes de registro como conductor. Incluye el historial de versiones si hay
 
 ---
 
-### `request_files`
-Archivos adjuntos a una solicitud de conductor (fotos de licencia, SOAT, etc.).
+### `documents`
 
-| Columna | Tipo | Nulo | Descripción |
-|---|---|---|---|
-| `id` | UUID | NO | Identificador único |
-| `request_id` | UUID | NO | FK → driver_requests |
-| `file_type` | ENUM | NO | Tipo de documento: `profilePhoto`, `ciFront`, `ciBack`, `licenseFront`, `licenseBack`, `antecedentsPhoto`, `carFront`, `carBack`, `carLeft`, `carRight`, `soatPhoto`, `ruatPhoto` |
-| `filename` | VARCHAR | NO | Nombre del archivo |
-| `mime_type` | VARCHAR | NO | Tipo MIME, ej: `image/jpeg` |
-| `file_size` | INTEGER | NO | Tamaño en bytes |
-| `status` | ENUM | NO | `pending`, `approved`, `rejected` |
-| `uploaded_at` | TIMESTAMPTZ | NO | Cuándo se subió |
+Registro genérico de archivos vigentes. Evita crear una tabla por cada foto.
+Reemplaza a la antigua tabla `request_files`: los archivos de una solicitud se
+vinculan mediante `driver_request_id`.
+
+| Grupo de columnas | Descripción |
+|---|---|
+| `user_id`, `driver_id`, `vehicle_id` | Propietario del documento; solo `user_id` es obligatorio |
+| `driver_request_id` | Solicitud de conductor que presentó el archivo; conserva las versiones y el historial |
+| `document_type` | `ciFront`, `ciBack`, `licenseFront`, `licenseBack`, `antecedentsPhoto`, `ruatPhoto`, `soatPhoto` o fotos del vehículo/perfil |
+| `file_path`, `original_filename`, `mime_type`, `file_size` | Archivo almacenado |
+| `ocr_data`, `issued_at`, `expires_at` | Lectura OCR y vigencias |
+| `is_current` | Permite conservar documentos vencidos como historial |
+| `verification_status`, `verified_at`, `verified_by`, `rejection_reason` | Decisión automática. Estado: `pending`, `verified` o `rejected` |
+
+Un documento pasa a `verified` automáticamente cuando el OCR entregó los campos obligatorios, superó las comparaciones aplicables (CI/licencia, CI/RUAT, RUAT/SOAT) y tiene vigencia válida. La solicitud se aprueba automáticamente solo cuando todos sus archivos obligatorios están presentes y verificados; de lo contrario queda rechazada con el motivo técnico.
 
 ---
 
@@ -616,7 +665,7 @@ Reglas de precios dinámicos (surge pricing) por zona geográfica y franja horar
 
 | Tabla | Descripción |
 |---|---|
-| `SequelizeMeta` | Registro interno de migraciones ejecutadas por Sequelize |
+| `SequelizeMeta` | No se usa; `migrate.js` ejecuta directamente la migración maestra una sola vez |
 | `spatial_ref_sys` | Sistema de referencia espacial de PostGIS (no modificar) |
 | `geometry_columns` | Metadatos de columnas geométricas de PostGIS (no modificar) |
 | `geography_columns` | Metadatos de columnas geográficas de PostGIS (no modificar) |
@@ -677,8 +726,8 @@ settlement_payment_method: 'cash', 'qr', 'transfer'
 -- Acciones de auditoría
 audit_action: 'INSERT', 'UPDATE', 'DELETE'
 
--- Tipos de archivos de solicitud de conductor
-request_file_type: 'profilePhoto', 'ciFront', 'ciBack', 'licenseFront', 'licenseBack', 'antecedentsPhoto', 'carFront', 'carBack', 'carLeft', 'carRight', 'soatPhoto', 'ruatPhoto'
+-- document_type es VARCHAR con valores controlados por CHECK en documents
+-- (ciFront, ciBack, licenseFront, licenseBack, antecedentes, RUAT, SOAT y fotos del vehículo)
 ```
 
 ---
@@ -1087,14 +1136,15 @@ ORDER BY period_start DESC;
 ```sql
 SELECT
   d.id AS driver_id,
-  u.name,
+  CONCAT_WS(' ', ui.first_names, ui.paternal_surname, ui.maternal_surname) AS name,
   u.phone,
   SUM(cs.total_commission) AS deuda_total
 FROM commission_settlements cs
 JOIN drivers d ON d.id = cs.driver_id
 JOIN users u ON u.id = d.user_id
+LEFT JOIN user_identities ui ON ui.user_id = u.id
 WHERE cs.status = 'overdue'
-GROUP BY d.id, u.name, u.phone
+GROUP BY d.id, ui.first_names, ui.paternal_surname, ui.maternal_surname, u.phone
 ORDER BY deuda_total DESC;
 ```
 
@@ -1223,7 +1273,7 @@ ORDER BY triggered_at DESC;
 ```sql
 SELECT
   pe.id,
-  u.name AS usuario,
+  CONCAT_WS(' ', ui.first_names, ui.paternal_surname, ui.maternal_surname) AS usuario,
   u.phone,
   pe.triggered_at,
   r.pickup_address,
@@ -1231,6 +1281,7 @@ SELECT
   EXTRACT(EPOCH FROM (now() - pe.triggered_at)) / 60 AS minutos_desde_activacion
 FROM panic_events pe
 JOIN users u ON u.id = pe.user_id
+LEFT JOIN user_identities ui ON ui.user_id = u.id
 LEFT JOIN rides r ON r.id = pe.ride_id
 WHERE pe.resolved_at IS NULL
 ORDER BY pe.triggered_at DESC;
@@ -1253,7 +1304,7 @@ ORDER BY total_incidentes DESC;
 SELECT
   pe.id AS panic_id,
   r.id AS ride_id,
-  u.name,
+  CONCAT_WS(' ', ui.first_names, ui.paternal_surname, ui.maternal_surname) AS name,
   r.pickup_address,
   r.dropoff_address,
   pe.triggered_at,
@@ -1265,6 +1316,7 @@ SELECT
   END AS contexto
 FROM panic_events pe
 JOIN users u ON u.id = pe.user_id
+LEFT JOIN user_identities ui ON ui.user_id = u.id
 LEFT JOIN rides r ON r.id = pe.ride_id
 WHERE pe.triggered_at >= now() - INTERVAL '7 days'
 ORDER BY pe.triggered_at DESC;
@@ -1326,7 +1378,7 @@ ORDER BY pe.triggered_at DESC;
 ### 6. Registro de conductor
 ```
 1. Usuario crea driver_request (status = 'pending')
-2. Sube documentos → request_files
+2. Sube documentos → documents (vinculados con driver_request_id), incluyendo fotos frontal y trasera del vehículo
 3. Admin revisa → aprueba o rechaza con razón
 4. Si aprueba → se crea registro en drivers y vehicles
 5. Si rechaza → driver_request.version++ y puede reintentar

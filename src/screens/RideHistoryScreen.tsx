@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { ridesService } from '../services/rides.service';
 import { Menu, X } from 'lucide-react-native';
+import { DestinationFlagIcon, PassengerMapIcon, WaypointMapIcon } from '../components/MapLocationIcons';
 
 const T = {
   bg: '#FFFFFF',
@@ -130,14 +131,25 @@ const RideHistoryScreen = () => {
 
         {/* Ruta */}
         <View style={s.routeRow}>
-          <View style={s.routeDotGray} />
+          <PassengerMapIcon size={28} bare />
           <Text style={s.routeAddr} numberOfLines={1}>
             {item.pickup_address ?? '—'}
           </Text>
         </View>
         <View style={s.routeConnector} />
+        {[...(item.waypoints ?? [])]
+          .sort((a, b) => a.sequence - b.sequence)
+          .map((stop, index) => (
+            <React.Fragment key={`${stop.sequence}-${index}`}>
+              <View style={s.routeRow}>
+                <WaypointMapIcon number={index + 1} size={28} />
+                <Text style={s.routeAddr} numberOfLines={1}>{stop.address}</Text>
+              </View>
+              <View style={s.routeConnector} />
+            </React.Fragment>
+          ))}
         <View style={s.routeRow}>
-          <View style={s.routeDotPurple} />
+          <DestinationFlagIcon size={28} bare />
           <Text style={s.routeAddr} numberOfLines={1}>
             {item.dropoff_address ?? '—'}
           </Text>
@@ -360,18 +372,6 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   routeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  routeDotGray: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.inkLight,
-  },
-  routeDotPurple: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.accent,
-  },
   routeAddr: {
     flex: 1,
     fontSize: 13,
@@ -382,7 +382,7 @@ const s = StyleSheet.create({
     width: 1,
     height: 10,
     backgroundColor: T.border,
-    marginLeft: 3.5,
+    marginLeft: 13.5,
     marginVertical: 2,
   },
   stats: {

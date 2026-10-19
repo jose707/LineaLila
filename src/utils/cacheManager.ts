@@ -23,13 +23,9 @@ export interface CachedRoute {
 
 export interface TripHistory {
   id: string;
-  pickupLocation: LatLng;
-  pickupAddress: string;
   destinationLocation: LatLng;
   destinationAddress: string;
-  distance: number;
-  duration: number;
-  fare: number;
+  count: number;
   timestamp: number;
 }
 
@@ -38,6 +34,7 @@ const CACHE_KEYS = {
   ROUTES: 'linealila_cached_routes',
   TRIP_HISTORY: 'linealila_trip_history',
   SEARCH_HISTORY: 'linealila_search_history',
+  FAVORITE_TRIP_IDS: 'favoriteTripIds',
 };
 
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 días en ms
@@ -190,68 +187,105 @@ export const cacheRouteManager = {
   },
 };
 
-// 🔥 FUNCIONES DE CACHÉ DE HISTORIAL DE VIAJES
+// Búsquedas recientes: solo se conserva el destino, nunca el origen de la ruta.
 export const cacheTripHistoryManager = {
-  // Agregar un viaje al historial
+  destinationKey: (trip: Pick<TripHistory, 'destinationAddress'>): string =>
+    trip.destinationAddress.trim().replace(/\s+/g, ' ').toLocaleLowerCase(),
+
+  // Guardar o actualizar un destino reciente.
   addTrip: async (
-    trip: Omit<TripHistory, 'id' | 'timestamp'>,
+    trip: Omit<TripHistory, 'id' | 'timestamp' | 'count'>,
   ): Promise<void> => {
     try {
+      if (!trip.destinationAddress.trim() ||
+          !Number.isFinite(trip.destinationLocation.latitude) ||
+          !Number.isFinite(trip.destinationLocation.longitude)) return;
       const trips = await cacheTripHistoryManager.getTrips();
+      const previous = trips.find(saved =>
+        cacheTripHistoryManager.destinationKey(saved) === cacheTripHistoryManager.destinationKey(trip),
+      );
       const newTrip: TripHistory = {
-        ...trip,
-        id: Date.now().toString(),
+        destinationLocation: {
+          latitude: trip.destinationLocation.latitude,
+          longitude: trip.destinationLocation.longitude,
+        },
+        destinationAddress: trip.destinationAddress.trim(),
+        id: previous?.id ?? Date.now().toString(),
+        count: (previous?.count ?? 0) + 1,
         timestamp: Date.now(),
       };
-
-      trips.unshift(newTrip);
-
-      // Mantener solo los últimos 50 viajes
-      if (trips.length > 50) {
-        trips.pop();
-      }
-
-      StorageHelper.setItem(CACHE_KEYS.TRIP_HISTORY, JSON.stringify(trips));
+      const unique = trips.filter(saved =>
+        cacheTripHistoryManager.destinationKey(saved) !== cacheTripHistoryManager.destinationKey(trip),
+      );
+      StorageHelper.setItem(CACHE_KEYS.TRIP_HISTORY, JSON.stringify([newTrip, ...unique].slice(0, 50)));
     } catch (error) {
       console.error('Error guardando viaje en historial:', error);
     }
   },
 
-  // Obtener historial de viajes
+  // Migrar entradas antiguas de origen-destino sin perder los destinos guardados.
   getTrips: async (): Promise<TripHistory[]> => {
     try {
       const data = StorageHelper.getItem(CACHE_KEYS.TRIP_HISTORY);
-      return data ? JSON.parse(data) : [];
+      const stored: unknown = data ? JSON.parse(data) : [];
+      if (!Array.isArray(stored)) return [];
+
+      let favoriteIds = new Set<string>();
+      try {
+        const saved = JSON.parse(StorageHelper.getItem(CACHE_KEYS.FAVORITE_TRIP_IDS) || '[]');
+        if (Array.isArray(saved)) favoriteIds = new Set(saved.filter((id): id is string => typeof id === 'string'));
+      } catch { /* El historial sigue disponible aunque los favoritos estén dañados. */ }
+      let favoritesChanged = false;
+      const destinations = new Map<string, TripHistory>();
+      for (const item of stored) {
+        const address = typeof item?.destinationAddress === 'string'
+          ? item.destinationAddress.trim()
+          : '';
+        const latitude = item?.destinationLocation?.latitude;
+        const longitude = item?.destinationLocation?.longitude;
+        if (!address || !Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+
+        const key = cacheTripHistoryManager.destinationKey({ destinationAddress: address });
+        const timestamp = Number.isFinite(item.timestamp) ? item.timestamp : Date.now();
+        const id = String(item.id ?? timestamp);
+        const count = Number.isFinite(item.count) && item.count > 0 ? item.count : 1;
+        const previous = destinations.get(key);
+        if (previous) {
+          previous.count += count;
+          if (favoriteIds.delete(id)) {
+            favoriteIds.add(previous.id);
+            favoritesChanged = true;
+          }
+          continue;
+        }
+        destinations.set(key, {
+          id,
+          destinationLocation: { latitude, longitude },
+          destinationAddress: address,
+          count,
+          timestamp,
+        });
+      }
+      const trips = Array.from(destinations.values()).slice(0, 50);
+      const normalized = JSON.stringify(trips);
+      if (data && data !== normalized) StorageHelper.setItem(CACHE_KEYS.TRIP_HISTORY, normalized);
+      if (favoritesChanged) {
+        StorageHelper.setItem(CACHE_KEYS.FAVORITE_TRIP_IDS, JSON.stringify([...favoriteIds]));
+      }
+      return trips;
     } catch (error) {
       console.error('Error obteniendo historial de viajes:', error);
       return [];
     }
   },
 
-  // Obtener viajes frecuentes (top 5)
+  // Obtener destinos frecuentes (top 5).
   getFrequentTrips: async (): Promise<TripHistory[]> => {
     try {
       const trips = await cacheTripHistoryManager.getTrips();
-
-      // Contar frecuencia de rutas
-      const routeMap = new Map<string, { trip: TripHistory; count: number }>();
-
-      trips.forEach(trip => {
-        const key = `${trip.pickupAddress}-${trip.destinationAddress}`;
-        const existing = routeMap.get(key);
-
-        if (existing) {
-          existing.count++;
-        } else {
-          routeMap.set(key, { trip, count: 1 });
-        }
-      });
-
-      // Ordenar por frecuencia y retornar top 5
-      return Array.from(routeMap.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
-        .map(item => item.trip);
+      return [...trips]
+        .sort((a, b) => b.count - a.count || b.timestamp - a.timestamp)
+        .slice(0, 5);
     } catch (error) {
       console.error('Error obteniendo viajes frecuentes:', error);
       return [];

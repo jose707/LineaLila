@@ -14,6 +14,13 @@ export interface DriverLocationPayload {
 class SocketService {
   private socket: Socket | null = null;
   private isConnecting = false;
+  private joinedRideIds = new Set<string>();
+  private driverOnline = false;
+  private activeRideId: string | null = null;
+  private resumeAfterRideBackground = false;
+  private availabilityRestoredListeners = new Set<() => void>();
+  private driverCoords: { latitude: number; longitude: number } | null = null;
+  private driverCoordsAt = 0;
 
   /** Conecta al servidor usando el token JWT del storage */
   connect(): void {
@@ -41,6 +48,15 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('🔌 [Socket] Connected:', this.socket?.id);
       this.isConnecting = false;
+      this.joinedRideIds.forEach(rideId => {
+        this.socket?.emit('join_ride', { rideId });
+      });
+      if (this.driverOnline) {
+        const coords = Date.now() - this.driverCoordsAt < 30000
+          ? this.driverCoords ?? {}
+          : {};
+        this.socket?.emit('driver:go_online', coords);
+      }
     });
 
     this.socket.on('connect_error', (error) => {
@@ -62,6 +78,12 @@ class SocketService {
       this.socket = null;
     }
     this.isConnecting = false;
+    this.joinedRideIds.clear();
+    this.driverOnline = false;
+    this.activeRideId = null;
+    this.resumeAfterRideBackground = false;
+    this.driverCoords = null;
+    this.driverCoordsAt = 0;
   }
 
   /** Devuelve la instancia interna (puede ser null) */
@@ -71,6 +93,42 @@ class SocketService {
 
   isConnected(): boolean {
     return this.socket?.connected ?? false;
+  }
+
+  isDriverOnline(): boolean {
+    return this.driverOnline;
+  }
+
+  setActiveRide(rideId: string, active: boolean): void {
+    if (active) this.activeRideId = rideId;
+    else if (this.activeRideId === rideId) this.activeRideId = null;
+  }
+
+  hasActiveRide(): boolean {
+    return this.activeRideId !== null;
+  }
+
+  shouldRestoreAfterRideBackground(): boolean {
+    return this.resumeAfterRideBackground;
+  }
+
+  onAvailabilityRestored(listener: () => void): () => void {
+    this.availabilityRestoredListeners.add(listener);
+    return () => { this.availabilityRestoredListeners.delete(listener); };
+  }
+
+  suspendForBackground(): void {
+    const restore = this.resumeAfterRideBackground ||
+      (this.driverOnline && this.hasActiveRide());
+    this.goOffline();
+    this.resumeAfterRideBackground = restore;
+  }
+
+  restoreAfterRideBackground(): void {
+    if (!this.resumeAfterRideBackground) return;
+    this.resumeAfterRideBackground = false;
+    this.goOnline();
+    this.availabilityRestoredListeners.forEach(listener => listener());
   }
 
   // ──────────────────────────────────────────────────────────
@@ -107,11 +165,13 @@ class SocketService {
   // ──────────────────────────────────────────────────────────
 
   joinRide(rideId: string): void {
-    this.emit('join_ride', { rideId });
+    this.joinedRideIds.add(rideId);
+    if (this.socket?.connected) this.socket.emit('join_ride', { rideId });
   }
 
   leaveRide(rideId: string): void {
-    this.emit('leave_ride', { rideId });
+    this.joinedRideIds.delete(rideId);
+    if (this.socket?.connected) this.socket.emit('leave_ride', { rideId });
   }
 
   // ──────────────────────────────────────────────────────────
@@ -119,11 +179,47 @@ class SocketService {
   // ──────────────────────────────────────────────────────────
 
   goOnline(coords?: { latitude: number; longitude: number }): void {
+    this.driverOnline = true;
+    if (coords) {
+      this.driverCoords = coords;
+      this.driverCoordsAt = Date.now();
+    }
     this.emit('driver:go_online', coords ?? {});
   }
 
   goOffline(): void {
+    this.driverOnline = false;
+    this.resumeAfterRideBackground = false;
+    this.driverCoords = null;
+    this.driverCoordsAt = 0;
     this.emit('driver:go_offline');
+  }
+
+  /** Confirma con el servidor un cambio solicitado desde el control de disponibilidad. */
+  confirmDriverAvailability(
+    online: boolean,
+    coords?: { latitude: number; longitude: number },
+  ): Promise<boolean> {
+    const socket = this.socket;
+    if (!socket?.connected) return Promise.resolve(false);
+
+    return new Promise(resolve => {
+      socket.timeout(8000).emit(
+        online ? 'driver:go_online' : 'driver:go_offline',
+        online ? coords ?? {} : {},
+        (error: Error | null, response: { ok?: boolean }) => {
+          if (error || !response?.ok) {
+            resolve(false);
+            return;
+          }
+          this.driverOnline = online;
+          if (!online) this.resumeAfterRideBackground = false;
+          this.driverCoords = online ? coords ?? null : null;
+          this.driverCoordsAt = online && coords ? Date.now() : 0;
+          resolve(true);
+        },
+      );
+    });
   }
 
   /** Actualiza ubicación del conductor (se guarda en DB y se emite al room del viaje) */

@@ -18,6 +18,12 @@ import { COLORS } from '../theme/colors';
 
 type EmailLoginScreenProps = NativeStackScreenProps<any, 'EmailLogin'>;
 
+const TEST_DRIVER = {
+  email: 'conductor.prueba@linealila.test',
+  password: 'Conductor123!',
+  phone: '+59179990001',
+};
+
 export default function EmailLoginScreen({
   navigation,
 }: EmailLoginScreenProps) {
@@ -28,20 +34,21 @@ export default function EmailLoginScreen({
   const [loading, setLoading] = useState(false);
   const { loginWithToken } = useAuth();
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim() || !phone.trim()) {
+  const handleLogin = async (credentials = { email, password, phone }) => {
+    if (loading) return;
+    if (!credentials.email.trim() || !credentials.password.trim() || !credentials.phone.trim()) {
       Alert.alert('Error', 'Por favor completa todos los campos');
       return;
     }
 
     try {
       setLoading(true);
-      console.log(`📧 Iniciando sesión con email: ${email}`);
+      console.log(`📧 Iniciando sesión con email: ${credentials.email}`);
 
       // Login usando el backend
       const response = await authService.login({
-        email,
-        password,
+        email: credentials.email,
+        password: credentials.password,
       });
 
       console.log('✅ Login exitoso:', response.user.email);
@@ -152,7 +159,7 @@ export default function EmailLoginScreen({
         {/* Login Button */}
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
+          onPress={() => handleLogin()}
           disabled={loading}
           activeOpacity={0.8}
         >
@@ -161,6 +168,22 @@ export default function EmailLoginScreen({
           ) : (
             <Text style={styles.buttonText}>Continuar</Text>
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickAccessButton, loading && styles.buttonDisabled]}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Entrar como conductor de prueba"
+          activeOpacity={0.8}
+          onPress={() => {
+            setEmail(TEST_DRIVER.email);
+            setPassword(TEST_DRIVER.password);
+            setPhone(TEST_DRIVER.phone);
+            handleLogin(TEST_DRIVER);
+          }}
+        >
+          <Text style={styles.quickAccessText}>Entrar como conductor de prueba</Text>
         </TouchableOpacity>
 
       </View>
@@ -266,6 +289,21 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  quickAccessButton: {
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  quickAccessText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   buttonText: {
     color: '#FFF',

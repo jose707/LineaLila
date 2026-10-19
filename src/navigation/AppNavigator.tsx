@@ -1,3 +1,5 @@
+import { CreateRideRequest } from '../types/api';
+import { QuickAssignmentResponse } from '../types/quickAssignment';
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { UserRole } from '../types/models';
@@ -19,13 +21,17 @@ import RideHistoryScreen from '../screens/RideHistoryScreen';
 
 // Importar pantallas - Viajes (Nuevas)
 import DriverRideRequestScreen from '../screens/DriverRideRequestScreen';
+
 import ActiveRideScreen from '../screens/ActiveRideScreen';
+import QuickAssignmentScreen from '../screens/QuickAssignmentScreen';
 import RideCompletedScreen from '../screens/RideCompletedScreen';
+import NegotiationScreen from '../screens/NegotiationScreen';
 
 // Importar pantallas - Conductor
 
 import DriverRegistrationScreen from '../screens/DriverRegistrationScreen';
 import DocumentResubmissionScreen from '../screens/DocumentResubmissionScreen';
+import IdentityVerificationScreen from '../screens/IdentityVerificationScreen';
 
 // Importar pantallas - Admin
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
@@ -46,6 +52,13 @@ export type Stop = {
   address: string;
 };
 
+type MapCameraRegion = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
 export type RootStackParamList = {
   Home: undefined;
   Map: {
@@ -59,10 +72,14 @@ export type RootStackParamList = {
     };
     pickupAddress?: string;
     destinationAddress?: string;
+    mapRegion?: MapCameraRegion;
     stops?: Stop[];
     pickingMode?: 'origin' | 'destination';
     editingStopIndex?: number;
     reset?: boolean;
+    quickAssignmentExpired?: boolean;
+    quickAssignmentCancelled?: boolean;
+    quickAssignmentNotice?: string;
   };
   Search: {
     pickupLocation?: {
@@ -75,6 +92,7 @@ export type RootStackParamList = {
       longitude: number;
     };
     destinationAddress?: string;
+    mapRegion?: MapCameraRegion;
     stops?: Stop[];
     pickingMode?: 'origin' | 'destination';
   };
@@ -89,14 +107,32 @@ export type RootStackParamList = {
   RideHistory: undefined;
   // Screens de viajes (Nuevas)
   DriverRideRequest: undefined;
-  ActiveRide: { rideId: string };
+
+  ActiveRide: { rideId: string; confirmationMessage?: string };
+  QuickAssignment: { rideId: string; request?: CreateRideRequest; initialSnapshot?: QuickAssignmentResponse };
   RideCompleted: { rideId: string };
+  Negotiation: {
+    rideId: string;
+    expiresAt?: string;
+    pickupLocation: { latitude: number; longitude: number };
+    pickupAddress: string;
+    destinationLocation: { latitude: number; longitude: number };
+    destinationAddress: string;
+    waypoints?: { latitude: number; longitude: number; address: string }[];
+    fare: number;
+    originalFare: number | null;
+    distance: number;
+    duration: number;
+    selectedVehicleType: string;
+    selectedPaymentMethod: string;
+  };
   // Screens del conductor
   DriverHome: undefined;
 
   DriverMap: undefined;
   DriverRegistration: { user?: any };
   DocumentResubmission: undefined;
+  IdentityVerification: undefined;
   // Screens del administrador
   AdminDashboard: undefined;
   AdminUsers: undefined;
@@ -112,6 +148,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 interface AppNavigatorProps {
   role?: UserRole | null;
+  identityRequired?: boolean;
 }
 
 // Función para obtener la pantalla inicial según el rol
@@ -128,7 +165,10 @@ const getInitialRouteName = (role?: UserRole | null) => {
   }
 };
 
-const AppNavigator = ({ role }: AppNavigatorProps) => {
+const AppNavigator = ({ role, identityRequired = false }: AppNavigatorProps) => {
+  if (identityRequired) {
+    return <Stack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}><Stack.Screen name="IdentityVerification" component={IdentityVerificationScreen} /></Stack.Navigator>;
+  }
   const initialRoute = getInitialRouteName(role);
 
   return (
@@ -138,6 +178,11 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
         headerShown: false,
       }}
     >
+      <Stack.Screen
+        name="IdentityVerification"
+        component={IdentityVerificationScreen}
+        options={{ gestureEnabled: false }}
+      />
       {/* SCREENS DEL PASAJERO */}
 
       <Stack.Screen
@@ -195,11 +240,20 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
           animation: 'slide_from_right',
         }}
       />
+      <Stack.Screen name="QuickAssignment" component={QuickAssignmentScreen} options={{ title: 'Asignación rápida' }} />
       <Stack.Screen
         name="ActiveRide"
         component={ActiveRideScreen}
         options={{
           animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen
+        name="Negotiation"
+        component={NegotiationScreen}
+        options={{
+          presentation: 'fullScreenModal',
+          animation: 'fade',
         }}
       />
       <Stack.Screen
@@ -244,6 +298,7 @@ const AppNavigator = ({ role }: AppNavigatorProps) => {
       />
 
       {/* SCREENS DEL CONDUCTOR */}
+
       <Stack.Screen
         name="DriverHome"
         component={DriverRideRequestScreen}

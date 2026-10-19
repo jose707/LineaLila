@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { DestinationFlagIcon, PassengerMapIcon } from '../components/MapLocationIcons';
 
 interface ActiveRide {
   rideId: string;
@@ -136,7 +137,7 @@ const ClientRideDetailsScreen = () => {
           <Text style={styles.backButton}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detalles del Viaje</Text>
-        <View style={{ width: 32 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* MAPA */}
@@ -151,17 +152,13 @@ const ClientRideDetailsScreen = () => {
           }}
         >
           {/* Marker de origen */}
-          <Marker
-            coordinate={ride.pickupCoords}
-            title="Recogida"
-            pinColor="#7C3AED"
-          />
+          <Marker coordinate={ride.pickupCoords} anchor={{ x: 0.5, y: 0.5 }}>
+            <PassengerMapIcon size={30} />
+          </Marker>
           {/* Marker de destino */}
-          <Marker
-            coordinate={ride.destinationCoords}
-            title="Destino"
-            pinColor="#EC4899"
-          />
+          <Marker coordinate={ride.destinationCoords} anchor={{ x: 0.5, y: 0.5 }}>
+            <DestinationFlagIcon size={30} />
+          </Marker>
           {/* Marker del conductor */}
           <Marker
             coordinate={ride.driverCoords}
@@ -248,11 +245,8 @@ const ClientRideDetailsScreen = () => {
           <Text style={styles.sectionTitle}>Ruta</Text>
 
           <View style={styles.locationItem}>
-            <View style={styles.locationIconPickup}>
-              <Text style={styles.locationIcon}>📍</Text>
-            </View>
+            <PassengerMapIcon size={28} bare />
             <View style={styles.locationDetails}>
-              <Text style={styles.locationLabel}>Recogida</Text>
               <Text style={styles.locationText}>{ride.pickupLocation}</Text>
             </View>
           </View>
@@ -260,11 +254,8 @@ const ClientRideDetailsScreen = () => {
           <View style={styles.routeLine} />
 
           <View style={styles.locationItem}>
-            <View style={styles.locationIconDestination}>
-              <Text style={styles.locationIcon}>🎯</Text>
-            </View>
+            <DestinationFlagIcon size={28} bare />
             <View style={styles.locationDetails}>
-              <Text style={styles.locationLabel}>Destino</Text>
               <Text style={styles.locationText}>
                 {ride.destinationLocation}
               </Text>
@@ -329,6 +320,7 @@ const styles = StyleSheet.create({
     color: "#7C3AED",
     fontWeight: "600",
   },
+  headerSpacer: { width: 32 },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
@@ -473,34 +465,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 16,
   },
-  locationIconPickup: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F0E6FF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  locationIconDestination: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FCE7F3",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  locationIcon: {
-    fontSize: 18,
-  },
   locationDetails: {
     flex: 1,
-  },
-  locationLabel: {
-    fontSize: 12,
-    color: "#999",
-    marginBottom: 4,
+    marginLeft: 12,
   },
   locationText: {
     fontSize: 13,
@@ -508,7 +475,7 @@ const styles = StyleSheet.create({
     color: "#2D2D2D",
   },
   routeLine: {
-    marginLeft: 18,
+    marginLeft: 14,
     marginBottom: 12,
     height: 24,
     borderLeftWidth: 2,

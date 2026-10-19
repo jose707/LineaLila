@@ -1,3 +1,4 @@
+import { privateImageSource } from '../utils/privateImageSource';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -246,7 +247,7 @@ const ProfileDetailScreen: React.FC = () => {
         <View style={[styles.avatarSection, isDark && styles.avatarSectionDark]}>
           <View style={[styles.avatarWrapper, isDark && styles.avatarWrapperDark]}>
             {profilePhotoUrl ? (
-              <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
+              <Image source={privateImageSource(profilePhotoUrl)} style={styles.avatarImage} />
             ) : (
               <View style={[styles.avatarFallback, isDark && styles.avatarFallbackDark]}>
                 <User size={32} color={COLORS.primary} />

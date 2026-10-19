@@ -37,7 +37,10 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  isVerified?: boolean;
+  phoneVerified?: boolean;
+  identityDocumentsSubmitted?: boolean;
+  identityRejectionReason?: string | null;
+  identityVerificationStatus?: 'pending' | 'verified' | 'rejected';
   role: UserRole;
   roles?: UserRole[];
   profilePhoto?: string;
@@ -70,7 +73,7 @@ export interface Driver extends User {
   vehiclePlate: string;
   vehicleYear: number;
   status: DriverStatus;
-  isVerified: boolean;
+  phoneVerified: boolean;
   bankAccount?: string;
   currentLocation?: LatLng;
   isOnline: boolean;

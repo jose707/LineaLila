@@ -1,4 +1,11 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useCallback,
+} from 'react';
 import {
   View,
   Text,
@@ -7,15 +14,17 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
-} from "react-native";
-import { X } from "lucide-react-native";
+} from 'react-native';
+import { X, MapPin } from 'lucide-react-native';
+import PlaceSuggestionLabel from './PlaceSuggestionLabel';
 
-export interface SearchResult {
-  address: string;
-  display_name: string;
-  lat: string;
-  lon: string;
-}
+import {
+  placesService,
+  newPlacesSession,
+  PlaceSuggestion,
+  PlaceResult,
+} from '../services/places.service';
+export type SearchResult = PlaceResult;
 
 interface SearchBarProps {
   onResultSelect: (result: SearchResult) => void;
@@ -30,298 +39,344 @@ interface SearchBarProps {
   onSuffixIconPress?: () => void;
   initialValue?: string;
   onClear?: () => void;
-  onResultsChange?: (results: SearchResult[], loading: boolean) => void;
+  onResultsChange?: (
+    results: PlaceSuggestion[],
+    loading: boolean,
+    error: string,
+    empty: boolean,
+  ) => void;
   onFocusChange?: (focused: boolean) => void;
   hideResults?: boolean;
 }
 
-const LOCATIONIQ_API_KEY = "pk.2c35bb8a74b61271c3e0f669fb81718d";
-const LOCATIONIQ_BASE_URL = "https://us1.locationiq.com/v1";
-
 export interface SearchBarRef {
   focus: () => void;
+  select: (suggestion: PlaceSuggestion) => Promise<void>;
 }
 
-const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
-  onResultSelect,
-  placeholder,
-  currentLat,
-  currentLon,
-  leftIcon,
-  onLeftIconPress,
-  autoFocus,
-  prefixIcon,
-  suffixIcon,
-  onSuffixIconPress,
-  initialValue,
-  onClear,
-  onResultsChange,
-  onFocusChange,
-  hideResults,
-}, ref) => {
-  const [searchText, setSearchText] = useState(initialValue || "");
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-  const inputRef = useRef<TextInput>(null);
-  const skipSearchRef = useRef(!!initialValue);
-  const onResultsChangeRef = useRef(onResultsChange);
-  onResultsChangeRef.current = onResultsChange;
-  const onFocusChangeRef = useRef(onFocusChange);
-  onFocusChangeRef.current = onFocusChange;
-
-  useImperativeHandle(ref, () => ({
-    focus: () => {
-      inputRef.current?.focus();
+const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
+  (
+    {
+      onResultSelect,
+      placeholder,
+      currentLat,
+      currentLon,
+      leftIcon,
+      onLeftIconPress,
+      autoFocus,
+      prefixIcon,
+      suffixIcon,
+      onSuffixIconPress,
+      initialValue,
+      onClear,
+      onResultsChange,
+      onFocusChange,
+      hideResults,
     },
-  }));
+    ref,
+  ) => {
+    const [searchText, setSearchText] = useState(initialValue || '');
+    const [results, setResults] = useState<PlaceSuggestion[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [showResults, setShowResults] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [selecting, setSelecting] = useState(false);
+    const selectingRef = useRef(false);
+    const sessionRef = useRef('');
+    if (!sessionRef.current) sessionRef.current = newPlacesSession();
+    const revisionRef = useRef(0);
+    const mountedRef = useRef(true);
+    const selectedCallback = useRef(onResultSelect);
+    selectedCallback.current = onResultSelect;
+    const inputRef = useRef<TextInput>(null);
+    const skipSearchRef = useRef(!!initialValue);
+    const selectedTextRef = useRef(initialValue || '');
+    const onResultsChangeRef = useRef(onResultsChange);
+    onResultsChangeRef.current = onResultsChange;
+    const onFocusChangeRef = useRef(onFocusChange);
+    onFocusChangeRef.current = onFocusChange;
 
-  useEffect(() => {
-    if (searchText.length < 2) {
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
+
+    useEffect(() => {
+      selectedTextRef.current = initialValue || '';
+      revisionRef.current++;
+      setSearchText(initialValue || '');
       setResults([]);
       setShowResults(false);
-      return;
-    }
-
-    if (skipSearchRef.current) {
-      skipSearchRef.current = false;
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      searchLocations(searchText);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [searchText]);
-
-  useEffect(() => {
-    if (hideResults && onResultsChangeRef.current) {
-      onResultsChangeRef.current(showResults ? results : [], loading && showResults);
-    }
-  }, [results, loading, showResults, hideResults]);
-
-  const searchLocations = async (query: string) => {
-    try {
-      setLoading(true);
-      // Limites precisos de La Paz
-      const north = -16.29;
-      const south = -16.63;
-      const east = -68.06;
-      const west = -68.24;
-      const boundingBox = `viewbox=${west},${south},${east},${north}`;
-
-      const response = await fetch(
-        `${LOCATIONIQ_BASE_URL}/search?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(
-          query
-        )}&${boundingBox}&format=json&limit=20&countrycodes=bo&bounded=1`
-      );
-
-      if (!response.ok) throw new Error("Search failed");
-
-      const data = await response.json();
-
-      const calculateDistance = (
-        lat1: number,
-        lon1: number,
-        lat2: number,
-        lon2: number
-      ): number => {
-        const R = 6371; // km
-        const dLat = ((lat2 - lat1) * Math.PI) / 180;
-        const dLon = ((lon2 - lon1) * Math.PI) / 180;
-        const a =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos((lat1 * Math.PI) / 180) *
-            Math.cos((lat2 * Math.PI) / 180) *
-            Math.sin(dLon / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      };
-
-      const formattedResults: SearchResult[] = data
-        .map((item: any) => {
-          const lat = parseFloat(item.lat);
-          const lon = parseFloat(item.lon);
-          // distancia desde la ubicación actual si está disponible
-          const distance =
-            currentLat && currentLon
-              ? calculateDistance(currentLat, currentLon, lat, lon)
-              : Infinity;
-          const cleanName = item.display_name
-            .replace(/, La Paz(, La Paz)?, Bolivia$/i, '')
-            .replace(/, La Paz Department, Bolivia$/i, '')
-            .replace(/, Bolivia$/i, '')
-            .trim();
-
-          return {
-            address: cleanName,
-            display_name: cleanName,
-            lat: item.lat,
-            lon: item.lon,
-            distance,
-          } as SearchResult & { distance: number };
-        })
-        // Filtrar resultados estrictamente dentro de La Paz
-        .filter((item: SearchResult & { distance: number }) => {
-          const lat = parseFloat(item.lat);
-          const lon = parseFloat(item.lon);
-          return lat >= south && lat <= north && lon >= west && lon <= east;
-        })
-        // Ordenar por cercanía
-        .sort(
-          (
-            a: SearchResult & { distance: number },
-            b: SearchResult & { distance: number }
-          ) => a.distance - b.distance
-        )
-        // eliminar la propiedad distance
-        .map(
-          ({ distance, ...rest }: SearchResult & { distance: number }) =>
-            rest as SearchResult
-        );
-
-      setResults(formattedResults);
-      setShowResults(true);
-    } catch (error) {
-      console.error("Search error:", error);
-      setResults([]);
-    } finally {
       setLoading(false);
-    }
-  };
+      setErrorMessage('');
+    }, [initialValue]);
 
-  const handleResultSelect = (result: SearchResult) => {
-    onResultSelect(result);
-    skipSearchRef.current = true;
-    setSearchText(result.display_name || result.address);
-    setShowResults(false);
-    setResults([]);
-  };
+    useEffect(() => {
+      let cancelled = false;
+      if (selectingRef.current) return;
+      const version = ++revisionRef.current;
+      if (skipSearchRef.current || selectedTextRef.current === searchText) {
+        skipSearchRef.current = false;
+        return;
+      }
+      setErrorMessage('');
+      setResults([]);
+      if (searchText.trim().length < 2) {
+        setLoading(false);
+        setShowResults(false);
+        return;
+      }
+      setLoading(true);
+      setShowResults(true);
+      const timer = setTimeout(async () => {
+        try {
+          const suggestions = await placesService.autocomplete(
+            searchText,
+            sessionRef.current,
+            currentLat,
+            currentLon,
+          );
+          if (!cancelled && version === revisionRef.current)
+            setResults(suggestions);
+        } catch (error: any) {
+          if (!cancelled && version === revisionRef.current)
+            setErrorMessage(
+              error?.data?.error ||
+                'No se pudo buscar. Revisa tu conexión e intenta nuevamente.',
+            );
+        } finally {
+          if (!cancelled && version === revisionRef.current) setLoading(false);
+        }
+      }, 400);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }, [searchText, currentLat, currentLon]);
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.inputContainer}>
-        {prefixIcon && (
-          <View style={styles.prefixIcon}>
-            {prefixIcon}
-          </View>
-        )}
-        {leftIcon && isFocused && (
-          <TouchableOpacity
-            onPress={onLeftIconPress}
-            style={styles.leftIconBtn}
-            activeOpacity={0.7}
-          >
-            {leftIcon}
-          </TouchableOpacity>
-        )}
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          placeholder={placeholder}
-          placeholderTextColor="#999"
-          value={searchText}
-          onChangeText={setSearchText}
-          autoFocus={autoFocus}
-          onFocus={() => {
-            setIsFocused(true);
-            onFocusChangeRef.current?.(true);
-            if (searchText.length >= 2) {
-              setShowResults(true);
-            }
-          }}
-          onBlur={() => {
-            setIsFocused(false);
-            onFocusChangeRef.current?.(false);
-          }}
-        />
-        {isFocused && searchText.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => {
-              setSearchText("");
-              setResults([]);
-              setShowResults(false);
-              onClear?.();
+    useEffect(() => {
+      if (hideResults && isFocused) {
+        onResultsChangeRef.current?.(
+          showResults ? results : [],
+          loading || selecting,
+          errorMessage,
+          showResults &&
+            !loading &&
+            !selecting &&
+            !errorMessage &&
+            results.length === 0,
+        );
+      }
+    }, [
+      results,
+      loading,
+      selecting,
+      showResults,
+      hideResults,
+      isFocused,
+      errorMessage,
+    ]);
+
+    const handleResultSelect = useCallback(
+      async (suggestion: PlaceSuggestion) => {
+        if (
+          selectingRef.current ||
+          suggestion.sessionToken !== sessionRef.current
+        )
+          return;
+        selectingRef.current = true;
+        const version = ++revisionRef.current;
+        setSelecting(true);
+        setLoading(false);
+        setErrorMessage('');
+        try {
+          const result = await placesService.details(suggestion);
+          if (!mountedRef.current || version !== revisionRef.current) return;
+          skipSearchRef.current = true;
+          selectedTextRef.current = result.display_name;
+          setSearchText(result.display_name);
+          setResults([]);
+          setShowResults(false);
+          sessionRef.current = newPlacesSession();
+          selectedCallback.current(result);
+        } catch (error: any) {
+          if (mountedRef.current && version === revisionRef.current)
+            setErrorMessage(
+              error?.data?.error ||
+                'No se pudo obtener el lugar. Intenta seleccionarlo nuevamente.',
+            );
+        } finally {
+          selectingRef.current = false;
+          if (mountedRef.current) setSelecting(false);
+        }
+      },
+      [],
+    );
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => inputRef.current?.focus(),
+        select: handleResultSelect,
+      }),
+      [handleResultSelect],
+    );
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.inputContainer}>
+          {prefixIcon && <View style={styles.prefixIcon}>{prefixIcon}</View>}
+          {leftIcon && isFocused && (
+            <TouchableOpacity
+              onPress={onLeftIconPress}
+              style={styles.leftIconBtn}
+              activeOpacity={0.7}
+            >
+              {leftIcon}
+            </TouchableOpacity>
+          )}
+          <TextInput
+            ref={inputRef}
+            style={styles.input}
+            placeholder={placeholder}
+            placeholderTextColor="#999"
+            value={searchText}
+            editable={!selecting}
+            maxLength={200}
+            onChangeText={text => {
+              revisionRef.current++;
+              selectedTextRef.current = '';
+              skipSearchRef.current = false;
+              setSearchText(text);
             }}
-          >
-            <X size={10} color="#FFFFFF" strokeWidth={3} />
-          </TouchableOpacity>
+            autoFocus={autoFocus}
+            onFocus={() => {
+              setIsFocused(true);
+              onFocusChangeRef.current?.(true);
+              if (searchText.length >= 2 && selectedTextRef.current !== searchText) {
+                setShowResults(true);
+              }
+            }}
+            onBlur={() => {
+              setIsFocused(false);
+              onFocusChangeRef.current?.(false);
+            }}
+          />
+          {isFocused && searchText.length > 0 && (
+            <TouchableOpacity
+              disabled={selecting}
+              style={styles.clearButton}
+              onPress={() => {
+                revisionRef.current++;
+                sessionRef.current = newPlacesSession();
+                setErrorMessage('');
+                setLoading(false);
+                setSearchText('');
+                setResults([]);
+                setShowResults(false);
+                onClear?.();
+              }}
+            >
+              <X size={10} color="#FFFFFF" strokeWidth={3} />
+            </TouchableOpacity>
+          )}
+          {isFocused && suffixIcon && onSuffixIconPress ? (
+            <TouchableOpacity
+              style={styles.suffixIconBtn}
+              onPress={onSuffixIconPress}
+              activeOpacity={0.7}
+            >
+              {suffixIcon}
+            </TouchableOpacity>
+          ) : isFocused && suffixIcon ? (
+            <View style={styles.suffixIcon}>{suffixIcon}</View>
+          ) : null}
+        </View>
+
+        {!hideResults && !!errorMessage && (
+          <Text accessibilityRole="alert" style={styles.error}>
+            {errorMessage}
+          </Text>
         )}
-        {isFocused && suffixIcon && onSuffixIconPress ? (
-          <TouchableOpacity
-            style={styles.suffixIconBtn}
-            onPress={onSuffixIconPress}
-            activeOpacity={0.7}
-          >
-            {suffixIcon}
-          </TouchableOpacity>
-        ) : isFocused && suffixIcon ? (
-          <View style={styles.suffixIcon}>
-            {suffixIcon}
-          </View>
-        ) : null}
-      </View>
-
-      {!hideResults && (
-        <>
-          {loading && showResults && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#7C3AED" />
-            </View>
-          )}
-
-          {showResults && results.length > 0 && (
-            <FlatList
-              data={results}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.resultItem}
-                  onPress={() => handleResultSelect(item)}
-                >
-                  <View style={styles.resultTextContainer}>
-                    <Text style={styles.resultAddress} numberOfLines={2}>
-                      {item.address}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              keyExtractor={(item, index) => `${item.lat}-${item.lon}-${index}`}
-              scrollEnabled={false}
-              style={styles.resultsList}
-            />
-          )}
-
-          {showResults &&
-            searchText.length >= 2 &&
-            results.length === 0 &&
-            !loading && (
-              <View style={styles.noResultsContainer}>
-                <Text style={styles.noResultsText}>
-                  No se encontraron resultados
-                </Text>
+        {!hideResults && (
+          <>
+            {(loading || selecting) && showResults && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#7C3AED" />
               </View>
             )}
-        </>
-      )}
-    </View>
-  );
-});
+
+            {showResults && results.length > 0 && (
+              <FlatList
+                data={results}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    disabled={selecting || loading}
+                    style={styles.resultItem}
+                    onPress={() => handleResultSelect(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.resultIconContainer}>
+                      <MapPin
+                        size={22}
+                        color="#7C3AED"
+                        strokeWidth={2.2}
+                      />
+                    </View>
+                    <PlaceSuggestionLabel suggestion={item} />
+                  </TouchableOpacity>
+                )}
+                keyExtractor={item => item.placeId}
+                ListFooterComponent={
+                  <Text style={styles.attribution}>Google Maps</Text>
+                }
+                scrollEnabled={false}
+                style={styles.resultsList}
+              />
+            )}
+
+            {showResults &&
+              searchText.length >= 2 &&
+              results.length === 0 &&
+              !loading &&
+              !selecting &&
+              !errorMessage && (
+                <View style={styles.noResultsContainer}>
+                  <Text style={styles.noResultsText}>
+                    No se encontraron resultados en La Paz
+                  </Text>
+                </View>
+              )}
+          </>
+        )}
+      </View>
+    );
+  },
+);
 
 const styles = StyleSheet.create({
+  attribution: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#5E5E5E',
+    padding: 12,
+    textAlign: 'right',
+  },
+  error: { color: '#B91C1C', padding: 12, fontSize: 14 },
   container: {
     marginVertical: 6,
   },
   inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#D0D0D0",
+    borderColor: '#D0D0D0',
   },
   leftIconBtn: {
     marginRight: 8,
@@ -339,59 +394,65 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    fontWeight: "600",
-    color: "#2D2D2D",
+    fontWeight: '600',
+    color: '#2D2D2D',
     minHeight: 48,
   },
   clearButton: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: "#000000",
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginLeft: 4,
   },
   loadingContainer: {
     padding: 16,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   resultsList: {
     marginTop: 8,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderColor: '#EDE9FE',
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   resultItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    borderBottomColor: '#F3F4F6',
   },
-  resultTextContainer: {
-    flex: 1,
-  },
-  resultAddress: {
-    fontSize: 13,
-    color: "#2D2D2D",
-    fontWeight: "500",
-    lineHeight: 18,
+  resultIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   noResultsContainer: {
     padding: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F9F9F9",
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9F9F9',
     borderRadius: 8,
     marginTop: 8,
   },
   noResultsText: {
     fontSize: 13,
-    color: "#999",
+    color: '#999',
   },
 });
 

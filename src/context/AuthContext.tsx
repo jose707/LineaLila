@@ -6,7 +6,7 @@ import React, {
   ReactNode,
   useCallback,
 } from 'react';
-import { Alert, Platform, PermissionsAndroid } from 'react-native';
+import { Alert, Platform, PermissionsAndroid, NativeModules } from 'react-native';
 import { authService } from '../services/auth.service';
 import { onFCMTokenRefresh } from '../services/firebase.service';
 import { StorageHelper } from '../services/storage';
@@ -221,6 +221,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       StorageHelper.removeItem('activeRideState');
       // 🔌 Desconectar WebSocket
       socketService.disconnect();
+      if (Platform.OS === 'android') NativeModules.ActiveRideLocationModule?.stop('');
       console.log('🗑️ [AuthContext] Estado de solicitud limpiado en logout');
     } finally {
       setIsLoading(false);

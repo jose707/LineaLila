@@ -81,11 +81,9 @@ const s = StyleSheet.create({
   trigger: {
     width: 52,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: '#F7F7F9',
   },
 
   modalRoot: { flex: 1, justifyContent: 'flex-end' },

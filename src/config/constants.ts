@@ -11,6 +11,11 @@ export const API_HOST = 'http://192.168.100.127:3000';
 //export const API_HOST = 'https://lila-backend-xpjy.onrender.com';
 export const API_BASE_URL = `${API_HOST}/api`;
 
+/** Control temporal del paso de CI + prueba de vida en el alta de pasajeros. */
+export const IDENTITY_VERIFICATION_ENABLED = true;
+/** La prueba de vida también proporciona la foto de perfil verificada. */
+export const FACE_LIVENESS_ENABLED = true;
+
 export const RIDE_CONFIG = {
   POLLING_INTERVAL: 15000, // fallback polling cuando WebSocket no está disponible
   GEOLOCATION_ACCURACY: 'highAccuracy' as const,

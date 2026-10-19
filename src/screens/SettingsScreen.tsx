@@ -330,7 +330,7 @@ const SettingsScreen: React.FC = () => {
             <SettingRow
               icon={<Shield size={20} color={COLORS.primary} />}
               label="Estado de verificación"
-              value={user?.isVerified ? 'Verificado' : 'Pendiente'}
+              value={user?.phoneVerified ? 'Verificado' : 'Pendiente'}
             />
             <SettingRow
               icon={<DollarSign size={20} color={COLORS.primary} />}

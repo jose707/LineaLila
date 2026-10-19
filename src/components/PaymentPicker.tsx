@@ -101,12 +101,11 @@ export const PaymentPicker: React.FC<PaymentPickerProps> = ({ selected, onSelect
 
 const s = StyleSheet.create({
   card: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#F7F7F9',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    minHeight: 64,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
