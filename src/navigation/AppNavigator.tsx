@@ -38,7 +38,6 @@ import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import AdminUsersScreen from '../screens/AdminUsersScreen';
 import AdminRidesScreen from '../screens/AdminRidesScreen';
 import AdminPaymentsScreen from '../screens/AdminPaymentsScreen';
-import AdminPromoScreen from '../screens/AdminPromoScreen';
 import AdminSupportScreen from '../screens/AdminSupportScreen';
 import AdminAnalyticsScreen from '../screens/AdminAnalyticsScreen';
 import AdminDriverRegistrationScreen from '../screens/AdminDriverRegistrationScreen';
@@ -138,7 +137,6 @@ export type RootStackParamList = {
   AdminUsers: undefined;
   AdminRides: undefined;
   AdminPayments: undefined;
-  AdminPromo: undefined;
   AdminSupport: undefined;
   AdminAnalytics: undefined;
   AdminDriverRegistration: undefined;
@@ -178,11 +176,6 @@ const AppNavigator = ({ role, identityRequired = false }: AppNavigatorProps) => 
         headerShown: false,
       }}
     >
-      <Stack.Screen
-        name="IdentityVerification"
-        component={IdentityVerificationScreen}
-        options={{ gestureEnabled: false }}
-      />
       {/* SCREENS DEL PASAJERO */}
 
       <Stack.Screen
@@ -347,13 +340,6 @@ const AppNavigator = ({ role, identityRequired = false }: AppNavigatorProps) => 
       <Stack.Screen
         name="AdminPayments"
         component={AdminPaymentsScreen}
-        options={{
-          animation: 'slide_from_right',
-        }}
-      />
-      <Stack.Screen
-        name="AdminPromo"
-        component={AdminPromoScreen}
         options={{
           animation: 'slide_from_right',
         }}

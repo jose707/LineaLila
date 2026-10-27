@@ -10,6 +10,93 @@ interface User {
   rating?: number;
 }
 
+interface LicenseOcrFields {
+  licenseNumber?: string;
+  fullName?: string;
+  nationality?: string;
+  issueDate?: string;
+  licenseExpiryDate?: string;
+  birthDate?: string;
+  licenseCategory?: string;
+}
+
+interface IdentityDetails {
+  ciNumber: string;
+  firstNames?: string;
+  paternalSurname?: string;
+  maternalSurname?: string;
+  birthDate: string;
+  issueDate?: string;
+  expiryDate?: string;
+  birthPlace?: string;
+  address?: string;
+  occupation?: string;
+  maritalStatus?: string;
+  verificationStatus: string;
+}
+
+interface RuatOcrFields {
+  vehiclePlate?: string;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  vehicleYear?: string;
+  vehicleColor?: string;
+  vehicleClass?: string;
+  vehiclePassengerCapacity?: string;
+  vehicleOwnerName?: string;
+  vehicleOwnerCi?: string;
+  registrationMunicipality?: string;
+  crpvaNumber?: string;
+  ruatIssueDate?: string;
+  ownershipStartDate?: string;
+  doorCount?: string;
+  serviceType?: string;
+  chassisNumber?: string;
+  engineNumber?: string;
+  fuelType?: string;
+  engineDisplacement?: string;
+  engineType?: string;
+  legalObservations?: string;
+}
+
+interface SoatOcrFields {
+  soatRosetteNumber?: string;
+  soatYear?: string;
+  soatDepartment?: string;
+  soatPlate?: string;
+  soatVehicleType?: string;
+  soatUse?: string;
+  soatStartDate?: string;
+  soatExpiryDate?: string;
+}
+
+interface AntecedentsOcrFields {
+  certificateNumber?: string;
+  fullName?: string;
+  ciNumber?: string;
+  birthDate?: string;
+  procedureReason?: string;
+  recipient?: string;
+  backgroundUnit?: string;
+  backgroundResult?: string;
+  issueDate?: string;
+  validUntil?: string;
+}
+
+interface TicOcrFields {
+  ticNumber?: string;
+  issuingPlace?: string;
+  firstNames?: string;
+  surnames?: string;
+  fullName?: string;
+  licenseNumber?: string;
+}
+
+interface DomicileProofOcrFields {
+  serviceAddress?: string;
+  billingMonth?: string;
+}
+
 interface DriverApplication {
   id: string;
   name: string;
@@ -17,6 +104,13 @@ interface DriverApplication {
   phone: string;
   licenseNumber: string;
   licenseExpiryDate: string;
+  licenseFrontOcr?: LicenseOcrFields;
+  licenseBackOcr?: LicenseOcrFields;
+  ruatOcr?: RuatOcrFields;
+  soatOcr?: SoatOcrFields;
+  antecedentsOcr?: AntecedentsOcrFields;
+  ticOcr?: TicOcrFields;
+  domicileProofOcr?: DomicileProofOcrFields;
   vehicleType: string;
   vehiclePlate: string;
   vehicleYear: number;
@@ -29,7 +123,9 @@ interface DriverApplication {
   backgroundCheckDate: string;
   applicationDate: string;
   updatedAt?: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'observed' | 'approved' | 'rejected';
+  ocrProcessingStatus?: 'pending' | 'complete';
+  identity?: IdentityDetails | null;
   rejectionReason?: string;
   verificationNotes: string;
   userId: string;
@@ -169,8 +265,15 @@ export const getAllDrivers = async (
       name: request.User?.name || 'Unknown',
       email: request.User?.email || '',
       phone: request.User?.phone || '',
-      licenseNumber: request.metadata?.ciNumber || '',
+      licenseNumber: request.metadata?.licenseNumber || '',
       licenseExpiryDate: request.metadata?.licenseExpiryDate || '',
+      licenseFrontOcr: request.metadata?.ocr?.licenseFront?.fields || {},
+      licenseBackOcr: request.metadata?.ocr?.licenseBack?.fields || {},
+      ruatOcr: request.metadata?.ocr?.ruatPhoto?.fields || {},
+      soatOcr: request.metadata?.ocr?.soatPhoto?.fields || {},
+      antecedentsOcr: request.metadata?.ocr?.antecedentsPhoto?.fields || {},
+      ticOcr: request.metadata?.ocr?.ticPhoto?.fields || {},
+      domicileProofOcr: request.metadata?.ocr?.domicileProof?.fields || {},
       vehicleType: request.metadata?.vehicleType || '',
       vehiclePlate: request.metadata?.vehiclePlate || '',
       vehicleYear: request.metadata?.vehicleYear || 0,
@@ -180,6 +283,7 @@ export const getAllDrivers = async (
       vehiclePassengerCapacity: request.metadata?.vehiclePassengerCapacity
         ? Number(request.metadata.vehiclePassengerCapacity)
         : 0,
+      domicile: request.domicile || null,
       documentsVerified:
         !!request.files && Object.keys(request.files).length > 0,
       backgroundCheckPassed: false,
@@ -187,11 +291,13 @@ export const getAllDrivers = async (
       applicationDate: request.createdAt || '',
       updatedAt: request.updatedAt || '',
       status: request.status || 'pending',
+      ocrProcessingStatus: request.metadata?.ocrProcessingStatus || 'complete',
       rejectionReason: request.rejectionReason || '',
       verificationNotes: '',
       userId: request.userId,
       driverRecordId: request.driver?.id || null,
       user: request.User,
+      identity: request.identity || null,
       currentRequest: {
         id: request.id,
         version: request.version,
@@ -254,16 +360,35 @@ export const approveDriver = async (requestId: string, verifiedDocuments: string
 export const rejectDriver = async (
   requestId: string,
   reason: string,
+  rejectedDocuments: string[] = [],
+  verifiedDocuments: string[] = [],
 ): Promise<any> => {
   try {
     const response = await api.put(`/admin/requests/${requestId}/reject`, {
       reason,
+      rejectedDocuments,
+      verifiedDocuments,
     });
     return response;
   } catch (error: any) {
     console.error('Error rejecting driver:', error);
     const errorMessage = error?.data?.error || 'Error al rechazar el conductor';
     throw new Error(errorMessage);
+  }
+};
+
+export const observeDriver = async (
+  requestId: string,
+  reason: string,
+  rejectedDocuments: string[],
+  verifiedDocuments: string[],
+): Promise<any> => {
+  try {
+    return await api.put(`/admin/requests/${requestId}/observe`, {
+      reason, rejectedDocuments, verifiedDocuments,
+    });
+  } catch (error: any) {
+    throw new Error(error?.data?.error || 'Error al observar la solicitud');
   }
 };
 
@@ -314,7 +439,7 @@ export const enableUser = async (userId: string): Promise<any> => {
  */
 export const getMyRequestStatus = async (): Promise<{
   hasApplication: boolean;
-  status?: 'pending' | 'approved' | 'rejected' | null;
+  status?: 'pending' | 'observed' | 'approved' | 'rejected' | null;
   request?: {
     id: string;
     version: number;
@@ -349,7 +474,7 @@ export const getMyRequestStatus = async (): Promise<{
  */
 export const getMyDriverStatus = async (): Promise<{
   hasApplication: boolean;
-  status?: 'pending' | 'approved' | 'rejected' | null;
+  status?: 'pending' | 'observed' | 'approved' | 'rejected' | null;
   driver?: any;
 }> => {
   try {
@@ -429,6 +554,7 @@ export default {
   getAllDrivers,
   getDriverById,
   approveDriver,
+  observeDriver,
   rejectDriver,
   getMyDriverStatus,
   getMyRequestStatus,

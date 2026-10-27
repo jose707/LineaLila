@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">LineaLila</string>
+    <string name="amplify_ui_liveness_get_ready_center_face_label">Centra tu rostro</string>
+    <string name="amplify_ui_liveness_get_ready_begin_check">Iniciar prueba de vida</string>
+    <string name="amplify_ui_liveness_get_ready_photosensitivity_title">Aviso de fotosensibilidad</string>
+    <string name="amplify_ui_liveness_get_ready_photosensitivity_description">Esta prueba muestra luces de distintos colores. Ten precaución si eres sensible a la luz.</string>
+    <string name="amplify_ui_liveness_get_ready_a11y_photosensitivity_icon_content_description">Información sobre fotosensibilidad</string>
+    <string name="amplify_ui_liveness_get_ready_photosensitivity_dialog_title">Aviso de fotosensibilidad</string>
+    <string name="amplify_ui_liveness_get_ready_photosensitivity_dialog_description">Las luces de colores pueden provocar convulsiones en personas con epilepsia. Ten precaución si tú o alguien de tu familia tiene esta condición.</string>
+    <string name="amplify_ui_liveness_get_ready_photosensitivity_dialog_dismiss">Entendido</string>
+    <string name="amplify_ui_liveness_challenge_instruction_hold_face_during_freshness">Mantén el rostro quieto</string>
+    <string name="amplify_ui_liveness_challenge_instruction_move_face_further">Aléjate un poco</string>
+    <string name="amplify_ui_liveness_challenge_instruction_move_face_closer">Acércate un poco</string>
+    <string name="amplify_ui_liveness_challenge_instruction_move_face">Coloca tu rostro frente a la cámara</string>
+    <string name="amplify_ui_liveness_challenge_instruction_multiple_faces_detected">Solo una persona a la vez</string>
+    <string name="amplify_ui_liveness_challenge_connecting">Conectando…</string>
+    <string name="amplify_ui_liveness_challenge_verifying">Verificando…</string>
+    <string name="amplify_ui_liveness_challenge_a11y_cancel_content_description">Cancelar prueba de vida</string>
 </resources>

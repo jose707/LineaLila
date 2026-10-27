@@ -12,9 +12,9 @@ const Rating              = require('./Rating');
 const Vehicle             = require('./Vehicle');
 const DriverLocation      = require('./DriverLocation');
 const DriverRequest       = require('./DriverRequest');
+const DriverDomicile      = require('./DriverDomicile');
 const RequestFile         = require('./RequestFile');
 const Notification        = require('./Notification');
-const PromoCode           = require('./PromoCode');
 const CancellationReason  = require('./CancellationReason');
 const DriverEarning       = require('./DriverEarning');
 const CommissionSettlement = require('./CommissionSettlement');
@@ -22,8 +22,6 @@ const ServiceArea         = require('./ServiceArea');
 const PricingRule         = require('./PricingRule');
 const AuditLog            = require('./AuditLog');
 const RideWaypoint        = require('./RideWaypoint');
-const TrustedContact      = require('./TrustedContact');
-const PanicEvent          = require('./PanicEvent');
 
 const setupAssociations = () => {
 
@@ -66,6 +64,10 @@ const setupAssociations = () => {
   DriverRequest.belongsTo(Driver, { foreignKey: 'driverId' });
   User.hasMany(DriverRequest, { foreignKey: 'userId' });
   DriverRequest.belongsTo(User, { foreignKey: 'userId' });
+  User.hasMany(DriverDomicile, { foreignKey: 'userId', as: 'driverDomiciles' });
+  DriverDomicile.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  DriverRequest.hasOne(DriverDomicile, { foreignKey: 'driverRequestId', as: 'domicile', onDelete: 'CASCADE' });
+  DriverDomicile.belongsTo(DriverRequest, { foreignKey: 'driverRequestId', as: 'request' });
 
   // ─────────────────────────────────────────
   // DRIVER REQUEST ↔ DOCUMENTS
@@ -107,12 +109,6 @@ const setupAssociations = () => {
   Notification.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
   // ─────────────────────────────────────────
-  // PROMO CODE ↔ RIDE
-  // ─────────────────────────────────────────
-  PromoCode.hasMany(Ride, { foreignKey: 'promo_code_id', as: 'rides' });
-  Ride.belongsTo(PromoCode, { foreignKey: 'promo_code_id', as: 'promoCode' });
-
-  // ─────────────────────────────────────────
   // CANCELLATION REASON ↔ RIDE
   // ─────────────────────────────────────────
   CancellationReason.hasMany(Ride, { foreignKey: 'cancellation_reason_id', as: 'rides' });
@@ -152,20 +148,6 @@ const setupAssociations = () => {
   Ride.hasMany(RideWaypoint, { foreignKey: 'ride_id', as: 'waypoints', onDelete: 'CASCADE' });
   RideWaypoint.belongsTo(Ride, { foreignKey: 'ride_id', as: 'ride' });
 
-  // ─────────────────────────────────────────
-  // USER ↔ TRUSTED CONTACT
-  // ─────────────────────────────────────────
-  User.hasMany(TrustedContact, { foreignKey: 'user_id', as: 'trustedContacts', onDelete: 'CASCADE' });
-  TrustedContact.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
-
-  // ─────────────────────────────────────────
-  // USER ↔ PANIC EVENT
-  // RIDE ↔ PANIC EVENT (nullable)
-  // ─────────────────────────────────────────
-  User.hasMany(PanicEvent, { foreignKey: 'user_id', as: 'panicEvents', onDelete: 'CASCADE' });
-  PanicEvent.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
-  Ride.hasMany(PanicEvent, { foreignKey: 'ride_id', as: 'panicEvents', onDelete: 'CASCADE' });
-  PanicEvent.belongsTo(Ride, { foreignKey: 'ride_id', as: 'ride' });
 };
 
 module.exports = setupAssociations;

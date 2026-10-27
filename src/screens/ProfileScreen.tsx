@@ -263,7 +263,7 @@ const ProfileScreen = () => {
               onPress: () => (navigation as any).navigate('DriverHome'),
             },
           ]);
-        } else if (requestStatus === 'rejected') {
+        } else if (requestStatus === 'observed' || requestStatus === 'rejected') {
           const rejectionReason =
             status?.request?.rejectionReason || 'No especificada';
           const rejectedDocsList = status?.request?.rejectedDocuments || [];
@@ -273,6 +273,7 @@ const ProfileScreen = () => {
             ciBack: 'CI Dorso',
             licenseFront: 'Licencia frente',
             licenseBack: 'Licencia dorso',
+            ticPhoto: 'TIC',
             antecedentsPhoto: 'Antecedentes',
             carFront: 'Auto frente',
             carBack: 'Auto dorso',
@@ -289,12 +290,13 @@ const ProfileScreen = () => {
             .filter(([_, doc]: [string, any]) => doc?.status === 'verified')
             .map(([key]) => docKeyToName[key] || key)
             .filter(Boolean);
+          const canResubmit = requestStatus === 'observed' || !status?.request?.metadata?.finalRejection;
           Alert.alert(
-            'Solicitud observada',
-            `Razón: ${rejectionReason}\n\nDocumentos observados:\n${rejectedDocNames
+            requestStatus === 'observed' ? 'Solicitud observada' : 'Solicitud rechazada',
+            `Razón: ${rejectionReason}\n\nDocumentos a corregir:\n${rejectedDocNames
               .map((d: string) => `• ${d}`)
               .join('\n')}`,
-            [
+            canResubmit ? [
               {
                 text: 'Reenviar documentos',
                 onPress: () => {
@@ -303,11 +305,12 @@ const ProfileScreen = () => {
                     rejectedDocs: rejectedDocsList,
                     approvedDocs,
                     rejectionReason,
+                    requestStatus,
                   });
                 },
               },
               { text: 'Cancelar', style: 'cancel' },
-            ],
+            ] : [{ text: 'Entendido' }],
           );
         }
       } else {
@@ -358,8 +361,10 @@ const ProfileScreen = () => {
     if (!driverStatus?.hasApplication) return 'Solicitar acceso como conductor';
     if (driverStatus.status === 'pending')
       return 'Solicitud pendiente de revisión';
-    if (driverStatus.status === 'rejected')
+    if (driverStatus.status === 'observed')
       return 'Solicitud observada — ver detalles';
+    if (driverStatus.status === 'rejected')
+      return 'Solicitud rechazada — ver detalles';
     return isDriverMode
       ? 'Aceptando solicitudes de viaje'
       : 'Solicitando viajes';
@@ -530,16 +535,18 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             )}
 
-            {driverStatus?.status === 'rejected' && (
+            {(driverStatus?.status === 'observed' || driverStatus?.status === 'rejected') && (
               <TouchableOpacity
                 style={styles.menuItemNew}
-                onPress={() => (navigation as any).navigate('DriverRegistration', { user })}
+                onPress={handleBecomeDriver}
               >
                 <View style={styles.menuItemLeftNew}>
                   <View style={styles.menuItemIcon}>
                     <AlertCircle size={25} color={COLORS.danger} />
                   </View>
-                  <Text style={styles.menuItemTextNew}>Solicitud observada</Text>
+                  <Text style={styles.menuItemTextNew}>
+                    {driverStatus.status === 'observed' ? 'Solicitud observada' : 'Solicitud rechazada'}
+                  </Text>
                 </View>
                 <ChevronRight size={20} color={COLORS.textTertiary} />
               </TouchableOpacity>

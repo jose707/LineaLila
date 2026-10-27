@@ -11,6 +11,12 @@ interface Props {
   icon?: string;
   iconCircle?: boolean;
   fontSize?: number;
+  fontWeight?: '500' | '700';
+  verticalPadding?: number;
+  horizontalInset?: number;
+  minHeight?: number;
+  borderRadius?: number;
+  textAlign?: 'left' | 'center' | 'right';
   onHide?: () => void;
 }
 
@@ -23,6 +29,12 @@ const Toast: React.FC<Props> = ({
   icon = '✓',
   iconCircle = true,
   fontSize = 15,
+  fontWeight = '500',
+  verticalPadding = 8,
+  horizontalInset = 16,
+  minHeight,
+  borderRadius = 10,
+  textAlign = 'left',
   onHide,
 }) => {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -55,7 +67,7 @@ const Toast: React.FC<Props> = ({
     <Animated.View
       style={[
         s.container,
-        { backgroundColor, opacity },
+        { backgroundColor, opacity, paddingVertical: verticalPadding, left: horizontalInset, right: horizontalInset, minHeight, borderRadius },
         position === 'top'
           ? { top: 15 + insets.top }
           : { bottom: 15 + insets.bottom },
@@ -69,7 +81,7 @@ const Toast: React.FC<Props> = ({
       ) : (
         <Text style={[s.icon, { fontSize: fontSize + 2 }]}>{icon}</Text>
       ))}
-      <Text style={[s.text, { fontSize }]}>{message}</Text>
+      <Text style={[s.text, { fontSize, fontWeight, textAlign }, textAlign === 'right' && s.rightAlignedText]}>{message}</Text>
     </Animated.View>
   );
 };
@@ -119,6 +131,7 @@ const s = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '500',
   },
+  rightAlignedText: { flex: 1 },
 });
 
 export default Toast;

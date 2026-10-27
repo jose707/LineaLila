@@ -192,20 +192,6 @@ export interface BankAccount {
   accountType: 'checking' | 'savings';
 }
 
-// PROMO CODE
-export interface PromoCode {
-  id: string;
-  code: string;
-  discountType: 'percentage' | 'fixed';
-  discountValue: number;
-  maxUses: number;
-  currentUses: number;
-  minRideAmount: number;
-  validFrom: string;
-  validUntil: string;
-  isActive: boolean;
-}
-
 // SUPPORT TICKET
 export interface SupportTicket {
   id: string;

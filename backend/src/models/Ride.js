@@ -128,11 +128,6 @@ const Ride = sequelize.define(
       comment:
         'Zona donde ocurrió el viaje. NULL = dato histórico previo a zonas',
     },
-    promo_code_id: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      references: { model: 'promo_codes', key: 'id' },
-    },
     cancellation_reason_id: {
       type: DataTypes.UUID,
       allowNull: true,

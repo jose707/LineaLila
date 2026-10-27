@@ -1,6 +1,6 @@
 import { privateImageSource } from '../utils/privateImageSource';
 // src/screens/AdminDriverRegistrationScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  RefreshControl,
   Image,
+  Linking,
 } from 'react-native';
 import {
   ChevronLeft,
@@ -68,6 +70,162 @@ interface Props {
   navigation: NavProp;
 }
 
+interface LicenseOcrFields {
+  licenseNumber?: string;
+  fullName?: string;
+  nationality?: string;
+  issueDate?: string;
+  licenseExpiryDate?: string;
+  birthDate?: string;
+  licenseCategory?: string;
+}
+
+interface IdentityDetails {
+  ciNumber: string;
+  firstNames?: string;
+  paternalSurname?: string;
+  maternalSurname?: string;
+  birthDate: string;
+  issueDate?: string;
+  expiryDate?: string;
+  birthPlace?: string;
+  address?: string;
+  occupation?: string;
+  maritalStatus?: string;
+  verificationStatus: string;
+}
+
+interface RuatOcrFields {
+  vehiclePlate?: string;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  vehicleYear?: string;
+  vehicleColor?: string;
+  vehicleClass?: string;
+  vehiclePassengerCapacity?: string;
+  vehicleOwnerName?: string;
+  vehicleOwnerCi?: string;
+  registrationMunicipality?: string;
+  crpvaNumber?: string;
+  ruatIssueDate?: string;
+  ownershipStartDate?: string;
+  doorCount?: string;
+  serviceType?: string;
+  chassisNumber?: string;
+  engineNumber?: string;
+  fuelType?: string;
+  engineDisplacement?: string;
+  engineType?: string;
+  legalObservations?: string;
+}
+
+interface SoatOcrFields {
+  soatRosetteNumber?: string;
+  soatYear?: string;
+  soatDepartment?: string;
+  soatPlate?: string;
+  soatVehicleType?: string;
+  soatUse?: string;
+  soatStartDate?: string;
+  soatExpiryDate?: string;
+}
+
+interface AntecedentsOcrFields {
+  certificateNumber?: string;
+  fullName?: string;
+  ciNumber?: string;
+  birthDate?: string;
+  procedureReason?: string;
+  recipient?: string;
+  backgroundUnit?: string;
+  backgroundResult?: string;
+  issueDate?: string;
+  validUntil?: string;
+}
+
+interface TicOcrFields {
+  ticNumber?: string;
+  issuingPlace?: string;
+  firstNames?: string;
+  surnames?: string;
+  fullName?: string;
+  licenseNumber?: string;
+}
+
+interface DomicileProofOcrFields {
+  serviceAddress?: string;
+  billingMonth?: string;
+}
+
+const billingMonthLabel = (value?: string) => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value || '');
+  if (!match) return '';
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  return `${months[Number(match[2]) - 1]} ${match[1]}`;
+};
+
+const billingMonthReview = (value?: string) => {
+  if (!/^(\d{4})-(0[1-9]|1[0-2])$/.test(value || '')) return 'Pendiente de lectura';
+  const now = new Date();
+  const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const previousDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previous = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, '0')}`;
+  if (value === current) return 'Mes actual';
+  if (value === previous) return 'Mes anterior — revisar emisión';
+  return 'No corresponde al mes actual';
+};
+
+const normalizedPersonName = (value?: string) => (value || '').normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z ]/g, ' ')
+  .split(/\s+/).filter(Boolean).sort().join(' ');
+
+const compareTicName = (tic?: TicOcrFields, identity?: IdentityDetails | null) => {
+  const ticName = normalizedPersonName(tic?.fullName);
+  const ciName = normalizedPersonName([identity?.firstNames, identity?.paternalSurname,
+    identity?.maternalSurname].filter(Boolean).join(' '));
+  if (!ticName || !ciName) return 'Pendiente de lectura';
+  return ticName === ciName ? 'Coinciden' : 'No coinciden';
+};
+
+const compareTicLicense = (tic?: TicOcrFields, license?: LicenseOcrFields, fallback?: string) => {
+  const ticNumber = (tic?.licenseNumber || '').replace(/\D/g, '');
+  const licenseNumber = (license?.licenseNumber || fallback || '').replace(/\D/g, '');
+  if (!ticNumber || !licenseNumber) return 'Pendiente de lectura';
+  return ticNumber === licenseNumber ? 'Coinciden' : 'No coinciden';
+};
+
+const compareCertificateIdentity = (certificate?: AntecedentsOcrFields, identity?: IdentityDetails | null) => {
+  if (!certificate || !identity) return 'Pendiente de lectura';
+  const ci = (value?: string) => (value || '').replace(/\D/g, '');
+  const date = (value?: string) => {
+    const local = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value || '');
+    return local ? `${local[3]}-${local[2]}-${local[1]}` : value || '';
+  };
+  const name = [identity.firstNames, identity.paternalSurname, identity.maternalSurname].filter(Boolean).join(' ');
+  const pairs = [
+    [ci(certificate.ciNumber), ci(identity.ciNumber)],
+    [normalizedPersonName(certificate.fullName), normalizedPersonName(name)],
+    [date(certificate.birthDate), date(identity.birthDate)],
+  ];
+  if (pairs.some(([a, b]) => !a || !b)) return 'Pendiente de lectura';
+  return pairs.every(([a, b]) => a === b) ? 'Coinciden' : 'No coinciden';
+};
+
+const licenseComparison = (front?: LicenseOcrFields, back?: LicenseOcrFields) => {
+  const date = (value?: string) => {
+    const local = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value || '');
+    return local ? `${local[3]}-${local[2]}-${local[1]}` : value || '';
+  };
+  const pairs = [
+    [front?.licenseNumber?.replace(/\D/g, ''), back?.licenseNumber?.replace(/\D/g, '')],
+    [date(front?.issueDate), date(back?.issueDate)],
+    [date(front?.licenseExpiryDate), date(back?.licenseExpiryDate)],
+  ];
+  if (pairs.some(([a, b]) => !a || !b)) return 'Pendiente de lectura';
+  return pairs.every(([a, b]) => a === b) ? 'Coinciden' : 'No coinciden';
+};
+
 interface DriverApplication {
   id: string;
   name: string;
@@ -75,6 +233,13 @@ interface DriverApplication {
   phone: string;
   licenseNumber: string;
   licenseExpiryDate: string;
+  licenseFrontOcr?: LicenseOcrFields;
+  licenseBackOcr?: LicenseOcrFields;
+  ruatOcr?: RuatOcrFields;
+  soatOcr?: SoatOcrFields;
+  antecedentsOcr?: AntecedentsOcrFields;
+  ticOcr?: TicOcrFields;
+  domicileProofOcr?: DomicileProofOcrFields;
   vehicleType: string;
   vehiclePlate: string;
   vehicleYear: number;
@@ -82,12 +247,15 @@ interface DriverApplication {
   vehicleModel?: string;
   vehicleColor?: string;
   vehiclePassengerCapacity?: number;
+  domicile?: { address: string; latitude: number; longitude: number } | null;
   documentsVerified: boolean;
   backgroundCheckPassed: boolean;
   backgroundCheckDate: string;
   applicationDate: string;
   updatedAt: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'observed' | 'approved' | 'rejected';
+  ocrProcessingStatus?: 'pending' | 'complete';
+  identity?: IdentityDetails | null;
   rejectionReason?: string;
   verificationNotes: string;
   photo?: string;
@@ -126,6 +294,13 @@ const statusMeta = (status: string) => {
         border: C.errorBorder,
         label: 'Rechazado',
       };
+    case 'observed':
+      return {
+        color: C.warning,
+        bg: C.warningLight,
+        border: C.warningBorder,
+        label: 'Observado',
+      };
     default:
       return {
         color: C.warning,
@@ -137,19 +312,17 @@ const statusMeta = (status: string) => {
 };
 
 const docKeys: Array<{ key: string; label: string; optional?: boolean }> = [
-  { key: 'profilePhoto', label: 'Foto perfil' },
-  { key: 'ciFront', label: 'CI frente' },
-  { key: 'ciBack', label: 'CI dorso' },
   { key: 'licenseFront', label: 'Licencia frente' },
   { key: 'licenseBack', label: 'Licencia dorso' },
+  { key: 'ticPhoto', label: 'TIC' },
   { key: 'antecedentsPhoto', label: 'Antecedentes' },
   { key: 'carFront', label: 'Auto frente' },
   { key: 'carBack', label: 'Auto dorso' },
-  { key: 'carLeft', label: 'Auto izq.' },
-  { key: 'carRight', label: 'Auto der.' },
-  { key: 'soatPhoto', label: 'SOAT' },
-  { key: 'ruatPhoto', label: 'RUAT', optional: true },
+  { key: 'soatPhoto', label: 'SOAT — roseta digital' },
+  { key: 'ruatPhoto', label: 'RUAT' },
+  { key: 'domicileProof', label: 'Factura de luz' },
 ];
+const ocrPreviewDocuments = new Set(['licenseFront', 'licenseBack', 'ticPhoto', 'ruatPhoto', 'soatPhoto', 'antecedentsPhoto', 'domicileProof']);
 
 // ─── StatusBadge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status, small }: { status: string; small?: boolean }) {
@@ -278,8 +451,10 @@ function DocButton({
 }) {
   const fileData = app.currentRequest?.files?.[docKey] as any;
   const exists = !!fileData;
-  const url = exists
-    ? fileData.url || `${API_HOST}/uploads/drivers/${fileData.filename}`
+  // La API puede devolver una URL con localhost, inaccesible desde Android.
+  // El archivo se abre siempre desde el mismo host que usa la app para la API.
+  const url = exists && fileData.filename
+    ? `${API_HOST}/uploads/drivers/${encodeURIComponent(fileData.filename)}`
     : '';
   const status = docStatus[docKey] || 'pending';
   const m = statusMeta(status);
@@ -310,8 +485,8 @@ function DocButton({
           : db.btnMissing,
         locked && db.btnLocked,
       ]}
-      onPress={() => exists && onPress(url, docKey)}
-      disabled={!exists}
+      onPress={() => onPress(url, docKey)}
+      disabled={!exists && optional}
       activeOpacity={0.7}
     >
       <FileText
@@ -360,18 +535,22 @@ const db = StyleSheet.create({
 const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<
-    'all' | 'pending' | 'approved' | 'rejected'
+    'all' | 'pending' | 'observed' | 'approved' | 'rejected'
   >('all');
   const [selectedApp, setSelectedApp] = useState<DriverApplication | null>(
     null,
   );
   const [modalVisible, setModalVisible] = useState(false);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [decisionMode, setDecisionMode] = useState<'observed' | 'rejected'>('observed');
   const [rejectionReason, setRejectionReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docImageUrl, setDocImageUrl] = useState<string | null>(null);
+  const [docImageError, setDocImageError] = useState(false);
+  const [docImageView, setDocImageView] = useState<'original' | 'ocr'>('original');
   const [docImageModal, setDocImageModal] = useState(false);
   const [currentDocKey, setCurrentDocKey] = useState<string | null>(null);
   const [docStatus, setDocStatus] = useState<
@@ -379,37 +558,35 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
   >({});
   const [lockedDocs, setLockedDocs] = useState<Set<string>>(new Set());
   const [applications, setApplications] = useState<DriverApplication[]>([]);
+  const loadingRequestsRef = React.useRef(false);
 
-  useEffect(() => {
-    loadDriverApplications();
-  }, []);
-  useFocusEffect(
-    React.useCallback(() => {
-      loadDriverApplications();
-    }, []),
-  );
-
-  const loadDriverApplications = async () => {
-    setIsLoading(true);
+  const loadDriverApplications = React.useCallback(async (refresh = false) => {
+    if (loadingRequestsRef.current) return;
+    loadingRequestsRef.current = true;
+    if (refresh) setIsRefreshing(true);
+    else setIsLoading(true);
     setError(null);
     try {
       const res = await AdminService.getAllDrivers(50, 0);
       if (res?.data?.length > 0) {
         const data = res.data as DriverApplication[];
         setApplications(data);
-        if (selectedApp) {
-          const updated = data.find(a => a.id === selectedApp.id);
-          if (updated) setSelectedApp(updated);
-        }
+        setSelectedApp(previous => previous ? data.find(app => app.id === previous.id) || previous : null);
       } else {
         setApplications([]);
       }
     } catch {
       setError('Error al cargar los conductores');
     } finally {
-      setIsLoading(false);
+      loadingRequestsRef.current = false;
+      if (refresh) setIsRefreshing(false);
+      else setIsLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(React.useCallback(() => {
+    loadDriverApplications();
+  }, [loadDriverApplications]));
 
   const filtered = applications.filter(app => {
     const q = searchText.toLowerCase();
@@ -424,6 +601,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
 
   const counts = {
     pending: applications.filter(a => a.status === 'pending').length,
+    observed: applications.filter(a => a.status === 'observed').length,
     approved: applications.filter(a => a.status === 'approved').length,
     rejected: applications.filter(a => a.status === 'rejected').length,
   };
@@ -528,39 +706,46 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const handleReject = async () => {
+  const handleDecision = async () => {
     if (!selectedApp || !rejectionReason.trim()) {
-      Alert.alert('Requerido', 'Ingresa una razón de rechazo');
+      Alert.alert('Requerido', 'Ingresa el motivo de la decisión');
       return;
     }
-    const docMap: Record<string, string> = {};
-    docKeys.forEach(d => {
-      docMap[d.key] = d.label;
-    });
-    const rejectedList = Object.entries(docStatus)
+    const rejectedKeys = Object.entries(docStatus)
       .filter(([, v]) => v === 'rejected')
-      .map(([k]) => docMap[k] || k)
-      .join(', ');
-    const fullReason =
-      rejectionReason.trim() +
-      (rejectedList ? `\n\nDocumentos a reenviar: ${rejectedList}` : '');
+      .map(([k]) => k);
+    const verifiedKeys = Object.entries(docStatus)
+      .filter(([, v]) => v === 'verified')
+      .map(([k]) => k);
+    if (decisionMode === 'observed' && !rejectedKeys.length) {
+      Alert.alert('Selecciona documentos', 'Marca al menos un documento para corregir.');
+      return;
+    }
+    if (decisionMode === 'observed' && pendingReviewDocs.length) {
+      Alert.alert('Revisión incompleta', 'Revisa todos los documentos antes de observar la solicitud.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      await AdminService.rejectDriver(
-        selectedApp.currentRequest?.id || selectedApp.id,
-        fullReason,
-      );
+      const requestId = selectedApp.currentRequest?.id || selectedApp.id;
+      if (decisionMode === 'observed') {
+        await AdminService.observeDriver(requestId, rejectionReason.trim(), rejectedKeys, verifiedKeys);
+      } else {
+        await AdminService.rejectDriver(requestId, rejectionReason.trim(), rejectedKeys, verifiedKeys);
+      }
       setApplications(prev =>
         prev.map(a =>
           a.id === selectedApp.id
-            ? { ...a, status: 'rejected', rejectionReason: fullReason }
+            ? { ...a, status: decisionMode, rejectionReason: rejectionReason.trim() }
             : a,
         ),
       );
       Alert.alert(
-        'Rechazado',
-        `Se notificó a ${selectedApp.name} sobre los documentos a corregir.`,
+        decisionMode === 'observed' ? 'Observada' : 'Rechazada',
+        decisionMode === 'observed'
+          ? `Se notificó a ${selectedApp.name} qué documentos debe corregir.`
+          : `Se notificó a ${selectedApp.name} la decisión final.`,
       );
       setRejectionReason('');
       setDocStatus({});
@@ -570,7 +755,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
       setSelectedApp(null);
       loadDriverApplications();
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Error al rechazar conductor');
+      Alert.alert('Error', e?.message || 'No se pudo resolver la solicitud');
     } finally {
       setIsSubmitting(false);
     }
@@ -587,15 +772,14 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
           <ChevronLeft size={20} color={C.text} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Solicitudes de conductores</Text>
-        <TouchableOpacity onPress={loadDriverApplications} style={s.backBtn}>
-          <RefreshCw size={16} color={C.primary} strokeWidth={2} />
-        </TouchableOpacity>
+        <View style={s.backBtn} />
       </View>
 
       {/* Stats row */}
       <View style={s.statsRow}>
         {[
           { label: 'Pendientes', count: counts.pending, color: C.warning },
+          { label: 'Observados', count: counts.observed, color: C.warning },
           { label: 'Aprobados', count: counts.approved, color: C.success },
           { label: 'Rechazados', count: counts.rejected, color: C.error },
         ].map(st => (
@@ -634,6 +818,7 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
           [
             { key: 'all', label: 'Todos' },
             { key: 'pending', label: `Pendientes (${counts.pending})` },
+            { key: 'observed', label: `Observados (${counts.observed})` },
             { key: 'approved', label: `Aprobados (${counts.approved})` },
             { key: 'rejected', label: `Rechazados (${counts.rejected})` },
           ] as const
@@ -654,8 +839,17 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={s.listContent}
+        contentContainerStyle={[s.listContent, { flexGrow: 1 }]}
         showsVerticalScrollIndicator={false}
+        alwaysBounceVertical
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => loadDriverApplications(true)}
+            tintColor={C.primary}
+            colors={[C.primary]}
+          />
+        }
       >
         {/* Loading / Error */}
         {isLoading && (
@@ -791,6 +985,15 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                 <StatusBadge status={selectedApp.status} />
               </View>
 
+              {selectedApp.ocrProcessingStatus === 'pending' && (
+                <View style={s.resubBanner}>
+                  <ActivityIndicator size="small" color={C.warning} />
+                  <Text style={s.resubSub}>
+                    Extrayendo datos de los documentos. Desliza hacia abajo para actualizar.
+                  </Text>
+                </View>
+              )}
+
               {/* Resubmission notice */}
               {selectedApp.currentRequest &&
                 selectedApp.currentRequest.version > 1 && (
@@ -828,45 +1031,154 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
               </View>
 
               <View style={s.section}>
+                <SectionLabel text="CÉDULA DE IDENTIDAD" />
+                <DetailRow label="Número" value={selectedApp.identity?.ciNumber || ''} />
+                <DetailRow label="Nombres" value={selectedApp.identity?.firstNames || ''} />
+                <DetailRow label="Apellido paterno" value={selectedApp.identity?.paternalSurname || ''} />
+                <DetailRow label="Apellido materno" value={selectedApp.identity?.maternalSurname || ''} />
+                <DetailRow label="Nacimiento" value={selectedApp.identity?.birthDate || ''} />
+                <DetailRow label="Emisión" value={selectedApp.identity?.issueDate || ''} />
+                <DetailRow label="Vencimiento" value={selectedApp.identity?.expiryDate || ''} />
+                <DetailRow label="Lugar de nacimiento" value={selectedApp.identity?.birthPlace || ''} />
+                <DetailRow label="Domicilio" value={selectedApp.identity?.address || ''} />
+                <DetailRow label="Profesión" value={selectedApp.identity?.occupation || ''} />
+                <DetailRow label="Estado civil" value={selectedApp.identity?.maritalStatus || ''} />
+                <DetailRow label="Verificación" value={selectedApp.identity?.verificationStatus === 'verified' ? 'Verificada' : 'Pendiente'} />
+              </View>
+
+              <View style={s.section}>
                 <SectionLabel text="LICENCIA" />
-                <DetailRow label="Número" value={selectedApp.licenseNumber} />
+                <DetailRow label="Número" value={selectedApp.licenseFrontOcr?.licenseNumber || selectedApp.licenseNumber} />
+                <DetailRow label="Nombre y apellidos" value={selectedApp.licenseFrontOcr?.fullName || ''} />
+                <DetailRow label="Nacionalidad" value={selectedApp.licenseFrontOcr?.nationality || ''} />
+                <DetailRow label="Emisión" value={selectedApp.licenseFrontOcr?.issueDate || ''} />
+                <DetailRow label="Vencimiento" value={selectedApp.licenseFrontOcr?.licenseExpiryDate || selectedApp.licenseExpiryDate} />
+                <DetailRow label="Nacimiento" value={selectedApp.licenseFrontOcr?.birthDate || ''} />
+                <DetailRow label="Categoría" value={selectedApp.licenseFrontOcr?.licenseCategory || ''} />
                 <DetailRow
-                  label="Vencimiento"
-                  value={selectedApp.licenseExpiryDate}
+                  label="Anverso / reverso"
+                  value={licenseComparison(selectedApp.licenseFrontOcr, selectedApp.licenseBackOcr)}
                 />
               </View>
 
               <View style={s.section}>
-                <SectionLabel text="VEHÍCULO" />
+                <SectionLabel text="TIC — IDENTIFICACIÓN DEL CONDUCTOR" />
+                <DetailRow label="Número de tarjeta" value={selectedApp.ticOcr?.ticNumber || ''} />
+                <DetailRow label="Lugar de emisión" value={selectedApp.ticOcr?.issuingPlace || ''} />
+                <DetailRow label="Nombre en TIC" value={selectedApp.ticOcr?.fullName || ''} />
+                <DetailRow label="Licencia en TIC" value={selectedApp.ticOcr?.licenseNumber || ''} />
+                <DetailRow label="Nombre TIC / CI" value={compareTicName(selectedApp.ticOcr, selectedApp.identity)} />
+                <DetailRow label="Número TIC / licencia" value={compareTicLicense(
+                  selectedApp.ticOcr, selectedApp.licenseFrontOcr, selectedApp.licenseNumber,
+                )} />
+                <DetailRow label="Categoría marcada" value="Revisar en la imagen" />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="ANTECEDENTES POLICIALES" />
+                <DetailRow label="Número de certificado" value={selectedApp.antecedentsOcr?.certificateNumber || ''} />
+                <DetailRow label="Nombre en certificado" value={selectedApp.antecedentsOcr?.fullName || ''} />
+                <DetailRow label="CI en certificado" value={selectedApp.antecedentsOcr?.ciNumber || ''} />
+                <DetailRow label="Nacimiento en certificado" value={selectedApp.antecedentsOcr?.birthDate || ''} />
+                <DetailRow label="Identidad / CI verificada" value={compareCertificateIdentity(selectedApp.antecedentsOcr, selectedApp.identity)} />
+                <DetailRow label="Tipo de antecedentes" value={selectedApp.antecedentsOcr?.backgroundUnit || ''} />
+                <DetailRow label="Resultado declarado" value={selectedApp.antecedentsOcr?.backgroundResult || ''} />
+                <DetailRow label="Emisión" value={selectedApp.antecedentsOcr?.issueDate || ''} />
+                <DetailRow label="Validez hasta" value={selectedApp.antecedentsOcr?.validUntil || ''} />
+                <DetailRow label="Motivo del trámite" value={selectedApp.antecedentsOcr?.procedureReason || ''} />
+                <DetailRow label="Destinatario" value={selectedApp.antecedentsOcr?.recipient || ''} />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="RUAT / VEHÍCULO" />
                 <DetailRow
                   label="Marca"
-                  value={selectedApp.vehicleBrand || '—'}
+                  value={selectedApp.ruatOcr?.vehicleBrand || selectedApp.vehicleBrand || ''}
+                />
+                <DetailRow
+                  label="Clase"
+                  value={selectedApp.ruatOcr?.vehicleClass || vehicleTypeLabel(selectedApp.vehicleType)}
+                />
+                <DetailRow
+                  label="Tipo de vehículo"
+                  value={selectedApp.ruatOcr?.vehicleModel || selectedApp.vehicleModel || ''}
                 />
                 <DetailRow
                   label="Modelo"
-                  value={selectedApp.vehicleModel || '—'}
+                  value={selectedApp.ruatOcr?.vehicleYear || selectedApp.vehicleYear?.toString()}
                 />
-                <DetailRow
-                  label="Tipo"
-                  value={vehicleTypeLabel(selectedApp.vehicleType)}
-                />
-                <DetailRow label="Placa" value={selectedApp.vehiclePlate} />
-                <DetailRow
-                  label="Año"
-                  value={selectedApp.vehicleYear?.toString()}
-                />
+                <DetailRow label="Placa" value={selectedApp.ruatOcr?.vehiclePlate || selectedApp.vehiclePlate} />
                 <DetailRow
                   label="Color"
-                  value={selectedApp.vehicleColor || ''}
+                  value={selectedApp.ruatOcr?.vehicleColor || selectedApp.vehicleColor || ''}
                 />
                 <DetailRow
                   label="Capacidad pasajeros"
-                  value={
-                    selectedApp.vehiclePassengerCapacity
-                      ? String(selectedApp.vehiclePassengerCapacity)
-                      : ''
-                  }
+                  value={selectedApp.ruatOcr?.vehiclePassengerCapacity ||
+                    (selectedApp.vehiclePassengerCapacity ? String(selectedApp.vehiclePassengerCapacity) : '')}
                 />
+                <DetailRow label="Radicatoria" value={selectedApp.ruatOcr?.registrationMunicipality || ''} />
+                <DetailRow label="CRPVA" value={selectedApp.ruatOcr?.crpvaNumber || ''} />
+                <DetailRow label="Emisión RUAT" value={selectedApp.ruatOcr?.ruatIssueDate || ''} />
+                <DetailRow label="Inicio de propiedad" value={selectedApp.ruatOcr?.ownershipStartDate || ''} />
+                <DetailRow label="Puertas" value={selectedApp.ruatOcr?.doorCount || ''} />
+                <DetailRow label="Servicio" value={selectedApp.ruatOcr?.serviceType || ''} />
+                <DetailRow label="Chasis" value={selectedApp.ruatOcr?.chassisNumber || ''} />
+                <DetailRow label="Motor" value={selectedApp.ruatOcr?.engineNumber || ''} />
+                <DetailRow label="Combustible" value={selectedApp.ruatOcr?.fuelType || ''} />
+                <DetailRow label="Cilindrada" value={selectedApp.ruatOcr?.engineDisplacement || ''} />
+                <DetailRow label="Tipo de motor" value={selectedApp.ruatOcr?.engineType || ''} />
+                <DetailRow label="Observaciones" value={selectedApp.ruatOcr?.legalObservations || ''} />
+                <DetailRow label="Propietario" value={selectedApp.ruatOcr?.vehicleOwnerName || ''} />
+                <DetailRow
+                  label="CI del propietario"
+                  value={(selectedApp.ruatOcr?.vehicleOwnerCi || '').replace(/^(\d{5,10})([A-Z]{2})$/, '$1 $2')}
+                />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="SOAT — ROSETA DIGITAL" />
+                <DetailRow
+                  label="Formato"
+                  value={selectedApp.soatOcr?.soatRosetteNumber && selectedApp.soatOcr?.soatYear
+                    ? 'Roseta detectada'
+                    : 'Revisar imagen'}
+                />
+                <DetailRow label="Número de roseta" value={selectedApp.soatOcr?.soatRosetteNumber || ''} />
+                <DetailRow label="Gestión" value={selectedApp.soatOcr?.soatYear || ''} />
+                <DetailRow label="Departamento" value={selectedApp.soatOcr?.soatDepartment || ''} />
+                <DetailRow label="Placa" value={selectedApp.soatOcr?.soatPlate || ''} />
+                <DetailRow label="Tipo de vehículo" value={selectedApp.soatOcr?.soatVehicleType || ''} />
+                <DetailRow label="Uso" value={selectedApp.soatOcr?.soatUse || ''} />
+                <DetailRow label="Vigencia desde" value={selectedApp.soatOcr?.soatStartDate || ''} />
+                <DetailRow label="Vigencia hasta" value={selectedApp.soatOcr?.soatExpiryDate || ''} />
+                <DetailRow
+                  label="Placa SOAT / RUAT"
+                  value={selectedApp.soatOcr?.soatPlate && selectedApp.ruatOcr?.vehiclePlate
+                    ? selectedApp.soatOcr.soatPlate === selectedApp.ruatOcr.vehiclePlate
+                      ? 'Coinciden'
+                      : 'No coinciden'
+                    : 'Pendiente de lectura'}
+                />
+              </View>
+
+              <View style={s.section}>
+                <SectionLabel text="DOMICILIO" />
+                <DetailRow label="Dirección declarada" value={selectedApp.domicile?.address || '—'} />
+                <DetailRow label="Dirección en factura de luz" value={selectedApp.domicileProofOcr?.serviceAddress || ''} />
+                <DetailRow label="Mes de factura" value={billingMonthLabel(selectedApp.domicileProofOcr?.billingMonth)} />
+                <DetailRow label="Actualidad de factura" value={billingMonthReview(selectedApp.domicileProofOcr?.billingMonth)} />
+                <DetailRow
+                  label="Ubicación"
+                  value={selectedApp.domicile
+                    ? `${selectedApp.domicile.latitude.toFixed(5)}, ${selectedApp.domicile.longitude.toFixed(5)}`
+                    : '—'}
+                />
+                {selectedApp.domicile && (
+                  <TouchableOpacity onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${selectedApp.domicile!.latitude},${selectedApp.domicile!.longitude}`)}>
+                    <Text style={{ color: C.primary, fontWeight: '700', marginTop: 8 }}>Ver ubicación en el mapa</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Documents */}
@@ -886,6 +1198,8 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                       optional={d.optional}
                       onPress={(url, key) => {
                         setDocImageUrl(url);
+                        setDocImageError(false);
+                        setDocImageView('original');
                         setCurrentDocKey(key);
                         setDocImageModal(true);
                       }}
@@ -958,10 +1272,10 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
               )}
 
               {/* Rejection reason (if already rejected) */}
-              {selectedApp.status === 'rejected' &&
+              {(selectedApp.status === 'observed' || selectedApp.status === 'rejected') &&
                 selectedApp.rejectionReason && (
                   <View style={s.section}>
-                    <SectionLabel text="MOTIVO DE RECHAZO" />
+                    <SectionLabel text={selectedApp.status === 'observed' ? 'MOTIVO DE OBSERVACIÓN' : 'MOTIVO DE RECHAZO'} />
                     <View
                       style={[
                         s.summaryBox,
@@ -978,11 +1292,28 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                   </View>
                 )}
 
-              <View style={s.summaryBox}>
-                <Text style={s.notesTxt}>
-                  Resultado generado automáticamente por las validaciones del sistema. Esta pantalla es solo de consulta.
-                </Text>
-              </View>
+              {selectedApp.status === 'pending' && (
+                <View style={s.actions}>
+                  <TouchableOpacity style={s.approveBtn} onPress={handleApprove} disabled={isSubmitting}>
+                    <Check size={19} color={C.white} />
+                    <Text style={s.actionTxt}>Aprobar solicitud</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.rejectBtn, { backgroundColor: C.warningLight, borderColor: C.warningBorder }]}
+                    onPress={() => { setDecisionMode('observed'); setRejectModalVisible(true); }}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={[s.actionTxt, { color: C.warning }]}>Observar para corrección</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.rejectBtn}
+                    onPress={() => { setDecisionMode('rejected'); setRejectModalVisible(true); }}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={[s.actionTxt, { color: C.error }]}>Rechazar definitivamente</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -997,13 +1328,17 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
       >
         <View style={s.overlay}>
           <View style={s.rejectModal}>
-            <Text style={s.rejectModalTitle}>Motivo de rechazo</Text>
+            <Text style={s.rejectModalTitle}>
+              {decisionMode === 'observed' ? 'Motivo de observación' : 'Motivo de rechazo'}
+            </Text>
             <Text style={s.rejectModalSub}>
-              Explica por qué se rechaza esta solicitud.
+              {decisionMode === 'observed'
+                ? 'Explica qué debe corregir la conductora.'
+                : 'Explica por qué se rechaza definitivamente la solicitud.'}
             </Text>
             <TextInput
               style={s.rejectInput}
-              placeholder="Describe el motivo de rechazo..."
+              placeholder="Describe el motivo..."
               placeholderTextColor={C.textMuted}
               value={rejectionReason}
               onChangeText={setRejectionReason}
@@ -1044,13 +1379,15 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.rejectConfirmBtn, isSubmitting && { opacity: 0.6 }]}
-                onPress={handleReject}
+                onPress={handleDecision}
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <ActivityIndicator color={C.white} size="small" />
                 ) : (
-                  <Text style={s.rejectConfirmTxt}>Rechazar</Text>
+                  <Text style={s.rejectConfirmTxt}>
+                    {decisionMode === 'observed' ? 'Observar' : 'Rechazar'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -1071,12 +1408,41 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => setDocImageModal(false)}
           />
           <View style={s.imgModal}>
+            {!docImageUrl && <Text style={{ color: C.textSub, marginBottom: 16 }}>Este documento no fue enviado. Márcalo para corrección.</Text>}
+            {docImageUrl && currentDocKey && ocrPreviewDocuments.has(currentDocKey) && (
+              <View style={s.imgViewSwitch}>
+                {(['original', 'ocr'] as const).map(view => (
+                  <TouchableOpacity
+                    key={view}
+                    style={[s.imgViewOption, docImageView === view && s.imgViewOptionActive]}
+                    onPress={() => { setDocImageView(view); setDocImageError(false); }}
+                  >
+                    <Text style={[s.imgViewOptionText, docImageView === view && s.imgViewOptionTextActive]}>
+                      {view === 'original' ? 'Original' : 'Vista OCR procesada'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
             {docImageUrl && (
               <Image
-                source={privateImageSource(docImageUrl)}
+                key={`${currentDocKey}-${docImageView}`}
+                source={privateImageSource(
+                  docImageView === 'ocr' && currentDocKey && selectedApp?.currentRequest?.id
+                    ? `${API_HOST}/api/admin/requests/${encodeURIComponent(selectedApp.currentRequest.id)}/ocr-preview/${encodeURIComponent(currentDocKey)}`
+                    : docImageUrl,
+                )}
                 style={s.docImg}
                 resizeMode="contain"
+                onError={() => setDocImageError(true)}
               />
+            )}
+            {docImageError && (
+              <Text style={{ color: C.error, textAlign: 'center', marginBottom: 16 }}>
+                {docImageView === 'ocr'
+                  ? 'No se pudo generar la imagen OCR. Puedes seguir viendo el original.'
+                  : 'No se pudo cargar la imagen. Comprueba la conexión con el servidor y vuelve a abrir el documento.'}
+              </Text>
             )}
             {/* Si el doc está bloqueado (ya aprobado en versión anterior) solo mostrar info */}
             {currentDocKey && lockedDocs.has(currentDocKey) ? (
@@ -1105,6 +1471,33 @@ const AdminDriverRegistrationScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
             ) : null}
+            {currentDocKey && selectedApp?.status === 'pending' && !lockedDocs.has(currentDocKey) && (
+              <View style={s.imgActions}>
+                <TouchableOpacity
+                  style={[s.imgBtn, { backgroundColor: C.successLight, borderColor: C.successBorder }]}
+                  disabled={!docImageUrl || (docImageView === 'original' && docImageError)}
+                  onPress={() => {
+                    setDocStatus(previous => ({ ...previous, [currentDocKey]: 'verified' }));
+                    setDocImageModal(false);
+                    setCurrentDocKey(null);
+                  }}
+                >
+                  <Check size={16} color={C.success} />
+                  <Text style={[s.imgBtnTxt, { color: C.success }]}>Verificar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.imgBtn, { backgroundColor: C.errorLight, borderColor: C.errorBorder }]}
+                  onPress={() => {
+                    setDocStatus(previous => ({ ...previous, [currentDocKey]: 'rejected' }));
+                    setDocImageModal(false);
+                    setCurrentDocKey(null);
+                  }}
+                >
+                  <X size={16} color={C.error} />
+                  <Text style={[s.imgBtnTxt, { color: C.error }]}>Corregir</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <TouchableOpacity
               style={s.imgCloseBtn}
               onPress={() => {
@@ -1398,6 +1791,14 @@ const s = StyleSheet.create({
     maxWidth: 380,
     alignItems: 'center',
   },
+  imgViewSwitch: { flexDirection: 'row', width: '100%', gap: 8, marginBottom: 12 },
+  imgViewOption: {
+    flex: 1, paddingVertical: 10, paddingHorizontal: 5, borderRadius: 10,
+    borderWidth: 1, borderColor: C.border, alignItems: 'center',
+  },
+  imgViewOptionActive: { borderColor: C.primary, backgroundColor: C.primaryLight },
+  imgViewOptionText: { fontSize: 12, fontWeight: '700', color: C.textSub, textAlign: 'center' },
+  imgViewOptionTextActive: { color: C.primary },
   docImg: { width: '100%', height: 380, borderRadius: 12, marginBottom: 16 },
   imgActions: {
     flexDirection: 'row',

@@ -65,7 +65,7 @@ const NotificationsScreen: React.FC = () => {
   const [notifications, setNotifications] = React.useState([
     { id: '1', title: 'Viaje completado', message: 'Tu viaje a Plaza Murillo ha sido completado exitosamente.', time: 'Hace 2 horas', read: false },
     { id: '2', title: 'Nuevo conductor disponible', message: 'Conductores disponibles cerca de tu ubicación.', time: 'Hace 5 horas', read: false },
-    { id: '3', title: 'Promoción especial', message: '20% de descuento en tus próximos 3 viajes.', time: 'Ayer', read: true },
+    { id: '3', title: 'Recordatorio de viaje', message: 'Puedes consultar tus viajes recientes en el historial.', time: 'Ayer', read: true },
     { id: '4', title: 'Viaje cancelado', message: 'El conductor canceló el viaje. Busca otro conductor.', time: 'Ayer', read: true },
     { id: '5', title: 'Bienvenido a LineaLila', message: 'Gracias por registrarte. Comienza a viajar seguro.', time: 'Hace 3 días', read: true },
   ]);

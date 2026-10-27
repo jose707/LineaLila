@@ -15,9 +15,9 @@ const Rating              = require('./Rating');
 const Vehicle             = require('./Vehicle');
 const DriverLocation      = require('./DriverLocation');
 const DriverRequest       = require('./DriverRequest');
+const DriverDomicile      = require('./DriverDomicile');
 const RequestFile         = require('./RequestFile');
 const Notification        = require('./Notification');
-const PromoCode           = require('./PromoCode');
 const CancellationReason  = require('./CancellationReason');
 const DriverEarning       = require('./DriverEarning');
 const CommissionSettlement = require('./CommissionSettlement');
@@ -25,8 +25,6 @@ const ServiceArea         = require('./ServiceArea');
 const PricingRule         = require('./PricingRule');
 const AuditLog            = require('./AuditLog');
 const RideWaypoint        = require('./RideWaypoint');
-const TrustedContact      = require('./TrustedContact');
-const PanicEvent          = require('./PanicEvent');
 
 // Wire all associations in one call
 setupAssociations();
@@ -43,9 +41,9 @@ module.exports = {
   Vehicle,
   DriverLocation,
   DriverRequest,
+  DriverDomicile,
   RequestFile,
   Notification,
-  PromoCode,
   CancellationReason,
   DriverEarning,
   CommissionSettlement,
@@ -53,6 +51,4 @@ module.exports = {
   PricingRule,
   AuditLog,
   RideWaypoint,
-  TrustedContact,
-  PanicEvent,
 };

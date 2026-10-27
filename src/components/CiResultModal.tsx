@@ -42,7 +42,6 @@ const FIELD_LABELS: Record<string, string> = {
   address: 'Domicilio',
   occupation: 'Profesión',
   maritalStatus: 'Estado civil',
-  bloodType: 'Grupo sanguíneo',
 };
 
 interface OcrSide {
@@ -145,7 +144,6 @@ export const CiResultModal: React.FC<Props> = ({
     { label: FIELD_LABELS.address, value: bk.address || '' },
     { label: FIELD_LABELS.occupation, value: bk.occupation || '' },
     { label: FIELD_LABELS.maritalStatus, value: bk.maritalStatus || '' },
-    { label: FIELD_LABELS.bloodType, value: bk.bloodType || '' },
   ];
 
   return (

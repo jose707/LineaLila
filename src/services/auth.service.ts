@@ -101,15 +101,15 @@ export const authService = {
   fetchCurrentUser: async (): Promise<User | null> => {
     try {
       console.log(
-        'ðŸ“¡ [fetchCurrentUser] Obteniendo datos actualizados del servidor...',
+        '[fetchCurrentUser] Obteniendo datos actualizados del servidor...',
       );
       const response = await api.get<{ user: User }>('/auth/me');
-      console.log('ðŸ“¡ [fetchCurrentUser] Respuesta del servidor:', response);
+      console.log('[fetchCurrentUser] Respuesta del servidor:', response);
 
       if (response && response.user) {
         // Actualizar localStorage con los datos nuevos
         console.log(
-          'âœ… [fetchCurrentUser] Guardando usuario en localStorage:',
+          '[fetchCurrentUser] Guardando usuario en localStorage:',
           {
             id: response.user.id,
             name: response.user.name,
@@ -123,7 +123,7 @@ export const authService = {
       return null;
     } catch (error: any) {
       console.error(
-        'âŒ [fetchCurrentUser] Error:',
+        '[fetchCurrentUser] Error:',
         error?.response?.data || error.message,
       );
       return null;
@@ -181,7 +181,7 @@ export const authService = {
 
       return response;
     } catch (error: any) {
-      console.error('âŒ Backend registration error:', error);
+      console.error('[Auth] Backend registration error:', error);
       console.error('   Status:', error.response?.status);
       console.error('   Data:', error.response?.data);
       throw error;
@@ -254,7 +254,7 @@ export const authService = {
         return false;
       }
     } catch (error: any) {
-      console.error('âŒ Error checking phone number:');
+      console.error('[Auth] Error checking phone number:');
       console.error('   Status:', error?.status);
       console.error('   Data:', error?.data);
       console.error('   Message:', error?.message);
@@ -297,7 +297,7 @@ export const authService = {
         user: response.user,
       };
     } catch (error: any) {
-      console.error('âŒ Error checking Firebase user:');
+      console.error('[Auth] Error checking Firebase user:');
       console.error('   Status:', error.response?.status);
       console.error('   Data:', error.response?.data);
       console.error('   Message:', error.message);
@@ -332,7 +332,7 @@ export const authService = {
 
       return response.user;
     } catch (error: any) {
-      console.error('âŒ Error changing mode:');
+      console.error('[Auth] Error changing mode:');
       console.error('   Status:', error?.status);
       console.error('   Data:', error?.data);
       console.error('   Message:', error?.message);

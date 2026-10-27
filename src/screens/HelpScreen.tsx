@@ -84,7 +84,7 @@ const HelpScreen: React.FC = () => {
     {
       icon: <CreditCard size={25} color={COLORS.primary} />,
       title: 'Pagos y precios',
-      description: 'Métodos de pago, promociones y facturas',
+      description: 'Métodos de pago, precios y facturas',
       action: () => Alert.alert('Pagos', 'Pantalla en desarrollo'),
     },
     {

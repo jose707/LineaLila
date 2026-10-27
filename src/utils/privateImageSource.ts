@@ -4,10 +4,14 @@ import { StorageHelper } from '../services/storage';
 
 // Never send the bearer token to third-party avatar URLs or local file URIs.
 export function privateImageSource(uri: string): ImageURISource {
-  const resolvedUri = uri.startsWith('/api/users/') && uri.endsWith('/profile-photo')
+  const resolvedUri = uri.startsWith('/uploads/') || uri.startsWith('/api/requests/file/') ||
+    (uri.startsWith('/api/admin/requests/') && uri.includes('/ocr-preview/')) ||
+    uri.startsWith('/api/identity/evidence/') ||
+    uri.startsWith('/api/users/') && uri.endsWith('/profile-photo')
     ? `${API_HOST}${uri}` : uri;
   const internal = resolvedUri.startsWith(`${API_HOST}/uploads/`) ||
     resolvedUri.startsWith(`${API_HOST}/api/requests/file/`) ||
+    (resolvedUri.startsWith(`${API_HOST}/api/admin/requests/`) && resolvedUri.includes('/ocr-preview/')) ||
     resolvedUri.startsWith(`${API_HOST}/api/identity/evidence/`) ||
     resolvedUri.startsWith(`${API_HOST}/api/users/`) && resolvedUri.endsWith('/profile-photo');
   return internal ? { uri: resolvedUri, headers: { Authorization: `Bearer ${StorageHelper.getItem('authToken') || ''}` } } : { uri: resolvedUri };

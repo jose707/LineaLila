@@ -9,11 +9,23 @@ const GOOGLE_WEB_CLIENT_ID = '807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps
 /**
  * Send OTP to phone number
  */
-export const sendPhoneOTP = async (phoneNumber: string): Promise<string> => {
+export const sendPhoneOTP = async (phoneNumber: string, forceResend = false): Promise<string> => {
   try {
     console.log(`ðŸ“± Sending OTP to: ${phoneNumber}`);
 
-    const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error('La solicitud del código tardó demasiado. Intenta de nuevo.')),
+        30000,
+      );
+    });
+    const confirmation = await Promise.race([
+      auth().signInWithPhoneNumber(phoneNumber, Platform.OS === 'android' && forceResend),
+      timeout,
+    ]).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
     console.log('âœ… OTP sent successfully');
 
     if (!confirmation.verificationId) {
@@ -22,7 +34,7 @@ export const sendPhoneOTP = async (phoneNumber: string): Promise<string> => {
 
     return confirmation.verificationId;
   } catch (error: any) {
-    console.error('âŒ Error sending OTP:', error);
+    console.error('[Firebase] Error sending OTP:', error);
     throw new Error(`Error sending OTP: ${error.message}`);
   }
 };
@@ -46,7 +58,7 @@ export const verifyPhoneOTP = async (
     console.log('âœ… OTP verified successfully');
     return userCredential;
   } catch (error: any) {
-    console.error('âŒ Error verifying OTP:', error);
+    console.error('[Firebase] Error verifying OTP:', error);
     console.error('   Error code:', error.code);
     console.error('   Error message:', error.message);
     console.error('   Full error:', JSON.stringify(error));
@@ -90,7 +102,7 @@ export const loginWithEmailPassword = async (
 
     return userCredential;
   } catch (error: any) {
-    console.error('âŒ Error logging in:', error);
+    console.error('[Firebase] Error logging in:', error);
     throw new Error(`Login failed: ${error.message}`);
   }
 };
@@ -113,7 +125,7 @@ export const createUserWithEmailPassword = async (
 
     return userCredential;
   } catch (error: any) {
-    console.error('âŒ Error creating user:', error);
+    console.error('[Firebase] Error creating user:', error);
     throw new Error(`User creation failed: ${error.message}`);
   }
 };
@@ -136,7 +148,7 @@ export const updateUserPhoneNumber = async (
     await user.linkWithCredential(credential);
     console.log('âœ… Phone number linked successfully');
   } catch (error: any) {
-    console.error('âŒ Error linking phone number:', error);
+    console.error('[Firebase] Error linking phone number:', error);
     throw new Error(`Error linking phone: ${error.message}`);
   }
 };
@@ -162,7 +174,7 @@ export const completePhoneAuth = async (
     console.log('âœ… Phone authentication completed');
     return userCredential;
   } catch (error: any) {
-    console.error('âŒ Error in phone authentication:', error);
+    console.error('[Firebase] Error in phone authentication:', error);
     throw new Error(`Authentication failed: ${error.message}`);
   }
 };
@@ -182,7 +194,7 @@ export const signOut = async (): Promise<void> => {
     await auth().signOut();
     console.log('âœ… Signed out successfully');
   } catch (error: any) {
-    console.error('âŒ Error signing out:', error);
+    console.error('[Firebase] Error signing out:', error);
     throw error;
   }
 };
@@ -199,7 +211,7 @@ export const getAuthToken = async (): Promise<string | null> => {
     const token = await user.getIdToken();
     return token;
   } catch (error: any) {
-    console.error('âŒ Error getting token:', error);
+    console.error('[Firebase] Error getting token:', error);
     return null;
   }
 };
@@ -218,7 +230,7 @@ export const initializeGoogleSignIn = async (): Promise<void> => {
     });
     console.log('âœ… Google Sign-In configured');
   } catch (error: any) {
-    console.error('âŒ Error configuring Google Sign-In:', error);
+    console.error('[Firebase] Error configuring Google Sign-In:', error);
   }
 };
 
@@ -276,7 +288,7 @@ export const signInWithGoogle =
           break;
         } catch (signInError: any) {
           const errorMsg = signInError?.message || String(signInError);
-          console.error(`âŒ Sign-in attempt ${retries + 1} failed:`, errorMsg);
+          console.error(`[Firebase] Sign-in attempt ${retries + 1} failed:`, errorMsg);
 
           if (
             errorMsg.includes('current activity is null') ||
@@ -322,7 +334,7 @@ export const signInWithGoogle =
 
       if (!userEmail) {
         console.error(
-          'âŒ No email found in Google response:',
+          '[Firebase] No email found in Google response:',
           JSON.stringify(signInResult),
         );
         throw new Error('No se pudo obtener el correo de Google');
@@ -338,7 +350,7 @@ export const signInWithGoogle =
 
       if (!idToken) {
         console.error(
-          'âŒ No ID token found in Google response:',
+          '[Firebase] No ID token found in Google response:',
           JSON.stringify(tokens),
         );
         throw new Error('No se pudo obtener el ID token de Google');
@@ -384,7 +396,7 @@ export const signInWithGoogle =
         } as any,
       };
     } catch (error: any) {
-      console.error('âŒ Error in Google Sign-In:', error.message);
+      console.error('[Firebase] Error in Google Sign-In:', error.message);
       throw error;
     }
   };

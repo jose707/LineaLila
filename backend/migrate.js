@@ -13,9 +13,9 @@ const APP_TABLES = new Set([
   'ride_waypoints',
   'driver_locations',
   'driver_requests',
+  'driver_domiciles',
   'documents',
   'service_areas',
-  'promo_codes',
   'cancellation_reasons',
   'payments',
   'ratings',
@@ -28,8 +28,6 @@ const APP_TABLES = new Set([
   'emergency_alerts',
   'emergency_sms_logs',
   'emergency_recordings',
-  'trusted_contacts',
-  'panic_events',
 ]);
 
 async function runMigration() {

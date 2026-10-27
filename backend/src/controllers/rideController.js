@@ -36,7 +36,6 @@ async function calcRating(id, role) {
 const Ride = require('../models/Ride');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
-const PromoCode = require('../models/PromoCode');
 const DriverEarning = require('../models/DriverEarning');
 const RideWaypoint = require('../models/RideWaypoint');
 const RideOffer = require('../models/RideOffer');
@@ -64,7 +63,6 @@ const createRide = async (req, res) => {
       fare,
       vehicleTypeRequested,
       paymentMethod,
-      promoCode,
     } = req.body;
     const passengerId = req.user.id;
 
@@ -183,48 +181,7 @@ const createRide = async (req, res) => {
       totalFare = Math.round(totalFare); // opcional
     }
 
-    // ── Aplicar código de descuento ───────────────────────────────────
-    let discountAmount = 0;
-    let promoCodeId = null;
-
-    if (promoCode) {
-      const promo = await PromoCode.findOne({
-        where: {
-          code: promoCode.toUpperCase(),
-          is_active: true,
-          [Op.or]: [
-            { expires_at: null },
-            { expires_at: { [Op.gt]: new Date() } },
-          ],
-          [Op.or]: [
-            { max_uses: null },
-            { max_uses: { [Op.gt]: sequelize.col('uses_count') } },
-          ],
-        },
-      });
-
-      if (!promo) {
-        return res.status(400).json({
-          error: 'Código de descuento inválido, expirado o agotado.',
-          code: 'INVALID_PROMO',
-        });
-      }
-
-      discountAmount =
-        promo.discount_type === 'percentage'
-          ? Math.round(totalFare * (promo.discount_value / 100) * 100) / 100
-          : Math.min(promo.discount_value, totalFare);
-
-      promoCodeId = promo.id;
-
-      // Incrementar uses_count
-      await promo.increment('uses_count');
-    }
-
-    const finalFare = Math.max(
-      0,
-      Math.round((totalFare - discountAmount) * 100) / 100,
-    );
+    const finalFare = Math.max(0, Math.round(totalFare * 100) / 100);
 
     // ── Crear el viaje ────────────────────────────────────────────────
     const ride = await Ride.create({
@@ -250,10 +207,9 @@ const createRide = async (req, res) => {
       farePerKm,
       farePerMinute,
       totalFare,
-      discountAmount,
+      discountAmount: 0,
       finalFare,
       service_area_id: serviceAreaId,
-      promo_code_id: promoCodeId,
       status: 'requested',
       expiresAt: new Date(Date.now() + 2 * 60 * 1000),
     });
@@ -276,7 +232,6 @@ const createRide = async (req, res) => {
       id: ride.id,
       zona: serviceArea?.name ?? 'Sin zona',
       tarifa: `Bs ${finalFare}`,
-      descuento: discountAmount > 0 ? `Bs ${discountAmount}` : 'ninguno',
       waypoints: validatedWaypoints.length,
     });
 

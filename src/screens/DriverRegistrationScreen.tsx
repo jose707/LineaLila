@@ -118,7 +118,6 @@ const FIELD_LABELS: Record<string, string> = {
   address: 'Domicilio',
   occupation: 'Profesión',
   maritalStatus: 'Estado civil',
-  bloodType: 'Grupo sanguíneo',
   vehicleOwnerCi: 'CI del propietario',
   registrationMunicipality: 'Radicatoria',
   crpvaNumber: 'Nro. CRPVA',

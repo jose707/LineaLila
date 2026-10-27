@@ -2,7 +2,7 @@
 
 > PostgreSQL con extensión PostGIS | ORM: Sequelize
 
-`migrations/00000000-initial-schema.js` es la única migración y crea el esquema completo para una instalación nueva, incluidas las reglas de asignación rápida. `migrate.js` la ejecuta una sola vez y se detiene si encuentra tablas existentes de la aplicación; para reinicializar, usa una base de datos vacía. El OCR de CI se procesa en una sola solicitud. El esquema de CI no incluye tablas de sesión OCR o revisión manual, apellidos combinados ni un estado separado de aprobación documental.
+`migrations/00000000-initial-schema.js` es la migración maestra y crea el esquema completo para una instalación nueva, incluidas las reglas de asignación rápida. `migrate.js` la ejecuta una sola vez y se detiene si encuentra tablas existentes de la aplicación. En una base existente, `npm run migrate:remove-retired` actualiza el esquema anterior. El OCR de CI se procesa en una sola solicitud. El esquema de CI no incluye tablas de sesión OCR o revisión manual, apellidos combinados ni un estado separado de aprobación documental.
 
 ---
 
@@ -44,11 +44,10 @@ users ──────────────────── drivers ─�
   ├── user_identities          ├── documents
   ├── documents ───────────────┘
   │                           ├── driver_locations
+  │                           ├── driver_domiciles
   │                           ├── driver_requests ── documents
   │                           ├── driver_earnings ── commission_settlements
-  │                           ├── ride_offers
-  │                           └── (panicEvents)
-  │                                    │
+  │                           └── ride_offers
   ├────── rides ───────────────────────┤
   │          │                          │
   │          ├── ride_waypoints
@@ -56,13 +55,12 @@ users ──────────────────── drivers ─�
   │          ├── payments
   │          ├── ratings
   │          ├── driver_earnings
-  │          ├── panicEvents (ride_id nullable)
-  │          ├── promo_codes (FK)
   │          ├── cancellation_reasons (FK)
   │          └── service_areas (FK)
   │
-  ├── trustedContacts (máx 3 por usuario)
-  └── panicEvents (botón SOS)
+  ├── emergency_contacts
+  └── emergency_alerts ── emergency_sms_logs
+                └──────── emergency_recordings
 
 notifications ──── users
 service_areas (zonas geográficas de operación — PostGIS)
@@ -228,13 +226,11 @@ Viaje desde solicitud hasta completado o cancelado. Es la tabla central del sist
 | `fare_per_km` | DOUBLE | YES | | Tarifa por kilómetro |
 | `fare_per_minute` | DOUBLE | YES | | Tarifa por minuto |
 | `total_fare` | DOUBLE | YES | | Tarifa total antes de descuentos |
-| `discount_amount` | DOUBLE | YES | | Monto descontado por promo |
+| `discount_amount` | DOUBLE | YES | | Descuento aplicado, si corresponde |
 | `final_fare` | DOUBLE | YES | | Tarifa final pagada |
 | `distance` | DOUBLE | YES | | Distancia en km |
 | `duration` | INTEGER | YES | | Duración en segundos |
 | `service_area_id` | UUID | YES | | FK → service_areas. Zona donde ocurrió el viaje. NULL = viaje histórico antes de implementar zonas |
-| `promo_code_id` | UUID | YES | | FK → promo_codes |
-| `promo_code` | VARCHAR | YES | | Código usado (campo legacy) |
 | `cancellation_reason_id` | UUID | YES | | FK → cancellation_reasons |
 | `cancellation_reason` | VARCHAR | YES | | Razón en texto (campo legacy, deprecado) |
 | `cancelled_by` | ENUM | YES | | `passenger` o `driver` |
@@ -422,13 +418,33 @@ Solicitudes de registro como conductor. Incluye el historial de versiones si hay
 | `id` | UUID | NO | Identificador único |
 | `driver_id` | UUID | YES | FK → drivers (si ya fue creado) |
 | `user_id` | UUID | NO | FK → users |
-| `status` | ENUM | NO | `pending`, `approved`, `rejected` |
-| `rejection_reason` | TEXT | YES | Razón del rechazo |
-| `rejected_documents` | JSON | YES | Lista de documentos rechazados |
-| `metadata` | JSON | YES | Datos adicionales del proceso |
+| `status` | ENUM | NO | `pending`, `observed`, `approved`, `rejected` |
+| `rejection_reason` | TEXT | YES | Motivo de observación o rechazo (nombre heredado de la columna) |
+| `rejected_documents` | JSON | YES | Documentos que deben corregirse al observar la solicitud (nombre heredado) |
+| `metadata` | JSON | YES | Datos OCR y auxiliares de la solicitud; el domicilio se guarda en `driver_domiciles` |
 | `version` | INTEGER | NO | Versión del intento (incrementa en cada reenvío) |
 | `created_at` | TIMESTAMPTZ | NO | Fecha de creación |
 | `updated_at` | TIMESTAMPTZ | NO | Fecha de última modificación |
+
+`pending` = recibida para revisión; `observed` = requiere correcciones y puede reenviarse; `approved` = habilitada; `rejected` = decisión negativa. En una base existente, ejecutar `npm run migrate:driver-request-status` dentro de `backend` para agregar `observed` al ENUM; la migración maestra ya lo incluye para bases nuevas.
+
+### `driver_domiciles`
+
+Una fila por versión de solicitud. El domicilio declarado puede diferir del domicilio impreso en `user_identities.address` (CI). No se utiliza para la posición operativa del conductor.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Identificador |
+| `user_id` | UUID | Usuario solicitante |
+| `driver_request_id` | UUID UNIQUE | Solicitud/version a la que pertenece |
+| `address` | VARCHAR(255) | Dirección actual declarada |
+| `location` | GEOMETRY(POINT, 4326) | Punto marcado en el mapa |
+| `verification_status` | VARCHAR(20) | `pending`, `verified` o `rejected` |
+| `verified_by`, `verified_at` | UUID, TIMESTAMPTZ | Revisor y fecha |
+| `rejection_reason` | TEXT | Motivo de observación |
+| `created_at`, `updated_at` | TIMESTAMPTZ | Historial |
+
+El comprobante permanece en `documents` con tipo `domicileProof` y el mismo `driver_request_id`. En una base existente, ejecutar `npm run migrate:driver-domiciles`: crea la tabla, traslada los domicilios válidos de `metadata` y elimina allí la copia. Las entradas inválidas quedan intactas para revisión manual.
 
 ---
 
@@ -442,13 +458,17 @@ vinculan mediante `driver_request_id`.
 |---|---|
 | `user_id`, `driver_id`, `vehicle_id` | Propietario del documento; solo `user_id` es obligatorio |
 | `driver_request_id` | Solicitud de conductor que presentó el archivo; conserva las versiones y el historial |
-| `document_type` | `ciFront`, `ciBack`, `licenseFront`, `licenseBack`, `antecedentsPhoto`, `ruatPhoto`, `soatPhoto` o fotos del vehículo/perfil |
+| `document_type` | `ciFront`, `ciBack`, `licenseFront`, `licenseBack`, `ticPhoto`, `antecedentsPhoto`, `ruatPhoto`, `soatPhoto`, `domicileProof` o fotos del vehículo/perfil |
 | `file_path`, `original_filename`, `mime_type`, `file_size` | Archivo almacenado |
 | `ocr_data`, `issued_at`, `expires_at` | Lectura OCR y vigencias |
 | `is_current` | Permite conservar documentos vencidos como historial |
-| `verification_status`, `verified_at`, `verified_by`, `rejection_reason` | Decisión automática. Estado: `pending`, `verified` o `rejected` |
+| `verification_status`, `verified_at`, `verified_by`, `rejection_reason` | Revisión documental administrativa. Estado: `pending`, `verified` o `rejected` |
 
-Un documento pasa a `verified` automáticamente cuando el OCR entregó los campos obligatorios, superó las comparaciones aplicables (CI/licencia, CI/RUAT, RUAT/SOAT) y tiene vigencia válida. La solicitud se aprueba automáticamente solo cuando todos sus archivos obligatorios están presentes y verificados; de lo contrario queda rechazada con el motivo técnico.
+El OCR y las comparaciones (CI/licencia, TIC/CI y licencia, CI/RUAT, RUAT/SOAT) validan el envío inicial, pero la solicitud queda `pending`. El administrador marca los documentos revisados y decide `approved`, `observed` o `rejected`. Solo al aprobar se crean el conductor y el vehículo. `observed` permite corregir y reenviar los documentos señalados; `rejected` es una decisión final. La TIC se guarda como documento, sin duplicar el nombre del conductor.
+
+En una base existente, ejecutar `npm run migrate:tic` dentro de `backend` para permitir `ticPhoto` en el `CHECK` de `documents.document_type`. La migración maestra ya lo incluye para bases nuevas.
+
+El domicilio requiere dirección escrita, ubicación marcada en el mapa y `domicileProof`. Los dos primeros se guardan en `driver_domiciles`; la foto se guarda en `documents`. El administrador comprueba el conjunto y puede observarlo para corrección. Para una base existente, ejecutar primero `npm run migrate:domicile` si aún no se ejecutó, y después `npm run migrate:driver-domiciles`. La migración maestra incluye ambos para bases nuevas.
 
 ---
 
@@ -481,59 +501,17 @@ Paradas intermedias de un viaje (rutas con múltiples destinos). Cada viaje pued
 
 ---
 
-### `trusted_contacts`
-Contactos de confianza de un usuario (máximo 3 por usuario). Se usan para notificaciones de emergencia y compartir ubicación.
+### `emergency_contacts`
+Contactos del usuario que pueden recibir avisos por SMS durante una emergencia. Cada fila guarda `user_id`, `name`, `phone`, `relation`, `is_active` y fechas de creación y actualización.
 
-| Columna | Tipo | Nulo | Default | Descripción |
-|---|---|---|---|---|
-| `id` | UUID | NO | | Identificador único |
-| `user_id` | UUID | NO | | FK → users (CASCADE) |
-| `name` | VARCHAR | NO | | Nombre del contacto de confianza |
-| `phone` | VARCHAR | NO | | Número de teléfono |
-| `relation` | VARCHAR | YES | | Relación con el usuario: `mother`, `father`, `friend`, `sibling`, etc. |
-| `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
+### `emergency_alerts`
+Cada activación SOS crea una alerta vinculada a `users` y, opcionalmente, a `rides`. Guarda estado (`active`, `resolved` o `false_alarm`), ubicación, dirección, hora de activación, resolución, responsable y notas.
 
-**Constraints:**
-- `UNIQUE (user_id, phone)` — evita agregar el mismo teléfono dos veces
-- `ON DELETE CASCADE` — al borrar un usuario se borran sus contactos
+### `emergency_sms_logs`
+Registra un envío de SMS por contacto y alerta. Incluye número de destino, mensaje, estado (`pending`, `sent` o `failed`), identificador del proveedor y fechas o error del envío.
 
-**Índices:**
-- `idx_trusted_contacts_user` — búsquedas por usuario
-
-**Notas:**
-- Se usa en el módulo de emergencias para notificar a contactos seguros
-- Se puede compartir la ubicación en vivo con estos contactos
-- El límite de 3 se valida en la aplicación, no en la BD
-
----
-
-### `panic_events`
-Registro de eventos del botón de pánico (SOS) activados por usuarios. Incluye ubicación, grabación de audio y timestamps.
-
-| Columna | Tipo | Nulo | Default | Descripción |
-|---|---|---|---|---|
-| `id` | UUID | NO | | Identificador único |
-| `user_id` | UUID | NO | | FK → users |
-| `ride_id` | UUID | YES | | FK → rides (nullable: pánico puede ocurrir fuera de viaje) |
-| `location` | GEOMETRY(POINT, 4326) | NO | | Ubicación exacta del pánico (WGS84) |
-| `audio_url` | VARCHAR | YES | | URL externa de la grabación de audio (40 segundos máximo) |
-| `triggered_at` | TIMESTAMPTZ | NO | | Fecha/hora cuando se activó el pánico |
-| `resolved_at` | TIMESTAMPTZ | YES | | Fecha/hora cuando se resolvió (si aplica) |
-
-**Constraints:**
-- `ride_id` es nullable — el pánico puede ocurrir en cualquier momento, no solo durante un viaje
-- No hay FK restrictiva en `ride_id` para permitir eliminación de viajes
-- No hay `ON DELETE CASCADE` — los eventos se conservan para auditoría
-
-**Índices:**
-- `idx_panic_events_user` — búsquedas por usuario
-- `idx_panic_events_geo` (GIST) — análisis geoespacial de incidentes
-
-**Notas:**
-- El audio se almacena externamente (Cloud Storage, S3, etc.); solo se guarda la URL
-- `resolved_at` se completa cuando personal de seguridad o el usuario resuelve el incidente
-- Este evento genera notificación con tipo `panic` a contactos de confianza
-- Se registra para auditoría y análisis de seguridad de la plataforma
+### `emergency_recordings`
+Guarda referencias y metadatos de las grabaciones externas asociadas con una alerta. Una alerta puede tener varios segmentos de audio.
 
 ---
 
@@ -546,7 +524,7 @@ Historial de notificaciones push enviadas a los usuarios.
 | `user_id` | UUID | NO | | FK → users |
 | `title` | VARCHAR | NO | | Título de la notificación |
 | `body` | TEXT | NO | | Texto del mensaje |
-| `type` | ENUM | NO | | `ride_request`, `ride_accepted`, `ride_cancelled`, `payment`, `promo`, `system` |
+| `type` | ENUM | NO | | `ride_request`, `ride_accepted`, `ride_cancelled`, `payment`, `system`, `emergency`, `panic` |
 | `data` | JSONB | YES | | Payload extra, ej: `{"ride_id": "uuid"}` para abrir el viaje al tocar |
 | `is_read` | BOOLEAN | NO | false | Si el usuario ya la leyó |
 | `sent_at` | TIMESTAMPTZ | YES | | Cuándo se envió al dispositivo |
@@ -605,25 +583,6 @@ Un ENUM requiere una migración y despliegue cada vez que se agrega una ciudad. 
 4. Si hay zona → se copian sus tarifas a rides.baseFare, farePerKm, farePerMinute
 5. rides.service_area_id → apunta a la zona donde ocurrió el viaje
 ```
-
----
-
-### `promo_codes`
-Cupones de descuento que los pasajeros pueden aplicar al solicitar un viaje.
-
-| Columna | Tipo | Nulo | Default | Descripción |
-|---|---|---|---|---|
-| `id` | UUID | NO | | Identificador único |
-| `code` | VARCHAR(50) | NO | | Código único que escribe el usuario, ej: `BIENVENIDO20` |
-| `discount_type` | ENUM | NO | | `percentage` (%) o `fixed` (monto fijo) |
-| `discount_value` | DOUBLE | NO | | Valor del descuento, ej: `20` para 20% o `5` para $5 |
-| `expires_at` | TIMESTAMPTZ | YES | | Cuándo vence el cupón |
-| `max_uses` | INTEGER | YES | | Límite total de usos. NULL = ilimitado |
-| `uses_count` | INTEGER | NO | 0 | Cuántas veces se ha usado |
-| `is_active` | BOOLEAN | NO | true | Si el cupón está activo |
-| `deleted_at` | TIMESTAMPTZ | YES | | Soft delete |
-| `created_at` | TIMESTAMPTZ | NO | | Fecha de creación |
-| `updated_at` | TIMESTAMPTZ | NO | | Fecha de última modificación |
 
 ---
 
@@ -708,14 +667,11 @@ rater_type: 'passenger', 'driver'
 -- Estado de comisión del conductor
 commission_status: 'pending', 'collected'
 
--- Tipo de descuento de promo
-discount_type: 'percentage', 'fixed'
-
 -- A quién aplica la razón de cancelación
 applicable_to: 'passenger', 'driver', 'both'
 
 -- Tipo de notificación
-notification_type: 'ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system', 'panic'
+notification_type: 'ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'system', 'emergency', 'panic'
 
 -- Estado del cobro mensual
 settlement_status: 'open', 'pending_payment', 'paid', 'overdue'
@@ -727,7 +683,7 @@ settlement_payment_method: 'cash', 'qr', 'transfer'
 audit_action: 'INSERT', 'UPDATE', 'DELETE'
 
 -- document_type es VARCHAR con valores controlados por CHECK en documents
--- (ciFront, ciBack, licenseFront, licenseBack, antecedentes, RUAT, SOAT y fotos del vehículo)
+-- (ciFront, ciBack, licenseFront, licenseBack, ticPhoto, antecedentes, RUAT, SOAT y fotos del vehículo)
 ```
 
 ---
@@ -773,12 +729,6 @@ CREATE INDEX idx_rides_service_area     ON rides(service_area_id);
 CREATE INDEX idx_ride_waypoints_ride_id ON ride_waypoints(ride_id);
 CREATE INDEX idx_ride_waypoints_geo     ON ride_waypoints USING GIST(location);
 
--- Índices para contactos de confianza
-CREATE INDEX idx_trusted_contacts_user  ON trusted_contacts(user_id);
-
--- Índices para eventos de pánico
-CREATE INDEX idx_panic_events_user      ON panic_events(user_id);
-CREATE INDEX idx_panic_events_geo       ON panic_events USING GIST(location);
 ```
 
 ---
@@ -843,9 +793,6 @@ CHECK (
 ALTER TABLE ride_waypoints
 ADD CONSTRAINT uq_ride_waypoint UNIQUE (ride_id, sequence);
 
--- Contactos de confianza: un teléfono por usuario
-ALTER TABLE trusted_contacts
-ADD CONSTRAINT uq_trusted_contact UNIQUE (user_id, phone);
 ```
 
 ---
@@ -1234,94 +1181,6 @@ FROM ride_waypoints
 WHERE ride_id = 'uuid-del-viaje';
 ```
 
-### Obtener contactos de confianza de un usuario
-```sql
-SELECT
-  id,
-  name,
-  phone,
-  relation
-FROM trusted_contacts
-WHERE user_id = 'uuid-del-usuario'
-ORDER BY created_at ASC;
-```
-
-### Verificar si un usuario alcanzó el límite de 3 contactos
-```sql
-SELECT COUNT(*) AS total_contactos
-FROM trusted_contacts
-WHERE user_id = 'uuid-del-usuario'
-HAVING COUNT(*) >= 3;
-```
-
-### Ver todos los eventos de pánico de un usuario
-```sql
-SELECT
-  id,
-  triggered_at,
-  resolved_at,
-  ride_id,
-  audio_url,
-  ST_X(location)::NUMERIC(10,6) AS longitude,
-  ST_Y(location)::NUMERIC(10,6) AS latitude
-FROM panic_events
-WHERE user_id = 'uuid-del-usuario'
-ORDER BY triggered_at DESC;
-```
-
-### Ver eventos de pánico sin resolver
-```sql
-SELECT
-  pe.id,
-  CONCAT_WS(' ', ui.first_names, ui.paternal_surname, ui.maternal_surname) AS usuario,
-  u.phone,
-  pe.triggered_at,
-  r.pickup_address,
-  r.dropoff_address,
-  EXTRACT(EPOCH FROM (now() - pe.triggered_at)) / 60 AS minutos_desde_activacion
-FROM panic_events pe
-JOIN users u ON u.id = pe.user_id
-LEFT JOIN user_identities ui ON ui.user_id = u.id
-LEFT JOIN rides r ON r.id = pe.ride_id
-WHERE pe.resolved_at IS NULL
-ORDER BY pe.triggered_at DESC;
-```
-
-### Analizar incidentes por zona geográfica
-```sql
-SELECT
-  COUNT(*) AS total_incidentes,
-  ST_X(pe.location)::NUMERIC(10,6) AS longitude,
-  ST_Y(pe.location)::NUMERIC(10,6) AS latitude
-FROM panic_events pe
-WHERE pe.triggered_at >= now() - INTERVAL '30 days'
-GROUP BY ST_X(pe.location), ST_Y(pe.location)
-ORDER BY total_incidentes DESC;
-```
-
-### Correlacionar pánico con viajes
-```sql
-SELECT
-  pe.id AS panic_id,
-  r.id AS ride_id,
-  CONCAT_WS(' ', ui.first_names, ui.paternal_surname, ui.maternal_surname) AS name,
-  r.pickup_address,
-  r.dropoff_address,
-  pe.triggered_at,
-  r.status AS ride_status,
-  CASE 
-    WHEN pe.ride_id IS NULL THEN 'Fuera de viaje'
-    WHEN r.status = 'in_progress' THEN 'Durante viaje'
-    ELSE 'Viaje ' || r.status
-  END AS contexto
-FROM panic_events pe
-JOIN users u ON u.id = pe.user_id
-LEFT JOIN user_identities ui ON ui.user_id = u.id
-LEFT JOIN rides r ON r.id = pe.ride_id
-WHERE pe.triggered_at >= now() - INTERVAL '7 days'
-ORDER BY pe.triggered_at DESC;
-```
-
 ---
 
 ## Flujos principales
@@ -1366,16 +1225,7 @@ ORDER BY pe.triggered_at DESC;
 4. El constraint UNIQUE (ride_id, rater_type) impide doble calificación
 ```
 
-### 5. Aplicación de promo code
-```
-1. Pasajero ingresa código al solicitar viaje
-2. Se valida en promo_codes: is_active = true, uses_count < max_uses, expires_at > now
-3. Se calcula el descuento y se guarda en rides.discount_amount
-4. rides.promo_code_id → apunta al cupón usado
-5. promo_codes.uses_count se incrementa en 1
-```
-
-### 6. Registro de conductor
+### 5. Registro de conductor
 ```
 1. Usuario crea driver_request (status = 'pending')
 2. Sube documentos → documents (vinculados con driver_request_id), incluyendo fotos frontal y trasera del vehículo
@@ -1384,7 +1234,7 @@ ORDER BY pe.triggered_at DESC;
 5. Si rechaza → driver_request.version++ y puede reintentar
 ```
 
-### 7. Cobro mensual de comisiones
+### 6. Cobro mensual de comisiones
 ```
 Durante el mes:
 → Cada viaje completado crea driver_earnings con:
@@ -1408,39 +1258,31 @@ Si no paga antes del due_date:
 → Se puede bloquear la cuenta del conductor (drivers.is_available = false)
 ```
 
-### 8. Sistema de emergencias y pánico
+### 7. Sistema de emergencias y pánico
 ```
 Setup inicial:
-→ Usuario agrega 1-3 contactos de confianza en trusted_contacts
+→ Usuario registra sus contactos en emergency_contacts
 → Especifica nombre, teléfono y relación
 
 Durante un viaje o en cualquier momento:
 → Usuario presiona botón de pánico (SOS)
-→ Se captura ubicación exacta y se graba audio (40s max)
-→ Se crea registro en panic_events:
+→ Se captura la ubicación y se crea un registro en emergency_alerts:
    - user_id = usuario que activó
    - ride_id = viaje actual (nullable si no está en viaje)
    - location = POINT geoespacial
-   - audio_url = URL de grabación externa
+   - status = active
    - triggered_at = now()
-   - resolved_at = NULL (hasta que se resuelva)
+→ La referencia y metadatos de cada audio se guardan en emergency_recordings
 
 Notificaciones inmediatas:
-→ Se envía notificación con tipo 'panic' a todos los trustedContacts del usuario
-→ Se notifica a plataforma (admin, operador de emergencias)
-→ Se envía ubicación en vivo al conductor (si está en viaje)
+→ Cada SMS dirigido a un contacto se registra en emergency_sms_logs
+→ El estado de cada envío puede ser pending, sent o failed
 
 Resolución del evento:
-→ Una vez manejado por personal de seguridad o el usuario
-→ resolved_at se completa con la fecha/hora
-
-Auditoría:
-→ Todos los eventos de pánico se conservan indefinidamente
-→ Se usan para análisis de seguridad y patrones de incidentes
-→ Se correlacionan con rides para contexto del incidente
+→ Se actualizan status y resolved_at en emergency_alerts
 ```
 
-### 9. Viajes con múltiples paradas intermedias
+### 8. Viajes con múltiples paradas intermedias
 ```
 Flujo de viaje con paradas:
 1. Pasajero solicita viaje con destinos múltiples
@@ -1462,7 +1304,6 @@ Durante la ejecución:
 Cálculo de tarifa:
 → Se incluyen todas las distancias y tiempos en la ruta completa
 → El pasajero ve el monto total antes de confirmar
-→ Se puede aplicar descuento con promo code
 
 Consultas útiles:
 → Ver todas las paradas de un viaje ordenadas por sequence

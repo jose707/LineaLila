@@ -21,6 +21,12 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   role: UserRole | null;
   isDriverMode: boolean;
+  phoneVerifiedToastVisible: boolean;
+  showPhoneVerifiedToast: () => void;
+  hidePhoneVerifiedToast: () => void;
+  registrationSuccessToastVisible: boolean;
+  showRegistrationSuccessToast: () => void;
+  hideRegistrationSuccessToast: () => void;
   setIsDriverMode: (mode: boolean) => void;
   login: (credentials: LoginRequest) => Promise<void>;
   loginWithToken: (token: string, user: User) => Promise<void>;
@@ -60,6 +66,12 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [phoneVerifiedToastVisible, setPhoneVerifiedToastVisible] = useState(false);
+  const showPhoneVerifiedToast = useCallback(() => setPhoneVerifiedToastVisible(true), []);
+  const hidePhoneVerifiedToast = useCallback(() => setPhoneVerifiedToastVisible(false), []);
+  const [registrationSuccessToastVisible, setRegistrationSuccessToastVisible] = useState(false);
+  const showRegistrationSuccessToast = useCallback(() => setRegistrationSuccessToastVisible(true), []);
+  const hideRegistrationSuccessToast = useCallback(() => setRegistrationSuccessToastVisible(false), []);
   // MODO DISEÑO: Forzar SplashScreen siempre visible
   const [isLoading, setIsLoading] = useState(true);
 
@@ -294,6 +306,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: !!token && !!user,
     role: user?.role || null,
     isDriverMode,
+    phoneVerifiedToastVisible,
+    showPhoneVerifiedToast,
+    hidePhoneVerifiedToast,
+    registrationSuccessToastVisible,
+    showRegistrationSuccessToast,
+    hideRegistrationSuccessToast,
     setIsDriverMode: setIsDriverModeCallback,
     login,
     loginWithToken,

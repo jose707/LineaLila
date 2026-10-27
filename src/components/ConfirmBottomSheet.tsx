@@ -14,7 +14,7 @@ interface ConfirmBottomSheetProps {
   title: string;
   message: string;
   confirmLabel: string;
-  cancelLabel?: string;
+  cancelLabel?: string | null;
   loading?: boolean;
   error?: string;
   stackedActions?: boolean;
@@ -56,7 +56,7 @@ export default function ConfirmBottomSheet({
           {!!error && <Text style={s.error}>{error}</Text>}
           <View style={[s.actions, stackedActions && s.stackedActions]}>
             <Pressable
-              style={[s.confirmButton, stackedActions && s.fullWidthButton, loading && s.disabledButton]}
+              style={[s.confirmButton, (stackedActions || cancelLabel === null) && s.fullWidthButton, loading && s.disabledButton]}
               onPress={onConfirm}
               disabled={loading}
               accessibilityRole="button"
@@ -67,14 +67,14 @@ export default function ConfirmBottomSheet({
                 <Text style={s.confirmText}>{confirmLabel}</Text>
               )}
             </Pressable>
-            <Pressable
+            {cancelLabel !== null && <Pressable
               style={[s.cancelButton, stackedActions && s.fullWidthButton]}
               onPress={dismiss}
               disabled={loading}
               accessibilityRole="button"
             >
               <Text style={s.cancelText}>{cancelLabel}</Text>
-            </Pressable>
+            </Pressable>}
           </View>
         </View>
       </View>

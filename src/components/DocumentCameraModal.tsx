@@ -1,8 +1,10 @@
-// src/components/DocumentCameraModal.tsx
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
+  Image,
   Modal,
   StatusBar,
   StyleSheet,
@@ -14,19 +16,33 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Camera,
+  CommonResolutions,
   useCameraDevice,
   useCameraPermission,
   usePhotoOutput,
 } from 'react-native-vision-camera';
-import { X, Zap, ZapOff, ScanLine, Camera as CameraIcon, FileText, Car, Shield } from 'lucide-react-native';
+import {
+  X,
+  Zap,
+  ZapOff,
+  ScanLine,
+  Camera as CameraIcon,
+  FileText,
+  Car,
+  Shield,
+  RotateCcw,
+  IdCard,
+} from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 
 // Proporción estándar de cédula / tarjeta de identidad (ISO/IEC 7810 ID-1: 85.6mm x 53.98mm)
 const CARD_ASPECT = 1.585;
-// Proporción estándar de hoja Carta boliviana vertical (Certificado de antecedentes / SOAT UNIVida: 216mm x 279mm)
+// Proporción estándar de hoja Carta boliviana vertical (certificado de antecedentes).
 const CERTIFICATE_ASPECT = 216 / 279;
-// Proporción estándar de RUAT boliviano (Certificado CRPVA / Formulario RUAT-03: Carta horizontal: 279mm x 216mm)
-const RUAT_ASPECT = 279 / 216;
+// Roseta digital SOAT UNIVIDA de referencia: 720 × 1281 px.
+const SOAT_ASPECT = 720 / 1281;
+// RUAT/CRPVA de la muestra: documento vertical (ancho / alto ≈ 585 / 765).
+const RUAT_ASPECT = 585 / 765;
 // Proporción óptima para encuadre de vehículo (vista delantera y trasera)
 const VEHICLE_ASPECT = 1.38;
 
@@ -39,12 +55,12 @@ export interface FrameRect {
   h: number;
 }
 
-export type DocumentType = 'card' | 'certificate' | 'ruat' | 'vehicle' | 'soat';
+export type DocumentType = 'card' | 'certificate' | 'ruat' | 'vehicle' | 'soat' | 'ci';
 
 export interface DocumentCameraModalProps {
   visible: boolean;
   title: string;
-  /** Tipo de documento: tarjeta horizontal ('card'), certificado ('certificate'), RUAT ('ruat'), vehículo ('vehicle') o SOAT ('soat') */
+  /** Tipo de documento: tarjeta horizontal ('card'), cédula ('ci'), certificado ('certificate'), RUAT ('ruat'), vehículo ('vehicle') o SOAT ('soat') */
   documentType?: DocumentType;
   /** Usa la cámara frontal para una selfie común. */
   cameraPosition?: 'front' | 'back';
@@ -56,6 +72,15 @@ export interface DocumentCameraModalProps {
   autoCapture?: boolean;
   onCapture: (uri: string, frame?: FrameRect) => void;
   onClose: () => void;
+  /** Si es true, captura frente y luego reverso consecutivamente sin salir de la cámara */
+  twoSided?: boolean;
+  /** Lado inicial forzado ('front' o 'back') */
+  initialSide?: 'front' | 'back';
+  /** Callback invocado cuando se capturan ambos lados en un solo flujo */
+  onCaptureBoth?: (
+    front: { uri: string; frame?: FrameRect },
+    back: { uri: string; frame?: FrameRect },
+  ) => void;
 }
 
 function toFileUri(filePath: string): string {
@@ -72,7 +97,10 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
   cameraPosition = 'back',
   aspectRatio,
   frameLabel = '',
+  twoSided,
+  initialSide,
   onCapture,
+  onCaptureBoth,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
@@ -82,7 +110,11 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
 
-  const photoOutput = usePhotoOutput();
+  const photoOutput = usePhotoOutput({
+    targetResolution: CommonResolutions.UHD_4_3,
+    quality: 0.92,
+    qualityPrioritization: 'balanced',
+  });
   const photoOutputRef = useRef(photoOutput);
   photoOutputRef.current = photoOutput;
 
@@ -91,30 +123,77 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
   const [cameraReady, setCameraReady] = useState(false);
   const [modalShown, setModalShown] = useState(false);
 
+  // Detección de CI (Cédula de Identidad)
+  const isCiDoc =
+    documentType === 'ci' ||
+    (documentType === 'card' &&
+      (/ci|cédula|cedula|carnet/i.test(title) || /ci|cédula|cedula|carnet/i.test(frameLabel)));
+
+  const isBackDefault =
+    initialSide === 'back' ||
+    /posterior|reverso|atrás|dorso|back/i.test(title) ||
+    /posterior|reverso|atrás|dorso|back/i.test(frameLabel);
+
+  const isTwoSidedFlow = Boolean(
+    twoSided !== undefined
+      ? twoSided
+      : isCiDoc && !isBackDefault && (!initialSide || initialSide === 'front'),
+  );
+
+  const [activeSide, setActiveSide] = useState<'front' | 'back'>(
+    initialSide ?? (isBackDefault ? 'back' : 'front'),
+  );
+  const [frontCapture, setFrontCapture] = useState<{ uri: string; frame?: FrameRect } | null>(null);
+  const [isFlipping, setIsFlipping] = useState(false);
+
   const capturingRef = useRef(false);
   const onCaptureRef = useRef(onCapture);
   onCaptureRef.current = onCapture;
+  const onCaptureBothRef = useRef(onCaptureBoth);
+  onCaptureBothRef.current = onCaptureBoth;
 
   // Dimensiones del recuadro del documento según tipo de documento
   const targetAspect =
     aspectRatio ??
     (isSelfieCamera
       ? 0.78
-      : documentType === 'certificate' || documentType === 'soat'
+      : documentType === 'certificate'
       ? CERTIFICATE_ASPECT
+      : documentType === 'soat'
+      ? SOAT_ASPECT
       : documentType === 'ruat'
       ? RUAT_ASPECT
       : documentType === 'vehicle'
       ? VEHICLE_ASPECT
       : CARD_ASPECT);
   const isPortraitDoc = targetAspect < 1;
+  // A full-screen "cover" preview hides part of the 4:3 photo's field of view.
+  // Use a 3:4 viewport to align the guide with the 4:3 photo target.
+  const showPhotoArea = !isSelfieCamera && documentType !== 'vehicle';
+  const headerBottom = Math.max(insets.top + 68, 80);
+  const controlsTop = winH - Math.max(insets.bottom + 140, 168);
+  const labelSpace = frameLabel ? 42 : 10;
+  const availablePhotoH = Math.max(260, controlsTop - headerBottom - labelSpace);
+  const photoAreaW = showPhotoArea ? Math.min(winW, Math.floor(availablePhotoH * 3 / 4)) : winW;
+  const photoAreaH = showPhotoArea ? Math.round(photoAreaW * 4 / 3) : winH;
+  const photoAreaLeft = showPhotoArea ? Math.round((winW - photoAreaW) / 2) : 0;
+  const photoAreaTop = showPhotoArea
+    ? headerBottom + Math.max(0, Math.round((availablePhotoH - photoAreaH) / 2))
+    : 0;
 
   let frameW: number;
   let frameH: number;
   let frameLeft: number;
   let frameTop: number;
 
-  if (isPortraitDoc) {
+  if (showPhotoArea) {
+    const maxW = photoAreaW - 24;
+    const maxH = photoAreaH - 24;
+    frameW = Math.min(maxW, Math.round(maxH * targetAspect));
+    frameH = Math.round(frameW / targetAspect);
+    frameLeft = photoAreaLeft + Math.round((photoAreaW - frameW) / 2);
+    frameTop = photoAreaTop + Math.round((photoAreaH - frameH) / 2);
+  } else if (isPortraitDoc) {
     // Para certificados en hoja vertical (Carta boliviana: 216mm x 279mm)
     const headerBottom = Math.max(insets.top + 68, 80);
     const controlsTop = winH - Math.max(insets.bottom + 140, 168);
@@ -136,7 +215,7 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
     const availableSlot = controlsTop - labelSpace - headerBottom;
     frameTop = headerBottom + Math.max(4, Math.round((availableSlot - frameH) / 2));
   } else {
-    // Dimensiones para documentos y fotos horizontales (cédula, RUAT, vehículo)
+    // Dimensiones para documentos y fotos horizontales (cédula, vehículo)
     frameW = Math.min(winW - 48, 380);
     frameH = Math.round(frameW / targetAspect);
     frameLeft = Math.round((winW - frameW) / 2);
@@ -153,19 +232,19 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
       : 10;
 
   const frameRef = useRef<FrameRect>({
-    screenW: winW,
-    screenH: winH,
-    x: frameLeft,
-    y: frameTop,
+    screenW: photoAreaW,
+    screenH: photoAreaH,
+    x: frameLeft - photoAreaLeft,
+    y: frameTop - photoAreaTop,
     w: frameW,
     h: frameH,
   });
 
   frameRef.current = {
-    screenW: winW,
-    screenH: winH,
-    x: frameLeft,
-    y: frameTop,
+    screenW: photoAreaW,
+    screenH: photoAreaH,
+    x: frameLeft - photoAreaLeft,
+    y: frameTop - photoAreaTop,
     w: frameW,
     h: frameH,
   };
@@ -176,20 +255,86 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
     }
   }, [visible, hasPermission, requestPermission]);
 
+  const ciIconOpacity = useRef(new Animated.Value(0)).current;
+  const ciIconRotateY = useRef(new Animated.Value(0)).current;
+
+  const playStartAnimation = useCallback(() => {
+    ciIconRotateY.setValue(0);
+    ciIconOpacity.setValue(0.85);
+    Animated.sequence([
+      Animated.delay(1200),
+      Animated.timing(ciIconOpacity, {
+        toValue: 0,
+        duration: 600,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [ciIconOpacity, ciIconRotateY]);
+
+  const playFlipAnimation = useCallback(() => {
+    setIsFlipping(true);
+    ciIconRotateY.setValue(0);
+    ciIconOpacity.setValue(0);
+
+    Animated.sequence([
+      // 1. Aparece
+      Animated.timing(ciIconOpacity, {
+        toValue: 0.9,
+        duration: 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      // 2. Gira
+      Animated.timing(ciIconRotateY, {
+        toValue: 180,
+        duration: 900,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.delay(350),
+      // 3. Se desvanece
+      Animated.timing(ciIconOpacity, {
+        toValue: 0,
+        duration: 500,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) {
+        setActiveSide('back');
+        setIsFlipping(false);
+      }
+    });
+  }, [ciIconOpacity, ciIconRotateY]);
+
   useEffect(() => {
     if (visible) {
       capturingRef.current = false;
       setCapturing(false);
       setTorchOn(false);
       setCameraReady(false);
+      setIsFlipping(false);
+      setFrontCapture(null);
+      setActiveSide(initialSide ?? (isBackDefault ? 'back' : 'front'));
+      if (isCiDoc) {
+        playStartAnimation();
+      } else {
+        ciIconOpacity.setValue(0);
+        ciIconRotateY.setValue(0);
+      }
     } else {
       setCameraReady(false);
       setModalShown(false);
+      setIsFlipping(false);
+      setFrontCapture(null);
+      ciIconOpacity.setValue(0);
+      ciIconRotateY.setValue(0);
     }
-  }, [visible]);
+  }, [visible, initialSide, isBackDefault, isCiDoc, playStartAnimation, ciIconOpacity, ciIconRotateY]);
 
   const captureNow = useCallback(async () => {
-    if (capturingRef.current) return;
+    if (capturingRef.current || isFlipping) return;
     if (!cameraReady || !device || !hasPermission) return;
 
     capturingRef.current = true;
@@ -203,7 +348,39 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
             { flashMode: torchOn ? 'on' : 'off' },
             {},
           );
-          onCaptureRef.current(toFileUri(file.filePath), frameRef.current);
+          const uri = toFileUri(file.filePath);
+          const currentFrame = { ...frameRef.current };
+          Image.getSize(
+            uri,
+            (width, height) => {
+              console.log(`[DocumentCamera] Captura: ${width}x${height} píxeles`);
+            },
+            () => {},
+          );
+
+          // Si estamos en flujo de dos lados y capturando el frente:
+          if (isTwoSidedFlow && activeSide === 'front') {
+            setFrontCapture({ uri, frame: currentFrame });
+            setCapturing(false);
+            capturingRef.current = false;
+            playFlipAnimation();
+            return;
+          }
+
+          // Si estamos en flujo de dos lados y capturando el dorso:
+          if (isTwoSidedFlow && activeSide === 'back' && frontCapture) {
+            setCapturing(false);
+            capturingRef.current = false;
+            if (onCaptureBothRef.current) {
+              onCaptureBothRef.current(frontCapture, { uri, frame: currentFrame });
+            } else {
+              onCaptureRef.current(uri, currentFrame);
+            }
+            return;
+          }
+
+          // Flujo estándar de un solo lado:
+          onCaptureRef.current(uri, currentFrame);
           return;
         } catch (e: any) {
           lastError = e;
@@ -225,9 +402,19 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
         `No se pudo capturar la foto. Inténtalo de nuevo.\n\n${e?.message || ''}`,
       );
     }
-  }, [cameraReady, device, hasPermission, torchOn]);
+  }, [cameraReady, device, hasPermission, torchOn, isFlipping, isTwoSidedFlow, activeSide, frontCapture]);
 
-  const shutterDisabled = capturing || !cameraReady || !device || !hasPermission;
+  const shutterDisabled = capturing || isFlipping || !cameraReady || !device || !hasPermission;
+
+  const displayTitle = isCiDoc ? 'Cédula de identidad' : title;
+  const displaySubtitle = isCiDoc
+    ? activeSide === 'front' ? 'Vista frontal' : 'Vista trasera'
+    : null;
+
+  const displayLabel =
+    isCiDoc && activeSide === 'back'
+      ? 'Coloca la parte trasera de tu cédula dentro del recuadro'
+      : frameLabel;
 
   return (
     <Modal
@@ -245,10 +432,14 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
         {/* Cámara o Vista de espera/permisos */}
         {device && hasPermission ? (
           <Camera
-            style={StyleSheet.absoluteFill}
+            style={showPhotoArea ? {
+              position: 'absolute', left: photoAreaLeft, top: photoAreaTop,
+              width: photoAreaW, height: photoAreaH,
+            } : StyleSheet.absoluteFill}
             device={device}
             isActive={visible && modalShown}
             outputs={[photoOutput]}
+            orientationSource="interface"
             torchMode={cameraReady ? (torchOn ? 'on' : 'off') : undefined}
             resizeMode="cover"
             onStarted={() => setCameraReady(true)}
@@ -377,29 +568,68 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
             ]}
           />
 
-          {/* Marca de agua central suave */}
-          <View
-            style={[
-              s.frameCenterWatermark,
-              {
-                top: frameTop,
-                left: frameLeft,
-                width: frameW,
-                height: frameH,
-                opacity: isSelfieCamera ? 0 : 1,
-              },
-            ]}
-          >
-            {documentType === 'soat' ? (
-              <Shield size={50} color="rgba(255, 255, 255, 0.2)" strokeWidth={1.4} />
-            ) : documentType === 'certificate' || documentType === 'ruat' ? (
-              <FileText size={48} color="rgba(255, 255, 255, 0.18)" strokeWidth={1.4} />
-            ) : documentType === 'vehicle' ? (
-              <Car size={54} color="rgba(255, 255, 255, 0.22)" strokeWidth={1.4} />
-            ) : (
-              <ScanLine size={44} color="rgba(255, 255, 255, 0.18)" strokeWidth={1.5} />
-            )}
-          </View>
+          {/* Silueta / Marca de agua central suave con icono Lucide para otros documentos */}
+          {!isCiDoc && (
+            <View
+              style={[
+                s.frameCenterWatermark,
+                {
+                  top: frameTop,
+                  left: frameLeft,
+                  width: frameW,
+                  height: frameH,
+                  opacity: isSelfieCamera ? 0 : 1,
+                },
+              ]}
+            >
+              {documentType === 'soat' ? (
+                <Shield size={50} color="rgba(255, 255, 255, 0.2)" strokeWidth={1.4} />
+              ) : documentType === 'certificate' || documentType === 'ruat' ? (
+                <FileText size={48} color="rgba(255, 255, 255, 0.18)" strokeWidth={1.4} />
+              ) : documentType === 'vehicle' ? (
+                <Car size={54} color="rgba(255, 255, 255, 0.22)" strokeWidth={1.4} />
+              ) : (
+                <ScanLine size={44} color="rgba(255, 255, 255, 0.18)" strokeWidth={1.5} />
+              )}
+            </View>
+          )}
+
+          {/* Icono id_card animado para CI: se ve en el recuadro al iniciar y se desvanece; después de sacar la parte frontal aparece, gira y se desvanece */}
+          {isCiDoc && (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                s.ciIconContainer,
+                {
+                  top: frameTop,
+                  left: frameLeft,
+                  width: frameW,
+                  height: frameH,
+                  opacity: ciIconOpacity,
+                  transform: [
+                    { perspective: 1000 },
+                    {
+                      rotateY: ciIconRotateY.interpolate({
+                        inputRange: [0, 180],
+                        outputRange: ['0deg', '180deg'],
+                      }),
+                    },
+                    {
+                      scale: ciIconRotateY.interpolate({
+                        inputRange: [0, 90, 180],
+                        outputRange: [1, 1.1, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={s.idCardIconWrap}>
+                <IdCard size={Math.min(frameW * 0.28, 92)} color="#FFFFFF" strokeWidth={1.4} />
+              </View>
+
+            </Animated.View>
+          )}
         </View>
 
         {/* Header superior */}
@@ -415,8 +645,23 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
 
           <View style={s.titleContainer}>
             <Text style={s.title} numberOfLines={1}>
-              {title}
+              {displayTitle}
             </Text>
+            {displaySubtitle && <Text style={s.titleSubtitle}>{displaySubtitle}</Text>}
+            {isTwoSidedFlow && activeSide === 'back' && !isFlipping && (
+              <TouchableOpacity
+                onPress={() => {
+                  setActiveSide('front');
+                  setFrontCapture(null);
+                  playStartAnimation();
+                }}
+                style={s.redoFrontChip}
+                activeOpacity={0.75}
+              >
+                <RotateCcw size={11} color="#DDD6FE" strokeWidth={2.4} />
+                <Text style={s.redoFrontText}>Repetir frente</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {isSelfieCamera ? <View style={s.iconBtn} /> : (
@@ -436,7 +681,7 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
         </View>
 
         {/* Indicador / Etiqueta guía */}
-        {!!frameLabel && (
+        {!!displayLabel && (
           <View
             pointerEvents="none"
             style={[
@@ -445,7 +690,7 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
             ]}
           >
             <View style={s.labelBadge}>
-              <Text style={s.labelText}>{frameLabel}</Text>
+              <Text style={s.labelText}>{displayLabel}</Text>
             </View>
           </View>
         )}
@@ -473,9 +718,15 @@ export const DocumentCameraModal: React.FC<DocumentCameraModalProps> = ({
           <Text style={s.footerHint}>
             {capturing
               ? 'Procesando captura…'
+              : isFlipping
+              ? 'Volteando al reverso…'
+              : isCiDoc
+              ? activeSide === 'front'
+                ? 'Presiona el botón para capturar el frente'
+                : 'Presiona el botón para capturar el reverso'
               : isSelfieCamera
-                ? 'Centra tu rostro dentro del óvalo y toma la selfie'
-                : 'Presiona el botón para capturar el documento'}
+              ? 'Centra tu rostro dentro del óvalo y toma la selfie'
+              : 'Presiona el botón para capturar el documento'}
           </Text>
         </View>
       </View>
@@ -590,12 +841,36 @@ const s = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  titleSubtitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  redoFrontChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(167, 139, 250, 0.35)',
+    marginTop: 4,
+  },
+  redoFrontText: {
+    color: '#DDD6FE',
+    fontSize: 10,
+    fontWeight: '700',
   },
   labelWrap: {
     position: 'absolute',
@@ -653,5 +928,24 @@ const s = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     letterSpacing: 0.1,
+  },
+  ciIconContainer: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  idCardIconWrap: {
+    backgroundColor: 'rgba(25, 20, 35, 0.65)',
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
   },
 });

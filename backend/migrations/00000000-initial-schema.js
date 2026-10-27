@@ -58,19 +58,16 @@ module.exports = {
       `CREATE TYPE settlement_payment_method AS ENUM ('cash', 'qr', 'transfer');`,
     );
     await q(
-      `CREATE TYPE discount_type           AS ENUM ('percentage', 'fixed');`,
-    );
-    await q(
       `CREATE TYPE applicable_to           AS ENUM ('passenger', 'driver', 'both');`,
     );
     await q(
-      `CREATE TYPE notification_type       AS ENUM ('ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'promo', 'system', 'emergency', 'panic');`,
+      `CREATE TYPE notification_type       AS ENUM ('ride_request', 'ride_accepted', 'ride_cancelled', 'payment', 'system', 'emergency', 'panic');`,
     );
     await q(
       `CREATE TYPE audit_action            AS ENUM ('INSERT', 'UPDATE', 'DELETE');`,
     );
     await q(
-      `CREATE TYPE driver_request_status   AS ENUM ('pending', 'approved', 'rejected');`,
+      `CREATE TYPE driver_request_status   AS ENUM ('pending', 'observed', 'approved', 'rejected');`,
     );
     await q(
       `CREATE TYPE ruat_required_reason    AS ENUM ('accident', 'vehicle_mismatch', 'suspension_reactivation', 'criminal_record');`,
@@ -224,7 +221,27 @@ module.exports = {
       );
     `);
 
-    // Archivos vigentes: CI, licencia, antecedentes, RUAT, SOAT y fotos del vehículo.
+    // Archivos vigentes: CI, licencia, TIC, antecedentes, RUAT, SOAT y fotos del vehículo.
+    await q(`
+      CREATE TABLE driver_domiciles (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        driver_request_id UUID NOT NULL UNIQUE REFERENCES driver_requests(id) ON DELETE CASCADE,
+        address VARCHAR(255) NOT NULL,
+        location GEOMETRY(POINT, 4326) NOT NULL,
+        verification_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+          CHECK (verification_status IN ('pending', 'verified', 'rejected')),
+        verified_by UUID REFERENCES users(id),
+        verified_at TIMESTAMPTZ,
+        rejection_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await q('CREATE INDEX idx_driver_domiciles_user ON driver_domiciles(user_id);');
+    await q('CREATE INDEX idx_driver_domiciles_location ON driver_domiciles USING GIST(location);');
+
+    // Archivos vigentes: CI, licencia, TIC, antecedentes, RUAT, SOAT y fotos del vehículo.
     await q(`
       CREATE TABLE documents (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -232,7 +249,7 @@ module.exports = {
         driver_request_id UUID REFERENCES driver_requests(id) ON DELETE CASCADE,
         driver_id UUID REFERENCES drivers(id) ON DELETE CASCADE,
         vehicle_id UUID REFERENCES vehicles(id) ON DELETE CASCADE,
-        document_type VARCHAR(40) NOT NULL CHECK (document_type IN ('ciFront', 'ciBack', 'profilePhoto', 'licenseFront', 'licenseBack', 'antecedentsPhoto', 'ruatPhoto', 'soatPhoto', 'carFront', 'carBack', 'carLeft', 'carRight')),
+        document_type VARCHAR(40) NOT NULL CHECK (document_type IN ('ciFront', 'ciBack', 'profilePhoto', 'licenseFront', 'licenseBack', 'ticPhoto', 'antecedentsPhoto', 'ruatPhoto', 'soatPhoto', 'domicileProof', 'carFront', 'carBack', 'carLeft', 'carRight')),
         file_path VARCHAR(500) NOT NULL, original_filename VARCHAR(255), mime_type VARCHAR(100), file_size INTEGER,
         ocr_data JSONB, issued_at DATE, expires_at DATE, is_current BOOLEAN NOT NULL DEFAULT TRUE,
         verification_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'rejected')),
@@ -268,23 +285,6 @@ module.exports = {
       `CREATE INDEX idx_service_areas_active   ON service_areas(is_active);`,
     );
 
-    // ─── PROMO CODES ──────────────────────────────────────────────────────────
-    await q(`
-      CREATE TABLE promo_codes (
-        id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
-        code            VARCHAR(50)   NOT NULL UNIQUE,
-        discount_type   discount_type NOT NULL,
-        discount_value  DOUBLE PRECISION NOT NULL,
-        expires_at      TIMESTAMPTZ,
-        max_uses        INTEGER,
-        uses_count      INTEGER       NOT NULL DEFAULT 0,
-        is_active       BOOLEAN       NOT NULL DEFAULT true,
-        deleted_at      TIMESTAMPTZ,
-        created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-        updated_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-      );
-    `);
-
     // ─── CANCELLATION REASONS ─────────────────────────────────────────────────
     await q(`
       CREATE TABLE cancellation_reasons (
@@ -319,7 +319,6 @@ module.exports = {
         distance                  DOUBLE PRECISION,
         duration                  INTEGER,
         service_area_id           UUID             REFERENCES service_areas(id),
-        promo_code_id             UUID             REFERENCES promo_codes(id),
         cancellation_reason_id    UUID             REFERENCES cancellation_reasons(id),
         cancelled_by              cancelled_by_type,
         request_mode              TEXT NOT NULL DEFAULT 'negotiation',
@@ -675,42 +674,6 @@ module.exports = {
     await q(`CREATE INDEX idx_ride_waypoints_ride_id ON ride_waypoints(ride_id);`);
     await q(`CREATE INDEX idx_ride_waypoints_geo     ON ride_waypoints USING GIST(location);`);
 
-    // ─── TRUSTED CONTACTS (Contactos de confianza) ────────────────────────────
-    // Contactos de confianza de un usuario (máximo 3 por usuario).
-    // Se usan para notificaciones de emergencia y compartir ubicación.
-    await q(`
-      CREATE TABLE trusted_contacts (
-        id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-        user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name        VARCHAR(255) NOT NULL,
-        phone       VARCHAR(30)  NOT NULL,
-        relation    VARCHAR(100),
-        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-        updated_at  TIMESTAMPTZ,
-
-        CONSTRAINT uq_trusted_contact UNIQUE (user_id, phone)
-      );
-    `);
-    await q(`CREATE INDEX idx_trusted_contacts_user ON trusted_contacts(user_id);`);
-
-    // ─── PANIC EVENTS (Eventos de pánico/SOS) ─────────────────────────────────
-    // Registro de eventos del botón de pánico (SOS) activados por usuarios.
-    // Incluye ubicación, grabación de audio y timestamps.
-    // ride_id es nullable: el pánico puede ocurrir en cualquier momento, no solo durante un viaje.
-    await q(`
-      CREATE TABLE panic_events (
-        id          UUID                 PRIMARY KEY DEFAULT uuid_generate_v4(),
-        user_id     UUID                 NOT NULL REFERENCES users(id),
-        ride_id     UUID                 REFERENCES rides(id),
-        location    GEOMETRY(POINT, 4326) NOT NULL,
-        audio_url   VARCHAR(500),
-        triggered_at TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
-        resolved_at TIMESTAMPTZ
-      );
-    `);
-    await q(`CREATE INDEX idx_panic_events_user ON panic_events(user_id);`);
-    await q(`CREATE INDEX idx_panic_events_geo  ON panic_events USING GIST(location);`);
-
     // ─── TRIGGER: validar razón de cancelación ────────────────────────────────
     await q(`
       CREATE OR REPLACE FUNCTION check_cancellation_reason_match()
@@ -939,9 +902,6 @@ module.exports = {
     await q(`DROP FUNCTION IF EXISTS is_location_serviceable CASCADE;`);
 
     // Eliminar tablas en orden inverso (respetando FKs)
-    // — Nuevas tablas módulo seguridad —
-    await q(`DROP TABLE IF EXISTS panic_events          CASCADE;`);
-    await q(`DROP TABLE IF EXISTS trusted_contacts      CASCADE;`);
     await q(`DROP TABLE IF EXISTS ride_waypoints        CASCADE;`);
     // — Módulo emergencias —
     await q(`DROP TABLE IF EXISTS emergency_recordings  CASCADE;`);
@@ -959,8 +919,8 @@ module.exports = {
     await q(`DROP TABLE IF EXISTS ride_offers            CASCADE;`);
     await q(`DROP TABLE IF EXISTS rides                  CASCADE;`);
     await q(`DROP TABLE IF EXISTS cancellation_reasons   CASCADE;`);
-    await q(`DROP TABLE IF EXISTS promo_codes            CASCADE;`);
     await q(`DROP TABLE IF EXISTS service_areas          CASCADE;`);
+    await q(`DROP TABLE IF EXISTS driver_domiciles       CASCADE;`);
     await q(`DROP TABLE IF EXISTS driver_requests        CASCADE;`);
     await q(`DROP TABLE IF EXISTS documents              CASCADE;`);
     await q(`DROP TABLE IF EXISTS driver_locations       CASCADE;`);
@@ -986,7 +946,6 @@ module.exports = {
       'commission_status',
       'settlement_status',
       'settlement_payment_method',
-      'discount_type',
       'applicable_to',
       'notification_type',
       'audit_action',
