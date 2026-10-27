@@ -77,3 +77,4 @@ yarn-error.log
 # Secrets — NO subir al repositorio
 backend/.env
 backend/serviceAccountKey.json
+/backend/
