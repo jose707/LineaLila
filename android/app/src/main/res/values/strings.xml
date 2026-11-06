@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LineaLila</string>
+    <string name="app_name">Linea Lila</string>
     <string name="amplify_ui_liveness_get_ready_center_face_label">Centra tu rostro</string>
     <string name="amplify_ui_liveness_get_ready_begin_check">Iniciar prueba de vida</string>
     <string name="amplify_ui_liveness_get_ready_photosensitivity_title">Aviso de fotosensibilidad</string>

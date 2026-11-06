@@ -18,6 +18,8 @@ class MainApplication : Application(), ReactApplication {
           add(NavigationBarPackage())
           add(FaceLivenessPackage())
           add(ActiveRideLocationPackage())
+          add(ReviewNotificationPackage())
+          add(ComprobantePdfPackage())
         },
     )
   }

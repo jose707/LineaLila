@@ -1,8 +1,8 @@
 // src/types/api.ts
-import { User, Ride, Payment } from './models';
+import { Usuario, Viaje, Pago } from "./modelos";
 
 // API RESPONSES
-export interface ApiResponse<T> {
+export interface ApiRespuesta<T> {
   success: boolean;
   data?: T;
   error?: ApiError;
@@ -16,28 +16,28 @@ export interface ApiError {
   details?: Record<string, unknown>;
 }
 
-export interface CancellationReason {
+export interface CancelacionMotivo {
   id: string;
   code: string;
   description: string;
-  applicable_to: 'passenger' | 'driver' | 'both' | null;
+  applicable_to: 'pasajero' | 'conductor' | 'ambos' | null;
   is_active: boolean;
 }
 
 // AUTH
-export interface LoginRequest {
+export interface IngresarSolicitud {
   email: string;
   password: string;
 }
 
-export interface LoginResponse {
+export interface IngresarRespuesta {
   token: string;
   refreshToken: string;
-  user: User;
+  user: Usuario;
   expiresIn: number;
 }
 
-export interface SignupRequest {
+export interface RegistrarseSolicitud {
   name: string;
   email: string;
   phone: string;
@@ -45,14 +45,14 @@ export interface SignupRequest {
   confirmPassword: string;
 }
 
-export interface SignupResponse {
-  user: User;
+export interface RegistrarseRespuesta {
+  user: Usuario;
   token: string;
 }
 
 // RIDES
-export interface CreateRideRequest {
-  requestMode?: 'negotiation' | 'quick_assignment';
+export interface CrearViajeSolicitud {
+  requestMode?: 'negociacion' | 'asignacion_rapida';
   requestKey?: string;
   userId?: string;
   pickupLocation: {
@@ -79,7 +79,7 @@ export interface CreateRideRequest {
   duration?: number;
 }
 
-export interface UpdateRideRequest {
+export interface ActualizarViajeSolicitud {
   status?: string;
   notes?: string;
   fare?: number;
@@ -87,16 +87,16 @@ export interface UpdateRideRequest {
   duration?: number;
 }
 
-export interface AcceptRideRequest {
+export interface AceptarViajeSolicitud {
   rideId: string;
 }
 
-export interface RejectRideRequest {
+export interface RechazarViajeSolicitud {
   rideId: string;
   reason?: string;
 }
 
-export interface CompleteRideRequest {
+export interface CompletarViajeSolicitud {
   rideId?: string;
   endLocation?: {
     latitude: number;
@@ -107,13 +107,13 @@ export interface CompleteRideRequest {
   actualDuration?: number;
 }
 
-export interface CancelRideRequest {
+export interface CancelarViajeSolicitud {
   rideId: string;
   reason?: string;
   cancellationReasonId?: string;
 }
 
-export interface RideDetailsResponse extends Ride {
+export interface ViajeDetallesRespuesta extends Viaje {
   driverDetails?: {
     id: string;
     name: string;
@@ -136,7 +136,7 @@ export interface RideDetailsResponse extends Ride {
   };
 }
 
-export interface RideRequestsResponse {
+export interface ViajeSolicitudesRespuesta {
   rideId: string;
   passengerName: string;
   passengerRating: number;
@@ -164,7 +164,7 @@ export interface RideRequestsResponse {
   createdAt: string;
 }
 
-export interface AvailableDriversResponse {
+export interface DisponibleConductoresRespuesta {
   driverId: string;
   driverName: string;
   rating: number;
@@ -178,7 +178,7 @@ export interface AvailableDriversResponse {
   };
 }
 
-export interface RideEstimateResponse {
+export interface ViajeEstimacionRespuesta {
   distance: number;
   duration: number;
   baseFare: number;
@@ -188,7 +188,7 @@ export interface RideEstimateResponse {
   currency: string;
 }
 
-export interface FareSettingsResponse {
+export interface TarifaAjustesRespuesta {
   baseFare: number;
   farePerKm: number;
   farePerMinute: number;
@@ -198,14 +198,14 @@ export interface FareSettingsResponse {
 }
 
 // PAYMENTS
-export interface ProcessPaymentRequest {
+export interface ProcesarPagoSolicitud {
   rideId: string;
   amount: number;
   method: string;
   tokenId?: string; // Stripe token
 }
 
-export interface ProcessPaymentResponse {
+export interface ProcesarPagoRespuesta {
   paymentId: string;
   transactionId: string;
   status: string;
@@ -213,17 +213,17 @@ export interface ProcessPaymentResponse {
 }
 
 // RATINGS
-export interface SubmitRatingRequest {
+export interface EnviarCalificacionSolicitud {
   rideId: string;
   score: number;
   review?: string;
-  categories?: Array<{ name: string; score: number }>;
+  categories?: Array<{name: string;score: number;}>;
 }
 
 // RIDE ACTIONS (Already defined above in new structure)
 
 // DRIVER APPLICATION
-export interface SubmitDriverApplicationRequest {
+export interface EnviarConductorApplicationSolicitud {
   licenseNumber: string;
   licenseExpiryDate: string;
   vehicleType: string;
@@ -233,7 +233,7 @@ export interface SubmitDriverApplicationRequest {
 }
 
 // PAGINATION
-export interface PaginatedResponse<T> {
+export interface PaginadaRespuesta<T> {
   data: T[];
   pagination: {
     page: number;

@@ -150,7 +150,7 @@ class ActiveRideLocationService : Service(), LocationListener {
     sender.execute {
       var connection: HttpURLConnection? = null
       try {
-        connection = (URL("$baseUrl/driver-locations/ride/$currentRide").openConnection() as HttpURLConnection).apply {
+        connection = (URL("$baseUrl/ubicaciones-conductores/viaje/$currentRide").openConnection() as HttpURLConnection).apply {
           requestMethod = "POST"
           connectTimeout = 8000
           readTimeout = 8000

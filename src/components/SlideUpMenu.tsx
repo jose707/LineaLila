@@ -1,17 +1,17 @@
-import { privateImageSource } from '../utils/privateImageSource';
-import React, { useEffect, useRef } from 'react';
+import { privadoImagenOrigen } from "../utils/privateImageOrigen";
+import React, { useEffect as usarEfecto, useRef as usarReferencia } from 'react';
 import {
-  Animated,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { ChevronRight, Star, User } from 'lucide-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+  Animated as Animado,
+  Image as Imagen,
+  StyleSheet as EstiloHoja,
+  Text as Texto,
+  TouchableOpacity as PulsableOpacidad,
+  View as Vista } from
+'react-native';
+import { ChevronRight as ChevronDerecha, Star, User as Usuario } from 'lucide-react-native';
+import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 
-export interface SlideUpMenuItem {
+export interface SlideUpMenuElemento {
   icon: React.ReactNode;
   label: string;
   onPress: () => void;
@@ -29,15 +29,16 @@ interface SlideUpMenuTheme {
   avatarBg: string;
 }
 
-interface SlideUpMenuProps {
+interface SlideUpMenuPropiedades {
   visible: boolean;
   onClose: () => void;
   user?: {
-    name?: string;
-    profilePhoto?: string | null;
-    rating?: number | string | null;
+    nombre?: string;
+    fotoPerfil?: string | null;
+    urlFoto?: string | null;
+    calificacion?: number | string | null;
   } | null;
-  menuItems: SlideUpMenuItem[];
+  menuItems: SlideUpMenuElemento[];
   closeButton?: {
     label: string;
     onPress: () => void;
@@ -47,7 +48,7 @@ interface SlideUpMenuProps {
   theme?: Partial<SlideUpMenuTheme>;
 }
 
-const DEFAULT_THEME: SlideUpMenuTheme = {
+const PREDETERMINADO_THEME: SlideUpMenuTheme = {
   primary: '#7514C5',
   accent: '#7514C5',
   text: '#111111',
@@ -56,137 +57,138 @@ const DEFAULT_THEME: SlideUpMenuTheme = {
   bg: '#FAFAFA',
   white: '#FFFFFF',
   overlay: 'rgba(0,0,0,0.4)',
-  avatarBg: '#F3E8FF',
+  avatarBg: '#F3E8FF'
 };
 
-export const SlideUpMenu: React.FC<SlideUpMenuProps> = ({
+export const SlideUpMenu: React.FC<SlideUpMenuPropiedades> = ({
   visible,
-  onClose,
-  user,
-  menuItems,
-  closeButton,
-  theme = {},
+  onClose: alCerrar,
+  user: usuario,
+  menuItems: menuElementos,
+  closeButton: cerrarBoton,
+  theme = {}
 }) => {
-  const insets = useSafeAreaInsets();
-  const T = { ...DEFAULT_THEME, ...theme };
-  const menuAnim = useRef(new Animated.Value(0)).current;
+  const margenes = usarSeguraZonaMargenes();
+  const T = { ...PREDETERMINADO_THEME, ...theme };
+  const menuAnimacion = usarReferencia(new Animado.Value(0)).current;
 
-  useEffect(() => {
-    Animated.spring(menuAnim, {
+  usarEfecto(() => {
+    Animado.spring(menuAnimacion, {
       toValue: visible ? 1 : 0,
       useNativeDriver: true,
       tension: 80,
-      friction: 12,
+      friction: 12
     }).start();
-  }, [visible, menuAnim]);
+  }, [visible, menuAnimacion]);
 
   if (!visible) return null;
 
-  const parsedRating =
-    typeof user?.rating === 'number' ? user.rating : Number(user?.rating);
-  const safeRating = Number.isFinite(parsedRating) ? parsedRating : 5;
+  const analizadoCalificacion =
+  typeof usuario?.calificacion === 'number' ? usuario.calificacion : Number(usuario?.calificacion);
+  const fotoUsuario = usuario?.fotoPerfil || usuario?.urlFoto;
+  const seguraCalificacion = Number.isFinite(analizadoCalificacion) ? analizadoCalificacion : 5;
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-      <TouchableOpacity
-        style={[styles.backdrop, { backgroundColor: T.overlay }]}
+    <Vista style={EstiloHoja.absoluteFillObject} pointerEvents="box-none">
+      <PulsableOpacidad
+        style={[estilos.backdrop, { backgroundColor: T.overlay }]}
         activeOpacity={1}
-        onPress={onClose}
-      />
+        onPress={alCerrar} />
 
-      <Animated.View
+
+      <Animado.View
         style={[
-          styles.menuSheet,
+        estilos.menuSheet,
+        {
+          backgroundColor: T.white,
+          paddingBottom: margenes.bottom + 20,
+          transform: [
           {
-            backgroundColor: T.white,
-            paddingBottom: insets.bottom + 20,
-            transform: [
-              {
-                translateY: menuAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [400, 0],
-                }),
-              },
-            ],
-            opacity: menuAnim,
-          },
-        ]}
-      >
-        <View style={[styles.menuHandle, { backgroundColor: T.border }]} />
+            translateY: menuAnimacion.interpolate({
+              inputRange: [0, 1],
+              outputRange: [400, 0]
+            })
+          }],
 
-        <View style={styles.menuUser}>
-          <View style={[styles.menuAvatar, { backgroundColor: T.avatarBg }]}>
-            {user?.profilePhoto || (user as any)?.photoURL ? (
-              <Image
-                source={privateImageSource(user?.profilePhoto || (user as any)?.photoURL)}
-                style={{ width: 50, height: 50, borderRadius: 25 }}
-              />
-            ) : (
-              <User size={24} color={T.accent} />
-            )}
-          </View>
-          <View>
-            <Text style={[styles.menuUserName, { color: T.text }]}>
-              {user?.name || 'Usuario'}
-            </Text>
-            <View style={styles.menuRatingRow}>
+          opacity: menuAnimacion
+        }]
+        }>
+
+        <Vista style={[estilos.menuHandle, { backgroundColor: T.border }]} />
+
+        <Vista style={estilos.menuUser}>
+          <Vista style={[estilos.menuAvatar, { backgroundColor: T.avatarBg }]}>
+            {fotoUsuario ?
+            <Imagen
+              source={privadoImagenOrigen(fotoUsuario)}
+              style={{ width: 50, height: 50, borderRadius: 25 }} /> :
+
+
+            <Usuario size={24} color={T.accent} />
+            }
+          </Vista>
+          <Vista>
+            <Texto style={[estilos.menuUserName, { color: T.text }]}>
+              {usuario?.nombre || 'Usuario'}
+            </Texto>
+            <Vista style={estilos.menuRatingRow}>
               <Star size={12} color="#F59E0B" fill="#F59E0B" />
-              <Text style={[styles.menuRatingText, { color: T.textMuted }]}>
-                {safeRating.toFixed(1)}
-              </Text>
-            </View>
-          </View>
-        </View>
+              <Texto style={[estilos.menuRatingText, { color: T.textMuted }]}>
+                {seguraCalificacion.toFixed(1)}
+              </Texto>
+            </Vista>
+          </Vista>
+        </Vista>
 
-        <View style={[styles.menuSep, { backgroundColor: T.border }]} />
+        <Vista style={[estilos.menuSep, { backgroundColor: T.border }]} />
 
-        {menuItems.map(item => (
-          <TouchableOpacity
-            key={item.label}
-            style={[styles.menuItem, { borderBottomColor: T.border }]}
-            onPress={() => {
-              onClose();
-              item.onPress();
-            }}
-            activeOpacity={0.7}
-          >
-            {item.icon}
-            <Text style={[styles.menuItemLabel, { color: T.text }]}>
-              {item.label}
-            </Text>
-            <ChevronRight size={16} color={T.border} />
-          </TouchableOpacity>
-        ))}
+        {menuElementos.map((elemento) =>
+        <PulsableOpacidad
+          key={elemento.label}
+          style={[estilos.menuItem, { borderBottomColor: T.border }]}
+          onPress={() => {
+            alCerrar();
+            elemento.onPress();
+          }}
+          activeOpacity={0.7}>
 
-        {closeButton && (
-          <TouchableOpacity
-            style={[
-              styles.menuClose,
-              { backgroundColor: closeButton.backgroundColor || T.primary },
-            ]}
-            onPress={() => {
-              onClose();
-              closeButton.onPress();
-            }}
-          >
-            <Text
-              style={[
-                styles.menuCloseText,
-                { color: closeButton.textColor || T.white },
-              ]}
-            >
-              {closeButton.label}
-            </Text>
-          </TouchableOpacity>
+            {elemento.icon}
+            <Texto style={[estilos.menuItemLabel, { color: T.text }]}>
+              {elemento.label}
+            </Texto>
+            <ChevronDerecha size={16} color={T.border} />
+          </PulsableOpacidad>
         )}
-      </Animated.View>
-    </View>
-  );
+
+        {cerrarBoton &&
+        <PulsableOpacidad
+          style={[
+          estilos.menuClose,
+          { backgroundColor: cerrarBoton.backgroundColor || T.primary }]
+          }
+          onPress={() => {
+            alCerrar();
+            cerrarBoton.onPress();
+          }}>
+
+            <Texto
+            style={[
+            estilos.menuCloseText,
+            { color: cerrarBoton.textColor || T.white }]
+            }>
+
+              {cerrarBoton.label}
+            </Texto>
+          </PulsableOpacidad>
+        }
+      </Animado.View>
+    </Vista>);
+
 };
 
-const styles = StyleSheet.create({
+const estilos = EstiloHoja.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...EstiloHoja.absoluteFillObject
   },
   menuSheet: {
     position: 'absolute',
@@ -196,68 +198,68 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 20
   },
   menuHandle: {
     width: 36,
     height: 4,
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 20
   },
   menuUser: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 16,
+    marginBottom: 16
   },
   menuAvatar: {
     width: 50,
     height: 50,
     borderRadius: 25,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center'
   },
   menuUserName: {
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: 3,
+    marginBottom: 3
   },
   menuRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 4
   },
   menuRatingText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '600'
   },
   menuSep: {
     height: 1,
-    marginBottom: 8,
+    marginBottom: 8
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 16,
-    borderBottomWidth: 1,
+    borderBottomWidth: 1
   },
   menuItemLabel: {
     flex: 1,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '500'
   },
   menuClose: {
     marginTop: 16,
     paddingVertical: 14,
     borderRadius: 14,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   menuCloseText: {
     fontSize: 14,
-    fontWeight: '600',
-  },
+    fontWeight: '600'
+  }
 });
 
 export default SlideUpMenu;

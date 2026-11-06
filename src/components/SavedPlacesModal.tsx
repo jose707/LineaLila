@@ -1,17 +1,17 @@
 import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  View as Vista,
+  Text as Texto,
+  StyleSheet as EstiloHoja,
+  TouchableOpacity as PulsableOpacidad,
   Modal,
-  FlatList,
-} from 'react-native';
-import { X, Home, Briefcase, MapPin, Navigation, Plus } from 'lucide-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+  FlatList as FlatLista } from
+'react-native';
+import { X, Home, Briefcase, MapPin as MapaPin, Navigation as Navegacion, Plus } from 'lucide-react-native';
+import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 
-export interface SavedPlace {
+export interface GuardadoLugar {
   id: string;
   type: 'home' | 'work' | 'recent' | 'favorite';
   label: string;
@@ -21,56 +21,56 @@ export interface SavedPlace {
   subtext?: string;
 }
 
-interface Props {
+interface Propiedades {
   visible: boolean;
   onClose: () => void;
-  onSelect: (place: SavedPlace) => void;
+  onSelect: (place: GuardadoLugar) => void;
   onAdd: () => void;
   onDelete?: (placeId: string) => void;
-  savedPlaces: SavedPlace[];
+  savedPlaces: GuardadoLugar[];
 }
 
-const ICON_COLOR = '#7C3AED';
-const ICON_BG = '#EDE9FE';
+const ICONO_COLOR = '#7C3AED';
+const ICONO_BG = '#EDE9FE';
 
-const SavedPlacesModal: React.FC<Props> = ({
+const GuardadoLugaresModal: React.FC<Propiedades> = ({
   visible,
-  onClose,
-  onSelect,
-  onAdd,
-  onDelete,
-  savedPlaces,
+  onClose: alCerrar,
+  onSelect: alSeleccionar,
+  onAdd: alAgregar,
+  onDelete: alEliminar,
+  savedPlaces: guardadoLugares
 }) => {
-  const insets = useSafeAreaInsets();
+  const margenes = usarSeguraZonaMargenes();
 
-  const renderIcon = (type: SavedPlace['type']) => {
-    switch (type) {
+  const representarIcono = (tipo: GuardadoLugar['type']) => {
+    switch (tipo) {
       case 'home':
-        return <Home size={22} color={ICON_COLOR} />;
+        return <Home size={22} color={ICONO_COLOR} />;
       case 'work':
-        return <Briefcase size={22} color={ICON_COLOR} />;
+        return <Briefcase size={22} color={ICONO_COLOR} />;
       case 'recent':
-        return <MapPin size={22} color={ICON_COLOR} />;
+        return <MapaPin size={22} color={ICONO_COLOR} />;
       case 'favorite':
-        return <MapPin size={22} color={ICON_COLOR} />;
+        return <MapaPin size={22} color={ICONO_COLOR} />;
     }
   };
 
-  const renderItem = ({ item }: { item: SavedPlace }) => (
-    <TouchableOpacity
-      style={s.item}
-      activeOpacity={0.7}
-      onPress={() => onSelect(item)}
-      onLongPress={item.type === 'favorite' && onDelete ? () => onDelete(item.id) : undefined}
-    >
-      <View style={s.itemIcon}>{renderIcon(item.type)}</View>
-      <View style={s.itemContent}>
-        <Text style={s.itemLabel} numberOfLines={1}>{item.label}</Text>
-        <Text style={s.itemAddress} numberOfLines={1}>{item.address}</Text>
-      </View>
-      <Navigation size={18} color={T.inkLight} />
-    </TouchableOpacity>
-  );
+  const representarElemento = ({ item: elemento }: {item: GuardadoLugar;}) =>
+  <PulsableOpacidad
+    style={s.item}
+    activeOpacity={0.7}
+    onPress={() => alSeleccionar(elemento)}
+    onLongPress={elemento.type === 'favorite' && alEliminar ? () => alEliminar(elemento.id) : undefined}>
+
+      <Vista style={s.itemIcon}>{representarIcono(elemento.type)}</Vista>
+      <Vista style={s.itemContent}>
+        <Texto style={s.itemLabel} numberOfLines={1}>{elemento.label}</Texto>
+        <Texto style={s.itemAddress} numberOfLines={1}>{elemento.address}</Texto>
+      </Vista>
+      <Navegacion size={18} color={T.inkLight} />
+    </PulsableOpacidad>;
+
 
   return (
     <Modal
@@ -78,73 +78,73 @@ const SavedPlacesModal: React.FC<Props> = ({
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={onClose}
-    >
-      <View style={s.modalRoot}>
-        <TouchableOpacity
+      onRequestClose={alCerrar}>
+
+      <Vista style={s.modalRoot}>
+        <PulsableOpacidad
           style={s.overlay}
           activeOpacity={1}
-          onPress={onClose}
-        />
-        <View style={[s.sheet, { paddingBottom: insets.bottom + 24 }]}>
-          <View style={s.handle} />
+          onPress={alCerrar} />
 
-          <View style={s.header}>
-            <Text style={s.title}>Lugares guardados</Text>
-            <TouchableOpacity
+        <Vista style={[s.sheet, { paddingBottom: margenes.bottom + 24 }]}>
+          <Vista style={s.handle} />
+
+          <Vista style={s.header}>
+            <Texto style={s.title}>Lugares guardados</Texto>
+            <PulsableOpacidad
               style={s.closeBtn}
-              onPress={onClose}
-              activeOpacity={0.7}
-            >
-              <X size={20} color={T.inkLight} />
-            </TouchableOpacity>
-          </View>
+              onPress={alCerrar}
+              activeOpacity={0.7}>
 
-          {savedPlaces.length === 0 ? (
-            <View style={s.empty}>
-              <MapPin size={40} color={T.border} />
-              <Text style={s.emptyText}>
+              <X size={20} color={T.inkLight} />
+            </PulsableOpacidad>
+          </Vista>
+
+          {guardadoLugares.length === 0 ?
+          <Vista style={s.empty}>
+              <MapaPin size={40} color={T.border} />
+              <Texto style={s.emptyText}>
                 No hay lugares guardados.{'\n'}
                 Guarda tu casa o trabajo desde los accesos directos.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={savedPlaces}
-              keyExtractor={item => item.id}
-              renderItem={renderItem}
-              ItemSeparatorComponent={() => <View style={s.separator} />}
-              showsVerticalScrollIndicator={false}
-            />
-          )}
+              </Texto>
+            </Vista> :
 
-          <TouchableOpacity
+          <FlatLista
+            data={guardadoLugares}
+            keyExtractor={(elemento) => elemento.id}
+            renderItem={representarElemento}
+            ItemSeparatorComponent={() => <Vista style={s.separator} />}
+            showsVerticalScrollIndicator={false} />
+
+          }
+
+          <PulsableOpacidad
             style={s.addButton}
             onPress={() => {
-              onClose();
-              onAdd();
+              alCerrar();
+              alAgregar();
             }}
-            activeOpacity={0.7}
-          >
-            <View style={s.addIcon}>
-              <Plus size={22} color={ICON_COLOR} />
-            </View>
-            <Text style={s.addLabel}>Agregar favorito</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
+            activeOpacity={0.7}>
+
+            <Vista style={s.addIcon}>
+              <Plus size={22} color={ICONO_COLOR} />
+            </Vista>
+            <Texto style={s.addLabel}>Agregar favorito</Texto>
+          </PulsableOpacidad>
+        </Vista>
+      </Vista>
+    </Modal>);
+
 };
 
-const s = StyleSheet.create({
+const s = EstiloHoja.create({
   modalRoot: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-end'
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    ...EstiloHoja.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)'
   },
   sheet: {
     backgroundColor: T.white,
@@ -152,7 +152,7 @@ const s = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
     paddingTop: 12,
-    maxHeight: '70%',
+    maxHeight: '70%'
   },
   handle: {
     width: 36,
@@ -160,18 +160,18 @@ const s = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: T.border,
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 16
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 16
   },
   title: {
     fontSize: 17,
     fontWeight: '700',
-    color: T.ink,
+    color: T.ink
   },
   closeBtn: {
     width: 32,
@@ -179,49 +179,49 @@ const s = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: T.bg,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center'
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    gap: 12,
+    gap: 12
   },
   itemIcon: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: ICON_BG,
+    backgroundColor: ICONO_BG,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   itemContent: {
-    flex: 1,
+    flex: 1
   },
   itemLabel: {
     fontSize: 15,
     fontWeight: '600',
-    color: T.ink,
+    color: T.ink
   },
   itemAddress: {
     fontSize: 13,
     color: T.inkLight,
-    marginTop: 2,
+    marginTop: 2
   },
   separator: {
     height: 1,
-    backgroundColor: T.border,
+    backgroundColor: T.border
   },
   empty: {
     alignItems: 'center',
     paddingVertical: 40,
-    gap: 12,
+    gap: 12
   },
   emptyText: {
     fontSize: 14,
     color: T.inkLight,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 20
   },
   addButton: {
     flexDirection: 'row',
@@ -230,21 +230,21 @@ const s = StyleSheet.create({
     gap: 12,
     borderTopWidth: 1,
     borderTopColor: T.border,
-    marginTop: 8,
+    marginTop: 8
   },
   addIcon: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: ICON_BG,
+    backgroundColor: ICONO_BG,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   addLabel: {
     fontSize: 15,
     fontWeight: '600',
-    color: ICON_COLOR,
-  },
+    color: ICONO_COLOR
+  }
 });
 
-export default SavedPlacesModal;
+export default GuardadoLugaresModal;

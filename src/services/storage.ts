@@ -4,177 +4,177 @@
 // - If MMKV is not available (common in mislinked/bridgeless-native issues), fall back to
 //   an in-memory cache backed by AsyncStorage (persisted) while keeping a sync API.
 
-type SyncStorage = {
+type SincronizacionAlmacenamiento = {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
   delete: (key: string) => void;
 };
 
-let storageInstance: SyncStorage | null = null;
-const VERBOSE_STORAGE_LOGS = false;
+let almacenamientoInstancia: SincronizacionAlmacenamiento | null = null;
+const VERBOSE_ALMACENAMIENTO_LOGS = false;
 
 // Persistent fallback (sync reads from cache, async write-through to disk)
-const fallbackCache = new Map<string, string>();
-let fallbackHydrating = false;
+const alternativaCache = new Map<string, string>();
+let alternativaHydrating = false;
 
-const hydrateFallbackFromAsyncStorage = () => {
-  if (fallbackHydrating) return;
-  fallbackHydrating = true;
+const hydrateAlternativaDesdeAsincronoAlmacenamiento = () => {
+  if (alternativaHydrating) return;
+  alternativaHydrating = true;
   try {
-    const AsyncStorage =
-      require('@react-native-async-storage/async-storage').default;
+    const AsincronoAlmacenamiento =
+    require('@react-native-async-storage/async-storage').default;
 
-    AsyncStorage.getAllKeys()
-      .then((keys: string[]) => (keys?.length ? AsyncStorage.multiGet(keys) : []))
-      .then((entries: Array<[string, string | null]>) => {
-        for (const [k, v] of entries) {
-          if (typeof v === 'string') fallbackCache.set(k, v);
-        }
-        if (VERBOSE_STORAGE_LOGS) {
-          console.log('✅ [Storage] AsyncStorage fallback hydrated');
-        }
-      })
-      .catch((e: any) => {
-        console.warn('⚠️ [Storage] AsyncStorage hydration failed:', e);
-      });
-  } catch (e) {
-    console.warn('⚠️ [Storage] AsyncStorage not available:', e);
+    AsincronoAlmacenamiento.getAllKeys().
+    then((claves: string[]) => claves?.length ? AsincronoAlmacenamiento.multiGet(claves) : []).
+    then((entradas: Array<[string, string | null]>) => {
+      for (const [k, v] of entradas) {
+        if (typeof v === 'string') alternativaCache.set(k, v);
+      }
+      if (VERBOSE_ALMACENAMIENTO_LOGS) {
+        console.log('✅ [Storage] AsyncStorage fallback hydrated');
+      }
+    }).
+    catch((error: any) => {
+      console.warn('⚠️ [Storage] AsyncStorage hydration failed:', error);
+    });
+  } catch (error) {
+    console.warn('⚠️ [Storage] AsyncStorage not available:', error);
   }
 };
 
-const makeAsyncStorageBackedSyncStorage = (): SyncStorage => {
-  hydrateFallbackFromAsyncStorage();
+const makeAsincronoAlmacenamientoBackedSincronizarAlmacenamiento = (): SincronizacionAlmacenamiento => {
+  hydrateAlternativaDesdeAsincronoAlmacenamiento();
 
-  let AsyncStorage: any = null;
+  let AsincronoAlmacenamiento: any = null;
   try {
-    AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    AsincronoAlmacenamiento = require('@react-native-async-storage/async-storage').default;
   } catch {
-    AsyncStorage = null;
+    AsincronoAlmacenamiento = null;
   }
 
   return {
-    getString: (key: string) => fallbackCache.get(key),
-    set: (key: string, value: string) => {
-      fallbackCache.set(key, value);
-      if (AsyncStorage) {
-        AsyncStorage.setItem(key, value).catch((e: any) =>
-          console.warn('⚠️ [Storage] AsyncStorage setItem failed:', e),
+    getString: (clave: string) => alternativaCache.get(clave),
+    set: (clave: string, valor: string) => {
+      alternativaCache.set(clave, valor);
+      if (AsincronoAlmacenamiento) {
+        AsincronoAlmacenamiento.setItem(clave, valor).catch((error: any) =>
+        console.warn('⚠️ [Storage] AsyncStorage setItem failed:', error)
         );
       }
     },
-    delete: (key: string) => {
-      fallbackCache.delete(key);
-      if (AsyncStorage) {
-        AsyncStorage.removeItem(key).catch((e: any) =>
-          console.warn('⚠️ [Storage] AsyncStorage removeItem failed:', e),
+    delete: (clave: string) => {
+      alternativaCache.delete(clave);
+      if (AsincronoAlmacenamiento) {
+        AsincronoAlmacenamiento.removeItem(clave).catch((error: any) =>
+        console.warn('⚠️ [Storage] AsyncStorage removeItem failed:', error)
         );
       }
-    },
+    }
   };
 };
 
 try {
   const mmkvModule = require('react-native-mmkv');
   // Newer react-native-mmkv exports factory functions (e.g. createMMKV)
-  const createMMKV =
-    typeof mmkvModule?.createMMKV === 'function' ? mmkvModule.createMMKV : null;
+  const crearMmkv =
+  typeof mmkvModule?.createMMKV === 'function' ? mmkvModule.createMMKV : null;
 
   // Older exports may include a class-like MMKV constructor
-  const MMKVClass =
-    mmkvModule?.MMKV ?? mmkvModule?.default ?? mmkvModule?.Mmkv ?? null;
+  const MmkvClase =
+  mmkvModule?.MMKV ?? mmkvModule?.default ?? mmkvModule?.Mmkv ?? null;
 
   const mmkv =
-    createMMKV?.({ id: 'linealila' }) ??
-    (typeof MMKVClass === 'function' ? new MMKVClass() : null);
+  crearMmkv?.({ id: 'linealila' }) ?? (
+  typeof MmkvClase === 'function' ? new MmkvClase() : null);
 
   if (!mmkv) {
     throw new Error(
-      `MMKV export not found. Keys: ${Object.keys(mmkvModule || {}).join(', ')}`,
+      `MMKV export not found. Keys: ${Object.keys(mmkvModule || {}).join(', ')}`
     );
   }
 
   // Some builds/export styles expose slightly different method names.
   // Normalize to the minimal SyncStorage interface we need.
-  const getStringFn: any = mmkv.getString ?? mmkv.get ?? mmkv.getItem ?? null;
-  const setFn: any = mmkv.set ?? mmkv.setString ?? mmkv.setItem ?? null;
-  const deleteFn: any =
-    mmkv.delete ?? mmkv.remove ?? mmkv.removeItem ?? mmkv.del ?? null;
+  const obtenerCadenaFuncion: any = mmkv.getString ?? mmkv.get ?? mmkv.getItem ?? null;
+  const establecerFuncion: any = mmkv.set ?? mmkv.setString ?? mmkv.setItem ?? null;
+  const eliminarFuncion: any =
+  mmkv.delete ?? mmkv.remove ?? mmkv.removeItem ?? mmkv.del ?? null;
 
   if (
-    typeof getStringFn !== 'function' ||
-    typeof setFn !== 'function' ||
-    typeof deleteFn !== 'function'
-  ) {
+  typeof obtenerCadenaFuncion !== 'function' ||
+  typeof establecerFuncion !== 'function' ||
+  typeof eliminarFuncion !== 'function')
+  {
     throw new Error('MMKV instance missing expected methods');
   }
 
-  storageInstance = {
-    getString: (key: string) => {
-      const v = getStringFn.call(mmkv, key);
+  almacenamientoInstancia = {
+    getString: (clave: string) => {
+      const v = obtenerCadenaFuncion.call(mmkv, clave);
       return typeof v === 'string' ? v : undefined;
     },
-    set: (key: string, value: string) => {
-      setFn.call(mmkv, key, value);
+    set: (clave: string, valor: string) => {
+      establecerFuncion.call(mmkv, clave, valor);
     },
-    delete: (key: string) => {
-      deleteFn.call(mmkv, key);
-    },
+    delete: (clave: string) => {
+      eliminarFuncion.call(mmkv, clave);
+    }
   };
   console.log('✅ MMKV initialized successfully');
 } catch (error) {
   console.warn('⚠️ [Storage] MMKV not available, using fallback:', error);
-  storageInstance = makeAsyncStorageBackedSyncStorage();
+  almacenamientoInstancia = makeAsincronoAlmacenamientoBackedSincronizarAlmacenamiento();
 }
 
-export const StorageHelper = {
-  getItem: (key: string): string | null => {
+const AlmacenamientoAuxiliar = {
+  obtenerElemento: (clave: string): string | null => {
     try {
-      const value = storageInstance?.getString(key);
-      if (VERBOSE_STORAGE_LOGS) {
+      const valor = almacenamientoInstancia?.getString(clave);
+      if (VERBOSE_ALMACENAMIENTO_LOGS) {
         console.log(
-          `[Storage] getItem(${key}):`,
-          value ? 'found' : 'not found',
+          `[Storage] getItem(${clave}):`,
+          valor ? 'found' : 'not found'
         );
       }
-      return value || null;
+      return valor || null;
     } catch (error) {
-      console.error(`[Storage] Error reading ${key}:`, error);
+      console.error(`[Storage] Error reading ${clave}:`, error);
       return null;
     }
   },
 
-  setItem: (key: string, value: string): void => {
+  establecerElemento: (clave: string, valor: string): void => {
     try {
-      if (VERBOSE_STORAGE_LOGS) {
+      if (VERBOSE_ALMACENAMIENTO_LOGS) {
         console.log(
-          `[Storage] setItem(${key}):`,
-          value ? 'saving...' : 'empty value',
+          `[Storage] setItem(${clave}):`,
+          valor ? 'saving...' : 'empty value'
         );
       }
-      storageInstance?.set(key, value);
-      if (VERBOSE_STORAGE_LOGS) {
+      almacenamientoInstancia?.set(clave, valor);
+      if (VERBOSE_ALMACENAMIENTO_LOGS) {
         // Verify it was saved
-        const verify = storageInstance?.getString(key);
+        const verificar = almacenamientoInstancia?.getString(clave);
         console.log(
-          `[Storage] setItem(${key}) verified:`,
-          verify ? 'success' : 'FAILED',
+          `[Storage] setItem(${clave}) verified:`,
+          verificar ? 'success' : 'FAILED'
         );
       }
     } catch (error) {
-      console.error(`[Storage] Error writing ${key}:`, error);
+      console.error(`[Storage] Error writing ${clave}:`, error);
     }
   },
 
-  removeItem: (key: string): void => {
+  quitarElemento: (clave: string): void => {
     try {
-      if (VERBOSE_STORAGE_LOGS) {
-        console.log(`[Storage] removeItem(${key})`);
+      if (VERBOSE_ALMACENAMIENTO_LOGS) {
+        console.log(`[Storage] removeItem(${clave})`);
       }
-      storageInstance?.delete(key);
+      almacenamientoInstancia?.delete(clave);
     } catch (error) {
-      console.error(`[Storage] Error removing ${key}:`, error);
+      console.error(`[Storage] Error removing ${clave}:`, error);
     }
-  },
-};
+  }
+};export { AlmacenamientoAuxiliar };
 
-export default StorageHelper;
+export default AlmacenamientoAuxiliar;

@@ -1,123 +1,123 @@
-import React, { useEffect } from 'react';
-import { StatusBar, Platform, NativeModules, AppState } from 'react-native';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
-import './src/services/firebase-init';
-import * as firebaseService from './src/services/firebase.service';
+import React, { useEffect as usarEfecto } from 'react';
+import { StatusBar as EstadoBar, Platform as Plataforma, NativeModules as NativoModules, AppState as AplicacionEstado } from 'react-native';
+import { NavigationContainer as NavegacionContenedor, createNavigationContainerRef as crearNavegacionContenedorReferencia } from '@react-navigation/native';
+import "./src/services/firebase-iniciar";
+import * as firebaseServicio from "./src/services/firebase.servicio";
 
-import { AuthProvider } from './src/context/AuthContext';
-import { SettingsProvider, useSettings } from './src/context/SettingsContext';
-import RootNavigator from './src/navigation/RootNavigator';
-import { useAuth } from './src/hooks/useAuth';
-import type { RootStackParamList } from './src/navigation/AppNavigator';
-import { disconnectDriverInBackground } from './src/services/driverAvailability.service';
-import socketService from './src/services/socket.service';
+import { AutenticacionProvider } from "./src/context/ContextoAutenticacion";
+import { AjustesProvider, usarAjustes } from "./src/context/AjustesContexto";
+import RaizNavegador from "./src/navigation/RootNavegador";
+import { usarAutenticacion } from "./src/hooks/usarAutenticacion";
+import type { RaizPilaParametroLista } from "./src/navigation/AplicacionNavegador";
+import { desconectarConductorEnSegundoPlano as disconnectConductorEnFondo } from "./src/services/conductorDisponibilidad.servicio";
+import socketServicio from "./src/services/socket.servicio";
 
-const { NavigationBarModule } = NativeModules;
-const navigationRef = createNavigationContainerRef<RootStackParamList>();
+const { NavigationBarModule: NavegacionBarModule } = NativoModules;
+const navegacionReferencia = crearNavegacionContenedorReferencia<RaizPilaParametroLista>();
 
-const RideNotificationOpener = () => {
-  const { isLoading, isAuthenticated, isDriverMode } = useAuth();
+const ViajeNotificacionOpener = () => {
+  const { isLoading: esCargando, isAuthenticated: esAuthenticated, isDriverMode: esConductorModo } = usarAutenticacion();
 
-  useEffect(() => {
-    if (Platform.OS !== 'android' || isLoading || !isAuthenticated || !isDriverMode) return;
-    const tracker = NativeModules.ActiveRideLocationModule;
+  usarEfecto(() => {
+    if (Plataforma.OS !== 'android' || esCargando || !esAuthenticated || !esConductorModo) return;
+    const tracker = NativoModules.ActiveRideLocationModule;
     if (!tracker) return;
-    let active = true;
-    const openPendingRide = async () => {
-      const rideId = await tracker.consumeLaunchRideId();
-      if (!rideId) return;
-      const navigateWhenReady = (attempt = 0) => {
-        if (!active) return;
-        if (navigationRef.isReady()) navigationRef.navigate('ActiveRide', { rideId });
-        else if (attempt < 20) setTimeout(() => navigateWhenReady(attempt + 1), 100);
+    let activo = true;
+    const abrirPendienteViaje = async () => {
+      const viajeId = await tracker.consumeLaunchRideId();
+      if (!viajeId) return;
+      const navigateWhenListo = (intento = 0) => {
+        if (!activo) return;
+        if (navegacionReferencia.isReady()) navegacionReferencia.navigate('ActiveRide', { rideId: viajeId });else
+        if (intento < 20) setTimeout(() => navigateWhenListo(intento + 1), 100);
       };
-      navigateWhenReady();
+      navigateWhenListo();
     };
-    openPendingRide().catch(() => {});
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') openPendingRide().catch(() => {});
+    abrirPendienteViaje().catch(() => {});
+    const suscripcion = AplicacionEstado.addEventListener('change', (estado) => {
+      if (estado === 'active') abrirPendienteViaje().catch(() => {});
     });
-    return () => { active = false; subscription.remove(); };
-  }, [isLoading, isAuthenticated, isDriverMode]);
+    return () => {activo = false;suscripcion.remove();};
+  }, [esCargando, esAuthenticated, esConductorModo]);
 
   return null;
 };
 
-const DriverBackgroundAvailability = () => {
-  const { isAuthenticated, isDriverMode } = useAuth();
+const ConductorFondoDisponibilidad = () => {
+  const { isAuthenticated: esAuthenticated, isDriverMode: esConductorModo } = usarAutenticacion();
 
-  useEffect(() => {
-    if (!isAuthenticated || !isDriverMode) return;
-    let mounted = true;
-    let pendingOffline = Promise.resolve();
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'background') {
-        pendingOffline = disconnectDriverInBackground();
-      } else if (state === 'active' && socketService.shouldRestoreAfterRideBackground()) {
-        void pendingOffline.then(() => {
-          if (mounted && AppState.currentState === 'active') {
-            socketService.restoreAfterRideBackground();
+  usarEfecto(() => {
+    if (!esAuthenticated || !esConductorModo) return;
+    let montado = true;
+    let pendienteDesconectado = Promise.resolve();
+    const suscripcion = AplicacionEstado.addEventListener('change', (estado) => {
+      if (estado === 'background') {
+        pendienteDesconectado = disconnectConductorEnFondo();
+      } else if (estado === 'active' && socketServicio.debeRestablecerDespuesViajeSegundoPlano()) {
+        void pendienteDesconectado.then(() => {
+          if (montado && AplicacionEstado.currentState === 'active') {
+            socketServicio.restablecerDespuesViajeSegundoPlano();
           }
         });
       }
     });
-    return () => { mounted = false; subscription.remove(); };
-  }, [isAuthenticated, isDriverMode]);
+    return () => {montado = false;suscripcion.remove();};
+  }, [esAuthenticated, esConductorModo]);
 
   return null;
 };
 
 const ThemeBar = () => {
-  const { settings } = useSettings();
+  const { settings: ajustes } = usarAjustes();
 
-  useEffect(() => {
-    if (settings.darkMode) {
-      StatusBar.setBarStyle('light-content');
-      StatusBar.setBackgroundColor('#121212');
+  usarEfecto(() => {
+    if (ajustes.darkMode) {
+      EstadoBar.setBarStyle('light-content');
+      EstadoBar.setBackgroundColor('#121212');
     } else {
-      StatusBar.setBarStyle('dark-content');
-      StatusBar.setBackgroundColor('#FFFFFF');
+      EstadoBar.setBarStyle('dark-content');
+      EstadoBar.setBackgroundColor('#FFFFFF');
     }
 
-    if (Platform.OS === 'android' && NavigationBarModule) {
+    if (Plataforma.OS === 'android' && NavegacionBarModule) {
       try {
-        NavigationBarModule.setColor(
-          settings.darkMode ? '#121212' : '#FFFFFF',
-          !settings.darkMode,
+        NavegacionBarModule.setColor(
+          ajustes.darkMode ? '#121212' : '#FFFFFF',
+          !ajustes.darkMode
         );
       } catch {}
     }
-  }, [settings.darkMode]);
+  }, [ajustes.darkMode]);
 
   return null;
 };
 
-export default function App() {
-  useEffect(() => {
-    const initGoogle = async () => {
+function Aplicacion() {
+  usarEfecto(() => {
+    const iniciarGoogle = async () => {
       try {
         console.log('Initializing Google Sign-In...');
-        await firebaseService.initializeGoogleSignIn();
+        await firebaseServicio.configurarAccesoGoogle();
         console.log('Google Sign-In initialized');
       } catch (error) {
         console.error('Error initializing Google Sign-In:', error);
-        setTimeout(initGoogle, 3000);
+        setTimeout(iniciarGoogle, 3000);
       }
     };
 
-    initGoogle();
+    iniciarGoogle();
   }, []);
 
   return (
-    <AuthProvider>
-      <SettingsProvider>
-        <NavigationContainer ref={navigationRef}>
+    <AutenticacionProvider>
+      <AjustesProvider>
+        <NavegacionContenedor ref={navegacionReferencia}>
           <ThemeBar />
-          <RootNavigator />
-          <RideNotificationOpener />
-          <DriverBackgroundAvailability />
-        </NavigationContainer>
-      </SettingsProvider>
-    </AuthProvider>
-  );
-}
+          <RaizNavegador />
+          <ViajeNotificacionOpener />
+          <ConductorFondoDisponibilidad />
+        </NavegacionContenedor>
+      </AjustesProvider>
+    </AutenticacionProvider>);
+
+}export { Aplicacion as default };
