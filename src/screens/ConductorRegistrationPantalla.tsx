@@ -820,6 +820,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
   const [fotos, establecerFotos] = usarEstado<Record<string, string | null>>(
     Object.fromEntries(FOTO_CAMPOS.map((f) => [f, null]))
   );
+  const [origenesFotos, establecerOrigenesFotos] = usarEstado<Record<string, 'captura_camara' | 'archivo_subido'>>({});
   const [recortesFotos, establecerRecortesFotos] = usarEstado<Record<string, RectanguloFotograma | undefined>>({});
 
   // Resultados OCR por campo
@@ -874,7 +875,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
     const comprobar = async () => {
       try {
         if (navegacionParametros?.isResubmission) {
-          navegacion.navigate('DocumentResubmission' as never);
+          navegacion.navigate('DocumentoReenvio' as never);
           return;
         }
         const r = await fetch(`${API_BASE_URL}/conductores/estado`, {
@@ -883,7 +884,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         if (r.ok) {
           const d = await r.json();
           if (d.status === 'rechazado')
-          navegacion.navigate('DocumentResubmission' as never);
+          navegacion.navigate('DocumentoReenvio' as never);
         }
       } catch {}
     };
@@ -989,8 +990,10 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
   const aplicarFoto = (
   campo: string,
   uri: string,
-  recorte?: {screenW: number;screenH: number;x: number;y: number;w: number;h: number;}) =>
+  recorte?: {screenW: number;screenH: number;x: number;y: number;w: number;h: number;},
+  origen: 'captura_camara' | 'archivo_subido' = 'captura_camara') =>
   {
+    establecerOrigenesFotos((anterior) => ({ ...anterior, [campo]: origen }));
     establecerFotos((anterior) => ({ ...anterior, [campo]: uri }));
     establecerRecortesFotos((anterior) => ({ ...anterior, [campo]: recorte }));
     if (OCR_PREVIO_HABILITADO && OCR_TIPOS.includes(campo)) void ejecutarOcr(campo, uri, recorte);
@@ -1040,7 +1043,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
     establecerFotoHoja((p) => ({ ...p, visible: false }));
     try {
       const r = await launchImagenLibrary({ mediaType: 'photo', quality: 0.7 });
-      if (r.assets?.[0]?.uri) aplicarFoto(campo, r.assets[0].uri);
+      if (r.assets?.[0]?.uri) aplicarFoto(campo, r.assets[0].uri, undefined, 'archivo_subido');
     } catch {
       Alert.alert('Error', 'No se pudo abrir la galería.');
     }
@@ -1204,6 +1207,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 
       const agregar = (k: string, uri: string | null) => {
         if (!uri) return;
+        formulario.append(`${k}Origen`, origenesFotos[k]);
         formulario.append(k, { uri, type: 'image/jpeg', name: `${k}.jpg` } as any);
         const recorte = recortesFotos[k];
         if (recorte) {
@@ -1519,6 +1523,8 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         visible={camaraCampo !== null}
         title={camaraCampo ? CAMARA_TITLES[camaraCampo] || 'Documento' : ''}
         documentType={
+        camaraCampo === 'ticPhoto' ?
+        'tic' :
         camaraCampo === 'antecedentsPhoto' ?
         'certificate' :
         camaraCampo === 'domicileProof' ?
@@ -1560,6 +1566,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         twoSided={camaraCampo === 'licenseFront' ? true : undefined}
         onCaptureBoth={camaraCampo === 'licenseFront' ? async (frente, reverso) => {
           establecerCamaraCampo(null);
+          establecerOrigenesFotos((anterior) => ({ ...anterior, licenseFront: 'captura_camara', licenseBack: 'captura_camara' }));
           establecerFotos((anterior) => ({ ...anterior, licenseFront: frente.uri, licenseBack: reverso.uri }));
           establecerRecortesFotos((anterior) => ({ ...anterior, licenseFront: frente.frame, licenseBack: reverso.frame }));
           if (!OCR_PREVIO_HABILITADO) return;

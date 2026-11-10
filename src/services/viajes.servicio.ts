@@ -57,8 +57,8 @@ const viajesServicio = {
     }
   },
 
-  obtenerRutaViaje: (viajeId: string): Promise<{polyline: string;}> =>
-  api.obtener(`/viajes/${viajeId}/ruta`),
+  obtenerRutaViaje: (viajeId: string, recalcular = false): Promise<{polyline: string;}> =>
+  api.obtener(`/viajes/${viajeId}/ruta${recalcular ? '?recalcular=1' : ''}`),
 
   obtenerConfiguracionTarifas: async (latitud?: number, longitud?: number): Promise<TarifaAjustesRespuesta | null> => {
     try {

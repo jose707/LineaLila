@@ -1,3 +1,4 @@
+import ConductorGuiaPantalla from '../screens/ConductorGuiaPantalla';
 import { CrearViajeSolicitud } from '../types/api';
 import { RapidaAsignacionRespuesta as RapidoAsignacionRespuesta } from "../types/rapidaAsignacion";
 import React from 'react';
@@ -30,7 +31,7 @@ import NegotiationPantalla from "../screens/NegociacionPantalla";
 // Importar pantallas - Conductor
 
 import ConductorRegistroPantalla from "../screens/ConductorRegistrationPantalla";
-import DocumentoResubmissionPantalla from "../screens/DocumentoResubmissionPantalla";
+import DocumentoReenvioPantalla from "../screens/DocumentoReenvioPantalla";
 import IdentidadVerificacionPantalla from "../screens/IdentidadVerificacionPantalla";
 
 // Importar pantallas - Admin
@@ -133,7 +134,8 @@ export type RaizPilaParametroLista = {
 
   DriverMap: undefined;
   DriverRegistration: {user?: any;};
-  DocumentResubmission: undefined;
+  DriverRegistrationGuide: {user?: any;};
+  DocumentoReenvio: undefined;
   DriverCommissions: undefined;
   IdentityVerification: undefined;
   // Screens del administrador
@@ -279,7 +281,7 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
           animation: 'slide_from_right'
         }} />
       <Pila.Screen name="ContactosEmergencia" component={ContactosEmergenciaPantalla}
-        options={{ title: 'Contactos de emergencia', headerShown: true }} />
+        options={{ headerShown: false, animation: 'slide_from_right' }} />
 
 
       <Pila.Screen
@@ -300,6 +302,8 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
         }} />
 
 
+      <Pila.Screen name="DriverRegistrationGuide" component={ConductorGuiaPantalla} options={{ animation: 'slide_from_right' }} />
+
       <Pila.Screen
         name="DriverRegistration"
         component={ConductorRegistroPantalla}
@@ -313,8 +317,8 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
         options={{ animation: 'slide_from_right' }} />
 
       <Pila.Screen
-        name="DocumentResubmission"
-        component={DocumentoResubmissionPantalla}
+        name="DocumentoReenvio"
+        component={DocumentoReenvioPantalla}
         options={{
           animation: 'slide_from_right'
         }} />
@@ -385,3 +389,7 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 };
 
 export default AplicacionNavegador;
+
+
+
+

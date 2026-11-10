@@ -53,6 +53,75 @@ class ComprobantePdfModule(private val context: ReactApplicationContext) :
 
     override fun onNewIntent(intent: Intent) = Unit
 
+    private fun descargar(url: String, token: String, nombre: String, mime: String, limite: Int): File {
+        val destino = URL(url)
+        require(destino.protocol == "http" || destino.protocol == "https")
+        val carpeta = File(context.cacheDir, "comprobantes_pdf").apply { mkdirs() }
+        carpeta.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24 * 60 * 60 * 1000 }?.forEach { it.delete() }
+        val archivo = File(carpeta, nombre)
+        val conexion = destino.openConnection() as HttpURLConnection
+        try {
+            conexion.instanceFollowRedirects = false
+            conexion.connectTimeout = 10000
+            conexion.readTimeout = 60000
+            conexion.setRequestProperty("Authorization", "Bearer $token")
+            check(conexion.responseCode == 200 && conexion.contentType?.startsWith(mime) == true)
+            conexion.inputStream.use { entrada ->
+                archivo.outputStream().use { salida ->
+                    val bloque = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val leido = entrada.read(bloque)
+                        if (leido < 0) break
+                        total += leido
+                        check(total <= limite)
+                        salida.write(bloque, 0, leido)
+                    }
+                }
+            }
+            return archivo
+        } catch (error: Exception) {
+            archivo.delete()
+            throw error
+        } finally { conexion.disconnect() }
+    }
+
+    @ReactMethod
+    fun compartirPdf(url: String, token: String, promise: Promise) {
+        val activity = context.currentActivity
+        if (activity == null) {
+            promise.reject("COMPARTIR_PDF", "No se pudo compartir el PDF.")
+            return
+        }
+        val mime = "application/pdf"
+        thread(name = "compartir-psicologia") {
+            var temporal: File? = null
+            try {
+                val archivo = descargar(url, token, "pendientes-psicologia-${UUID.randomUUID()}.pdf", mime, 32 * 1024 * 1024)
+                temporal = archivo
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.comprobantes", archivo)
+                activity.runOnUiThread {
+                    try {
+                        val compartir = Intent(Intent.ACTION_SEND).apply {
+                            type = mime
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            clipData = ClipData.newRawUri("Lista para psicología", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        activity.startActivity(Intent.createChooser(compartir, "Compartir lista para psicología"))
+                        promise.resolve(null)
+                    } catch (error: Exception) {
+                        archivo.delete()
+                        promise.reject("COMPARTIR_PDF", "No se pudo compartir el archivo.", error)
+                    }
+                }
+            } catch (error: Exception) {
+                temporal?.delete()
+                promise.reject("COMPARTIR_PDF", "No se pudo compartir el PDF para psicología.", error)
+            }
+        }
+    }
+
     @ReactMethod
     fun abrir(url: String, token: String, promise: Promise) {
         val activity = context.currentActivity ?: run {
@@ -62,33 +131,8 @@ class ComprobantePdfModule(private val context: ReactApplicationContext) :
         thread(name = "comprobante-pdf") {
             var temporal: File? = null
             try {
-                val destino = URL(url)
-                require(destino.protocol == "http" || destino.protocol == "https")
-                val carpeta = File(context.cacheDir, "comprobantes_pdf").apply { mkdirs() }
-                carpeta.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24 * 60 * 60 * 1000 }?.forEach { it.delete() }
-                val archivo = File(carpeta, "${UUID.randomUUID()}.pdf")
+                val archivo = descargar(url, token, "${UUID.randomUUID()}.pdf", "application/pdf", 8 * 1024 * 1024)
                 temporal = archivo
-                val conexion = destino.openConnection() as HttpURLConnection
-                try {
-                    conexion.instanceFollowRedirects = false
-                    conexion.connectTimeout = 10000
-                    conexion.readTimeout = 15000
-                    conexion.setRequestProperty("Authorization", "Bearer $token")
-                    check(conexion.responseCode == 200 && conexion.contentType?.startsWith("application/pdf") == true)
-                    conexion.inputStream.use { entrada ->
-                        archivo.outputStream().use { salida ->
-                            val bloque = ByteArray(8192)
-                            var total = 0
-                            while (true) {
-                                val leido = entrada.read(bloque)
-                                if (leido < 0) break
-                                total += leido
-                                check(total <= 8 * 1024 * 1024)
-                                salida.write(bloque, 0, leido)
-                            }
-                        }
-                    }
-                } finally { conexion.disconnect() }
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.comprobantes", archivo)
                 activity.runOnUiThread {
                     try {

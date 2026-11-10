@@ -1,4 +1,4 @@
-// src/screens/DocumentoResubmissionPantalla.tsx
+// src/screens/DocumentoReenvioPantalla.tsx
 import React, { useEffect as usarEfecto, useState as usarEstado } from 'react';
 import {
   View as Vista,
@@ -37,7 +37,7 @@ const C = {
   white: '#FFFFFF'
 };
 
-type Propiedades = NativoPilaPantallaPropiedades<any, 'DocumentResubmission'>;
+type Propiedades = NativoPilaPantallaPropiedades<any, 'DocumentoReenvio'>;
 
 interface RechazadoDocumento {
   name: string;
@@ -74,6 +74,7 @@ const documentoMapping: Record<string, {display: string;field: string;}> = {
 };
 
 function tipoDeDocumento(campo: string): DocumentoTipo {
+  if (campo === 'ticPhoto') return 'tic';
   if (campo.startsWith('car')) return 'vehicle';
   if (campo === 'antecedentsPhoto' || campo === 'domicileProof') return 'certificate';
   if (campo === 'ruatPhoto') return 'ruat';
@@ -140,7 +141,7 @@ const dr = EstiloHoja.create({
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-function DocumentoResubmissionPantalla({
+function DocumentoReenvioPantalla({
   navigation: navegacion,
   route: ruta
 }: Propiedades) {
@@ -212,6 +213,7 @@ function DocumentoResubmissionPantalla({
       }
       documentos.forEach((documento) => {
         if (documento.photo) {
+          formulario.append(`${documento.fieldName}Origen`, 'captura_camara');
           formulario.append(documento.fieldName, {
             uri: documento.photo,
             type: 'image/jpeg',
@@ -330,7 +332,7 @@ function DocumentoResubmissionPantalla({
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-export { DocumentoResubmissionPantalla as default };const s = EstiloHoja.create({
+export { DocumentoReenvioPantalla as default };const s = EstiloHoja.create({
   container: { flex: 1, backgroundColor: C.bg },
 
 

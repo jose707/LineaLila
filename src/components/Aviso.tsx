@@ -83,7 +83,7 @@ const Aviso: React.FC<Propiedades> = ({
 
       <Texto style={[s.icon, { fontSize: fuenteTamano + 2 }]}>{icono}</Texto>)
       }
-      <Texto style={[s.text, { fontSize: fuenteTamano, fontWeight: fuentePeso, textAlign: textoAlinear }, textoAlinear === 'right' && s.rightAlignedText]}>{mensaje}</Texto>
+      <Texto style={[s.text, { fontSize: fuenteTamano, fontWeight: fuentePeso, textAlign: textoAlinear }, textoAlinear !== 'center' && s.alignedText]}>{mensaje}</Texto>
     </Animado.View>);
 
 };
@@ -133,7 +133,7 @@ const s = EstiloHoja.create({
     color: '#FFFFFF',
     fontWeight: '500'
   },
-  rightAlignedText: { flex: 1 }
+  alignedText: { flex: 1 }
 });
 
 export default Aviso;

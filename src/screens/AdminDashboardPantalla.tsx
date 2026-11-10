@@ -7,7 +7,6 @@ import {
   ScrollView as DesplazableVista,
   TouchableOpacity as PulsableOpacidad,
   StatusBar as EstadoBar,
-  Alert,
   RefreshControl as RenovarControl } from
 'react-native';
 import { SafeAreaView as SeguraZonaVista } from 'react-native-safe-area-context';
@@ -27,6 +26,7 @@ import { NativeStackNavigationProp as NativoPilaNavegacionProp } from '@react-na
 import { RaizPilaParametroLista } from "../navigation/AplicacionNavegador";
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import api from "../services/api.cliente";
+import ConfirmarInferiorHoja from '../components/ConfirmarInferiorSheet';
 import ResplandorEmergencia from '../components/ResplandorEmergencia';
 import { usarAlertasEmergencia } from '../components/CentralEmergencias';
 
@@ -147,6 +147,9 @@ function SeccionEtiqueta({ text: texto }: {text: string;}) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegacion }) => {
   const { logout: salir, user: administrador } = usarAutenticacion();
+  const [confirmarSalida, establecerConfirmarSalida] = usarEstado(false);
+  const [saliendo, establecerSaliendo] = usarEstado(false);
+  const [errorSalida, establecerErrorSalida] = usarEstado('');
   const emergencias = usarAlertasEmergencia();
   const hayEmergencia = emergencias.consultada && emergencias.alertas.length > 0;
   const [horaSaludo, establecerHoraSaludo] = usarEstado(obtenerHoraBolivia);
@@ -212,16 +215,7 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
 
   usarEfecto(() => {consultarEstadisticas();}, [consultarEstadisticas]);
 
-  const manejarSalir = () => {
-    Alert.alert('Cerrar sesión', '¿Estás seguro?', [
-    { text: 'Cancelar', style: 'cancel' },
-    {
-      text: 'Cerrar sesión',
-      style: 'destructive',
-      onPress: async () => {try {await salir();} catch (e) {console.error(e);}}
-    }]
-    );
-  };
+  const manejarSalir = () => { establecerErrorSalida(''); establecerConfirmarSalida(true); };
 
   return (
     <SeguraZonaVista style={s.container}>
@@ -236,7 +230,7 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
         </Vista>
         <Vista style={s.headerActions}>
           <PulsableOpacidad style={s.iconBtn} onPress={manejarSalir}>
-            <RegistroOut size={17} color={C.error} strokeWidth={1.8} />
+            <RegistroOut size={22} color={C.error} strokeWidth={2.8} />
           </PulsableOpacidad>
         </Vista>
       </Vista>
@@ -338,6 +332,21 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
         <NavFila label="Pagos e ingresos" description="Ver transacciones y pagos" icon={CreditCard} onPress={() => navegacion.navigate('AdminPayments')} />
         <NavFila label="Análisis y reportes" description="Ver estadísticas detalladas" icon={BarChart2} onPress={() => navegacion.navigate('AdminAnalytics')} />
       </DesplazableVista>
+      <ConfirmarInferiorHoja
+        visible={confirmarSalida}
+        title="Cerrar sesión"
+        message="¿Quieres cerrar sesión en tu cuenta?"
+        confirmLabel="Cerrar sesión"
+        cancelLabel="Cancelar"
+        loading={saliendo}
+        error={errorSalida}
+        onCancel={() => establecerConfirmarSalida(false)}
+        onConfirm={async () => {
+          establecerSaliendo(true);
+          establecerErrorSalida('');
+          try { await salir(); } catch { establecerErrorSalida('No se pudo cerrar sesión. Intenta nuevamente.'); }
+          finally { establecerSaliendo(false); }
+        }} />
     </SeguraZonaVista>);
 
 };
@@ -357,7 +366,6 @@ const s = EstiloHoja.create({
   headerActions: { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 42, height: 42, borderRadius: 13,
-    backgroundColor: C.surface,
     alignItems: 'center', justifyContent: 'center',
   },
   dot: {
@@ -408,3 +416,5 @@ const s = EstiloHoja.create({
 });
 
 export default AdministradorPanelPantalla;
+
+

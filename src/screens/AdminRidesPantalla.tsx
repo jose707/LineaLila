@@ -311,7 +311,7 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
 
               {/* Card header */}
               <Vista style={s.cardHead}>
-                <Vista style={{ flex: 1 }}>
+                <Vista style={s.cardMeta}>
                   <Texto style={s.cardId} numberOfLines={1}>#{viaje.id.slice(0, 8).toUpperCase()}</Texto>
                   <Texto style={s.cardDate}>{formatoFecha(viaje.createdAt)}</Texto>
                 </Vista>
@@ -468,8 +468,9 @@ const s = EstiloHoja.create({
 
   card: { backgroundColor: C.white, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   cardHead: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  cardMeta: { flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   cardId: { alignSelf: 'flex-start', overflow: 'hidden', backgroundColor: '#000000', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, fontSize: 15, fontWeight: '600', color: C.white },
-  cardDate: { fontSize: 13, color: C.textMuted, marginTop: 2 },
+  cardDate: { fontSize: 13, color: C.textMuted, flexShrink: 1 },
   statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 8 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusTxt: { fontSize: 13, fontWeight: '600' },
@@ -499,3 +500,5 @@ const s = EstiloHoja.create({
 });
 
 export default AdministradorViajesPantalla;
+
+

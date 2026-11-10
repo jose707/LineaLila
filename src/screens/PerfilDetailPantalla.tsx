@@ -130,11 +130,12 @@ const PerfilDetallePantalla: React.FC = () => {
   const ruatRequerido: boolean = vehiculo?.ruatRequired ?? false;
   const ruatPendiente: boolean = !!vehiculo?.ruatFile && !ruatVerificado;
 
-  const manejarRuatSubir = async (uri: string) => {
+  const manejarRuatSubir = async (uri: string, origen: 'captura_camara' | 'archivo_subido') => {
     if (!token) return;
     establecerRuatUploading(true);
     try {
       const formulario = new FormData();
+      formulario.append('ruatPhotoOrigen', origen);
       formulario.append('ruatPhoto', {
         uri,
         type: 'image/jpeg',
@@ -170,14 +171,14 @@ const PerfilDetallePantalla: React.FC = () => {
       text: 'Cámara',
       onPress: () =>
       launchCamara({ mediaType: 'photo', quality: 0.7 }, (r) => {
-        if (r.assets?.[0]?.uri) manejarRuatSubir(r.assets[0].uri!);
+        if (r.assets?.[0]?.uri) manejarRuatSubir(r.assets[0].uri!, 'captura_camara');
       })
     },
     {
       text: 'Galería',
       onPress: () =>
       launchImagenLibrary({ mediaType: 'photo', quality: 0.7 }, (r) => {
-        if (r.assets?.[0]?.uri) manejarRuatSubir(r.assets[0].uri!);
+        if (r.assets?.[0]?.uri) manejarRuatSubir(r.assets[0].uri!, 'archivo_subido');
       })
     },
     { text: 'Cancelar', style: 'cancel' }]

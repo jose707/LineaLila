@@ -1,3 +1,4 @@
+import ConfirmarInferiorHoja from '../components/ConfirmarInferiorSheet';
 import { privadoImagenOrigen } from "../utils/privateImageOrigen";
 import React, { useState as usarEstado, useEffect as usarEfecto } from 'react';
 import {
@@ -69,6 +70,9 @@ const Colores = {
 
 const PerfilPantalla = () => {
   const navegacion = usarNavegacion<any>();
+  const [confirmarSalida, establecerConfirmarSalida] = usarEstado(false);
+  const [saliendo, establecerSaliendo] = usarEstado(false);
+  const [errorSalida, establecerErrorSalida] = usarEstado('');
   const [detalleSolicitud, establecerDetalleSolicitud] = usarEstado<{
     titulo: string;
     documentos: string[];
@@ -275,7 +279,7 @@ const PerfilPantalla = () => {
             reenviar: puedeResubmit ? () => {
               cerrarDetalleSolicitud();
               establecerConductorEstado(null);
-              navegacion.navigate('DocumentResubmission', {
+              navegacion.navigate('DocumentoReenvio', {
                 rejectedDocs: rechazadoDocumentosLista,
                 approvedDocs: aprobadoDocumentos,
                 rejectionReason: rechazoMotivo,
@@ -286,18 +290,7 @@ const PerfilPantalla = () => {
           });
         }
       } else {
-        Alert.alert(
-          'Solicitar acceso como conductor',
-          'Completa el formulario de solicitud. Nuestro equipo lo revisará y te notificará.',
-          [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Continuar',
-            onPress: () =>
-            (navegacion as any).navigate('DriverRegistration', { user: usuario })
-          }]
-
-        );
+        navegacion.navigate('DriverRegistrationGuide', { user: usuario });
       }
     } catch {
       Alert.alert('Error', 'Ocurrió un error. Intenta de nuevo.');
@@ -509,24 +502,28 @@ const PerfilPantalla = () => {
         }
 
         <PulsableOpacidad
-          style={[estilos.logoutBtn, estilos.logoutBtnSinMargen]}
-          activeOpacity={0.7}
-          onPress={() => {
-            Alert.alert('Cerrar sesión', 'Serás desconectado de tu cuenta.', [
-            { text: 'Cancelar', style: 'cancel' },
-            {
-              text: 'Cerrar sesión',
-              style: 'destructive',
-              onPress: async () => {
-                await salir();
-              }
-            }]
-            );
-          }}>
-
+          style={[estilos.logoutBtn, estilos.logoutBtnSinMargen, esOscuro && estilos.logoutBtnDark]}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          onPress={() => { establecerErrorSalida(''); establecerConfirmarSalida(true); }}>
           <Texto style={estilos.logoutText}>Cerrar sesión</Texto>
         </PulsableOpacidad>
       </Vista>
+      <ConfirmarInferiorHoja
+        visible={confirmarSalida}
+        title="Cerrar sesión"
+        message="¿Quieres cerrar sesión en tu cuenta?"
+        confirmLabel="Cerrar sesión"
+        cancelLabel="Cancelar"
+        loading={saliendo}
+        error={errorSalida}
+        onCancel={() => establecerConfirmarSalida(false)}
+        onConfirm={async () => {
+          establecerSaliendo(true);
+          establecerErrorSalida('');
+          try { await salir(); } catch { establecerErrorSalida('No se pudo cerrar sesión. Intenta nuevamente.'); }
+          finally { establecerSaliendo(false); }
+        }} />
       <Modal visible={detalleSolicitud !== null} transparent animationType="fade" onRequestClose={cerrarDetalleSolicitud}>
         {detalleSolicitud && (
           <Vista style={estilos.detalleFondo}>
@@ -936,17 +933,23 @@ const estilos = EstiloHoja.create({
   /* LOGOUT */
   logoutBtn: {
     marginTop: 24,
-    paddingVertical: 16,
+    minHeight: 54,
     borderRadius: 12,
-    backgroundColor: Colores.dangerLight,
-    alignItems: 'center'
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: Colores.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
   },
+  logoutBtnDark: { backgroundColor: '#2D2D2D', borderColor: '#713C3C' },
   logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colores.danger
+    fontSize: 19,
+    fontWeight: '700',
+    color: Colores.danger,
+    textAlign: 'center'
   },
-
   /* NUEVOS ESTILOS PROFESIONALES - UBER/CABIFY STYLE */
   containerDark: {
     backgroundColor: '#1A1A1A'
@@ -1229,3 +1232,7 @@ const estilos = EstiloHoja.create({
 });
 
 export default PerfilPantalla;
+
+
+
+

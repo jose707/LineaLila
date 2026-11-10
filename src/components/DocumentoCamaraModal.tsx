@@ -37,6 +37,8 @@ import { COLORS as Colores } from '../theme/colors';
 
 // Proporción estándar de cédula / tarjeta de identidad (ISO/IEC 7810 ID-1: 85.6mm x 53.98mm)
 const TARJETA_ASPECTO = 1.585;
+// El TIC conserva el ancho de la tarjeta y permite un 10 % más de altura.
+const TIC_ASPECTO = TARJETA_ASPECTO / 1.1;
 // Proporción estándar de hoja Carta boliviana vertical (certificado de antecedentes).
 const CERTIFICATE_ASPECTO = 216 / 279;
 // Roseta digital SOAT UNIVIDA de referencia: 720 × 1281 px.
@@ -55,12 +57,12 @@ export interface RectanguloFotograma {
   h: number;
 }
 
-export type DocumentoTipo = 'card' | 'certificate' | 'ruat' | 'vehicle' | 'soat' | 'ci';
+export type DocumentoTipo = 'card' | 'certificate' | 'ruat' | 'vehicle' | 'soat' | 'ci' | 'tic';
 
 export interface DocumentoCamaraModalPropiedades {
   visible: boolean;
   title: string;
-  /** Tipo de documento: tarjeta horizontal ('card'), cédula ('ci'), certificado ('certificate'), RUAT ('ruat'), vehículo ('vehicle') o SOAT ('soat') */
+  /** Tipo de documento: tarjeta ('card'), cédula ('ci'), TIC ('tic'), certificado ('certificate'), RUAT ('ruat'), vehículo ('vehicle') o SOAT ('soat') */
   documentType?: DocumentoTipo;
   /** Usa la cámara frontal para una selfie común. */
   cameraPosition?: 'front' | 'back';
@@ -166,6 +168,8 @@ const DocumentoCamaraModal: React.FC<DocumentoCamaraModalPropiedades> = ({
   RUAT_ASPECTO :
   documentoTipo === 'vehicle' ?
   VEHICULO_ASPECTO :
+  documentoTipo === 'tic' ?
+  TIC_ASPECTO :
   TARJETA_ASPECTO);
   const esRetratoDocumento = objetivoAspecto < 1;
   // A full-screen "cover" preview hides part of the 4:3 photo's field of view.

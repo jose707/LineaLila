@@ -15,9 +15,40 @@ import {
   ActivityIndicator as ActividadIndicador,
   RefreshControl as RenovarControl,
   Image as Imagen,
+  KeyboardAvoidingView as EvitarTeclado,
+  Platform as Plataforma,
   Linking } from
 'react-native';
-import { SafeAreaView as SeguraZonaVista } from 'react-native-safe-area-context';
+import { SafeAreaView as SeguraZonaVista, useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
+
+function DocumentoCarrusel({ fuentes, nombre, bloqueado, alCambiar, alAmpliar, alError }: {
+  fuentes: Array<ReturnType<typeof privadoImagenOrigen> | undefined>;
+  nombre: string;
+  bloqueado: boolean;
+  alCambiar: (indice: number) => void;
+  alAmpliar: () => void;
+  alError: () => void;
+}) {
+  const [ancho, establecerAncho] = usarEstado(0);
+  const [pagina, establecerPagina] = usarEstado(0);
+  return <Vista onLayout={evento => establecerAncho(evento.nativeEvent.layout.width)}>
+    {ancho > 0 && <DesplazableVista horizontal pagingEnabled scrollEnabled={!bloqueado} showsHorizontalScrollIndicator={false}
+      onMomentumScrollEnd={evento => {
+        const indice = Math.max(0, Math.min(1, Math.round(evento.nativeEvent.contentOffset.x / ancho)));
+        establecerPagina(indice);
+        alCambiar(indice);
+      }}>
+      {fuentes.map((fuente, indice) => <Vista key={indice} style={{ width: ancho }}>
+        <PulsableOpacidad style={s.docImg} disabled={!fuente} onPress={alAmpliar} activeOpacity={0.9}
+          accessibilityRole="button" accessibilityLabel={`Ampliar ${nombre}, foto ${indice + 1}`}>
+          {fuente ? <Imagen source={fuente} style={s.docImgInner} resizeMode="contain" onError={() => { if (indice === pagina) alError(); }} />
+            : <Texto style={s.licenciaSinImagen}>Esta fotografía no fue enviada.</Texto>}
+          {fuente && <Texto style={s.zoomHint}>Toca para ampliar</Texto>}
+        </PulsableOpacidad>
+      </Vista>)}
+    </DesplazableVista>}
+  </Vista>;
+}
 import {
   ChevronRight as ChevronDerecha,
   ChevronDown as ChevronAbajo,
@@ -29,6 +60,7 @@ import {
   Car,
   FileText as ArchivoTexto,
   User as Usuario,
+  Share as Compartir,
   AlertCircle } from
 'lucide-react-native';
 import { NativeStackNavigationProp as NativoPilaNavegacionProp, type NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -37,6 +69,7 @@ import { RaizPilaParametroLista } from "../navigation/AplicacionNavegador";
 import * as AdministradorServicio from "../services/admin.servicio";
 import { API_HOST } from "../config/constantes";
 import { vehiculoTipoEtiqueta } from "../utils/vehiculoTipos";
+import { elegirPdf } from '../services/comisiones.servicio';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 const C = {
@@ -225,17 +258,23 @@ const emisionLicenciaOcr = (frontal?: LicenciaOcrCampos, reverso?: LicenciaOcrCa
 };
 
 const licenciaComparacion = (frontal?: LicenciaOcrCampos, reverso?: LicenciaOcrCampos) => {
-  const fecha = (valor?: string) => {
-    const local = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(valor || '');
-    return local ? `${local[3]}-${local[2]}-${local[1]}` : valor || '';
-  };
-  const pares = [
-  [numeroLicenciaOcr(frontal), numeroLicenciaOcr(reverso)],
-  [fecha(emisionLicenciaOcr(frontal, reverso).fecha), fecha(reverso?.issueDate?.trim())],
-  [fecha(frontal?.licenseExpiryDate), fecha(reverso?.licenseExpiryDate)]];
+  const numeroFrontal = numeroLicenciaOcr(frontal);
+  const numeroReverso = numeroLicenciaOcr(reverso);
+  if (!numeroFrontal || !numeroReverso) return 'Pendiente de lectura';
+  return numeroFrontal === numeroReverso ? 'Coinciden' : 'No coinciden';
+};
 
-  if (pares.some(([primero, segundo]) => !primero || !segundo)) return 'Pendiente de lectura';
-  return pares.every(([primero, segundo]) => primero === segundo) ? 'Coinciden' : 'No coinciden';
+const emisionLicenciaFutura = (frontal?: LicenciaOcrCampos, reverso?: LicenciaOcrCampos) => {
+  const partes = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date()).map(({ type, value }) => [type, value]));
+  const hoy = `${partes.year}-${partes.month}-${partes.day}`;
+  return [frontal, reverso].some(lado => {
+    const valor = lado?.issueDate?.trim() || '';
+    const local = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(valor);
+    const fecha = local ? `${local[3]}-${local[2]}-${local[1]}` : valor;
+    return /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha > hoy;
+  });
 };
 
 interface ConductorApplication {
@@ -267,7 +306,7 @@ interface ConductorApplication {
   applicationDate: string;
   updatedAt: string;
   status: 'pendiente' | 'observado' | 'aprobado' | 'rechazado';
-  ocrProcessingStatus?: 'pendiente' | 'complete';
+  ocrProcessingStatus?: 'pendiente' | 'complete' | 'fallido';
   identity?: IdentidadDetalles | null;
   rejectionReason?: string;
   verificationNotes: string;
@@ -593,6 +632,7 @@ const baseDatos = EstiloHoja.create({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigation: navegacion, route }) => {
+  const margenes = usarSeguraZonaMargenes();
   const [buscarTexto, establecerBuscarTexto] = usarEstado('');
   const [busquedaVisible, establecerBusquedaVisible] = usarEstado(false);
   const [filtrosVisibles, establecerFiltrosVisibles] = usarEstado(false);
@@ -609,6 +649,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
   const [esCargando, establecerEsCargando] = usarEstado(false);
   const [esRenovando, establecerEsRenovando] = usarEstado(false);
   const [esEnviando, establecerEsEnviando] = usarEstado(false);
+  const [compartiendoLista, establecerCompartiendoLista] = usarEstado(false);
   const [error, establecerError] = usarEstado<string | null>(null);
   const [aviso, establecerAviso] = usarEstado<{ id: number; mensaje: string } | null>(null);
   const mostrarAviso = React.useCallback((mensaje: string) => establecerAviso({ id: Date.now(), mensaje }), []);
@@ -627,7 +668,47 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
     Record<string, 'pendiente' | 'verificado' | 'rechazado'>>(
     {});
   const [bloqueadoDocumentos, establecerBloqueadoDocumentos] = usarEstado<Set<string>>(new Set());
+  const [edicionDatos, establecerEdicionDatos] = usarEstado<AdministradorServicio.DatosDocumentoRevision | null>(null);
+  const [borradorDatos, establecerBorradorDatos] = usarEstado<Record<string,string>>({});
+  const [cargandoDatos, establecerCargandoDatos] = usarEstado(false);
+  const [guardandoDatos, establecerGuardandoDatos] = usarEstado(false);
+  const [validacionesDatos, establecerValidacionesDatos] = usarEstado<string[]>([]);
+  const documentoEnCorreccion = React.useRef<string | null>(null);
+  const claveContextoCorreccion = realDocumentoClave === 'licenseFront' || realDocumentoClave === 'licenseBack' ? 'licencia' : realDocumentoClave;
+  const contextoCorreccion = React.useRef('');
+  contextoCorreccion.current = documentoImagenModal ? `${seleccionadoAplicacion?.id}:${claveContextoCorreccion}` : '';
+  React.useEffect(() => {
+    documentoEnCorreccion.current = null;
+    establecerEdicionDatos(null);
+    establecerBorradorDatos({});
+    establecerValidacionesDatos([]);
+    establecerCargandoDatos(false);
+    establecerGuardandoDatos(false);
+  }, [documentoImagenModal, claveContextoCorreccion, seleccionadoAplicacion?.id]);
   const [solicitudes, establecerSolicitudes] = usarEstado<ConductorApplication[]>([]);
+  const [informes, establecerInformes] = usarEstado<AdministradorServicio.InformePsicologico[]>([]);
+  const [archivoInforme, establecerArchivoInforme] = usarEstado<AdministradorServicio.ArchivoInforme | null>(null);
+  const [resultadoInforme, establecerResultadoInforme] = usarEstado<AdministradorServicio.ResultadoPsicologico | ''>('');
+  const [cargandoInformes, establecerCargandoInformes] = usarEstado(false);
+  const [errorInformes, establecerErrorInformes] = usarEstado(false);
+  const [revisionInformes, establecerRevisionInformes] = usarEstado(0);
+  const informeSolicitudId = seleccionadoAplicacion?.currentRequest?.id || seleccionadoAplicacion?.id;
+  React.useEffect(() => {
+    establecerArchivoInforme(null);
+    establecerResultadoInforme('');
+  }, [informeSolicitudId]);
+  React.useEffect(() => {
+    let vigente = true;
+    establecerInformes([]);
+    establecerErrorInformes(false);
+    if (!informeSolicitudId) return;
+    establecerCargandoInformes(true);
+    AdministradorServicio.obtenerInformesPsicologicos(informeSolicitudId)
+      .then(datos => { if (vigente) establecerInformes(datos.filter(informe => !!informe.resultado)); })
+      .catch(() => { if (vigente) establecerErrorInformes(true); })
+      .finally(() => { if (vigente) establecerCargandoInformes(false); });
+    return () => { vigente = false; };
+  }, [informeSolicitudId, revisionInformes]);
   const cargandoSolicitudesReferencia = React.useRef(false);
 
   const cargarConductorSolicitudes = React.useCallback(async (renovar = false) => {
@@ -685,6 +766,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
     if (aplicacion.currentRequest?.files) {
       Object.entries(aplicacion.currentRequest.files).forEach(
         ([k, v]: [string, any]) => {
+          if (!documentoClaves.some(documento => documento.key === k)) return;
           s[k] = v.status;
           // Documentos aprobados en versiones anteriores (reenvíos) quedan bloqueados:
           // solo se bloquean si la solicitud es un reenvío (version > 1) y el doc
@@ -762,7 +844,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
       case 'ruatPhoto':
         return [['Placa', aplicacion.ruatOcr?.vehiclePlate || aplicacion.vehiclePlate], ['Marca', aplicacion.ruatOcr?.vehicleBrand || aplicacion.vehicleBrand]];
       case 'soatPhoto':
-        return [['Placa', aplicacion.soatOcr?.soatPlate], ['Vigencia', aplicacion.soatOcr?.soatExpiryDate]];
+        return [['Placa', aplicacion.soatOcr?.soatPlate], ['Uso', aplicacion.soatOcr?.soatUse], ['Vigencia', aplicacion.soatOcr?.soatExpiryDate]];
       case 'domicileProof':
         return [['Dirección', aplicacion.domicileProofOcr?.serviceAddress], ['Mes', billingMesEtiqueta(aplicacion.domicileProofOcr?.billingMonth)]];
       default:
@@ -800,6 +882,34 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
     return false;
   };
 
+  const documentosAprobadosEnServidor = !!seleccionadoAplicacion && documentoClaves.every(documento =>
+    documento.optional || seleccionadoAplicacion.currentRequest?.files?.[documento.key]?.status === 'verificado');
+
+  const adjuntarInforme = async () => {
+    try {
+      const archivo = await elegirPdf();
+      if (archivo) establecerArchivoInforme({ ...archivo, name: 'informe.pdf' });
+    } catch (e) { mostrarAviso(e instanceof Error ? e.message : 'No se pudo adjuntar el PDF.'); }
+  };
+  const guardarInforme = async () => {
+    if (!informeSolicitudId || esEnviando) return;
+    if (!archivoInforme || !resultadoInforme) {
+      mostrarAviso('Adjunta el PDF y selecciona el resultado.');
+      return;
+    }
+    establecerEsEnviando(true);
+    try {
+      await AdministradorServicio.guardarInformePsicologico(informeSolicitudId, archivoInforme, {
+        resultado: resultadoInforme
+      });
+      establecerArchivoInforme(null);
+      establecerResultadoInforme('');
+      establecerRevisionInformes(valor => valor + 1);
+      mostrarAviso('Informe y resultado guardados.');
+    } catch (e) { mostrarAviso(e instanceof Error ? e.message : 'No se pudo guardar el informe.'); }
+    finally { establecerEsEnviando(false); }
+  };
+
   const manejarAprobar = async () => {
     if (!seleccionadoAplicacion) return;
     if (rechazadoDocumentos.length > 0) {
@@ -807,20 +917,26 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
       return;
     }
     if (!comprobarRevisionCompleta()) return;
+    if (documentosAprobadosEnServidor && (cargandoInformes || errorInformes || informes[0]?.resultado !== 'apto')) {
+      mostrarAviso(errorInformes ? 'No se pudieron consultar los informes. Reintenta la consulta.' :
+        'Para aprobar la solicitud, registra un informe psicológico con resultado apto y vigente.');
+      return;
+    }
     establecerEsEnviando(true);
     try {
-      await AdministradorServicio.aprobarConductor(
-        seleccionadoAplicacion.currentRequest?.id || seleccionadoAplicacion.id,
-        Object.entries(documentoEstado).
+      const solicitudId = seleccionadoAplicacion.currentRequest?.id || seleccionadoAplicacion.id;
+      const documentosVerificados = Object.entries(documentoEstado).
         filter(([, estado]) => estado === 'verificado').
-        map(([clave]) => clave)
-      );
-      establecerSolicitudes((anterior) =>
-      anterior.map((primero) =>
-      primero.id === seleccionadoAplicacion.id ? { ...primero, status: 'aprobado' } : primero
-      )
-      );
-      mostrarAviso(`${seleccionadoAplicacion.name} fue aprobada como conductora.`);
+        map(([clave]) => clave);
+      if (documentosAprobadosEnServidor) {
+        await AdministradorServicio.aprobarConductor(solicitudId, documentosVerificados);
+        establecerSolicitudes((anterior) => anterior.map((primero) =>
+          primero.id === seleccionadoAplicacion.id ? { ...primero, status: 'aprobado' } : primero));
+        mostrarAviso(`${seleccionadoAplicacion.name} fue aprobada como conductora.`);
+      } else {
+        const respuesta = await AdministradorServicio.aprobarDocumentosSolicitud(solicitudId, documentosVerificados);
+        mostrarAviso(respuesta.message);
+      }
       establecerDocumentoEstado({});
       establecerBloqueadoDocumentos(new Set());
       establecerModalVisible(false);
@@ -878,7 +994,68 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
     ...privadoImagenOrigen(imagenActualUrl),
     ...(realDocumentoClave === 'ciFront' || realDocumentoClave === 'ciBack' ? { cache: 'reload' as const } : {})
   } : undefined;
-  const imagenTitulo = realDocumentoClave === 'ciFront' ? 'CI frente' : realDocumentoClave === 'ciBack' ? 'CI dorso' : documentoClaves.find((documento) => documento.key === realDocumentoClave)?.label || 'Documento';
+  const imagenTitulo = realDocumentoClave === 'licenseFront' || realDocumentoClave === 'licenseBack' ? 'Licencia' : realDocumentoClave === 'carFront' || realDocumentoClave === 'carBack' ? 'Vehículo' : realDocumentoClave === 'ciFront' ? 'CI frente' : realDocumentoClave === 'ciBack' ? 'CI dorso' : documentoClaves.find((documento) => documento.key === realDocumentoClave)?.label || 'Documento';
+  const soatNoPublico = realDocumentoClave === 'soatPhoto' && seleccionadoAplicacion?.soatOcr?.soatUse !== 'PUBLICO';
+  const esLicencia = realDocumentoClave === 'licenseFront' || realDocumentoClave === 'licenseBack';
+  const esVehiculo = realDocumentoClave === 'carFront' || realDocumentoClave === 'carBack';
+  const fotosCarrusel = esVehiculo ? ['carFront', 'carBack'] : ['licenseFront', 'licenseBack'];
+  const claveDatosDocumento = esLicencia ? 'licenseFront' : realDocumentoClave;
+  const validacionDelDocumento = (documento: string, clave: string) => documento === clave ||
+    (clave === 'licenseFront' && documento === 'licenseBack');
+  const puedeCorregirDatos = !!claveDatosDocumento && ocrVistaPreviaDocumentos.has(claveDatosDocumento) &&
+    seleccionadoAplicacion?.status === 'pendiente' &&
+    seleccionadoAplicacion.currentRequest?.files?.[claveDatosDocumento]?.status !== 'verificado' &&
+    !bloqueadoDocumentos.has(claveDatosDocumento);
+  const abrirCorreccion = async () => {
+    if (!claveDatosDocumento || !seleccionadoAplicacion || cargandoDatos || guardandoDatos) return;
+    documentoEnCorreccion.current = claveDatosDocumento;
+    const contexto = contextoCorreccion.current;
+    establecerCargandoDatos(true);
+    try {
+      const datos = await AdministradorServicio.obtenerDatosDocumento(seleccionadoAplicacion.currentRequest?.id || seleccionadoAplicacion.id, claveDatosDocumento);
+      if (contexto !== contextoCorreccion.current) return;
+      establecerEdicionDatos(datos);
+      establecerBorradorDatos(Object.fromEntries(datos.campos.map(campo => [campo.clave,campo.valor])));
+      establecerValidacionesDatos([...new Set(datos.validaciones.filter(v => validacionDelDocumento(v.documento, claveDatosDocumento)).map(v => v.mensaje))]);
+    } catch (e: any) { if (contexto === contextoCorreccion.current) mostrarAviso(e?.data?.error || e?.message || 'No se pudieron abrir los datos.'); }
+    finally { if (contexto === contextoCorreccion.current) establecerCargandoDatos(false); }
+  };
+  const guardarCorreccion = async () => {
+    const claveCorreccion = documentoEnCorreccion.current;
+    if (!edicionDatos || !claveCorreccion || !seleccionadoAplicacion || guardandoDatos) return;
+    const cambios = Object.fromEntries(edicionDatos.campos.filter(campo=>borradorDatos[campo.clave]!==campo.valor)
+      .map(campo=>[campo.clave,borradorDatos[campo.clave] || '']));
+    if (!Object.keys(cambios).length) { establecerEdicionDatos(null); return; }
+    const contexto = contextoCorreccion.current;
+    const solicitudId = seleccionadoAplicacion.currentRequest?.id || seleccionadoAplicacion.id;
+    establecerGuardandoDatos(true);
+    try {
+      const datos = await AdministradorServicio.corregirDatosDocumento(solicitudId,claveCorreccion,edicionDatos.revision,cambios);
+      if (contexto !== contextoCorreccion.current) return;
+      establecerEdicionDatos(datos);
+      establecerBorradorDatos(Object.fromEntries(datos.campos.map(campo=>[campo.clave,campo.valor])));
+      const avisos = [...new Set(datos.validaciones.filter(v=>validacionDelDocumento(v.documento, claveCorreccion)).map(v=>v.mensaje))];
+      establecerValidacionesDatos(avisos);
+      establecerDocumentoEstado(anterior=>({...anterior,...Object.fromEntries(datos.revisarDeNuevo.map(tipo=>[tipo,'pendiente' as const]))}));
+      const listado = await AdministradorServicio.obtenerTodosConductores(1,0,undefined,undefined,datos.usuarioId);
+      if (contexto !== contextoCorreccion.current) return;
+      const actual = listado.data.find(solicitud=>solicitud.id===solicitudId) as ConductorApplication | undefined;
+      if (!actual) throw new Error('Los datos se guardaron. Vuelve a abrir la solicitud para actualizarlos.');
+      establecerSeleccionadoAplicacion(actual);
+      establecerSolicitudes(anterior=>anterior.map(solicitud=>solicitud.id===actual.id ? actual : solicitud));
+      establecerEdicionDatos(null);
+      mostrarAviso(avisos.length ? 'Correcciones guardadas. Revisa las validaciones pendientes.' : 'Datos guardados. Revisa el documento antes de aprobarlo.');
+    } catch (e: any) { if (contexto === contextoCorreccion.current) mostrarAviso(e?.message || 'No se pudieron guardar los cambios.'); }
+    finally { if (contexto === contextoCorreccion.current) establecerGuardandoDatos(false); }
+  };
+  const compartirLista = async () => {
+    if (compartiendoLista) return;
+    establecerCompartiendoLista(true);
+    try {
+      await AdministradorServicio.compartirPendientesPsicologia();
+    } catch (e) { mostrarAviso(e instanceof Error ? e.message : 'No se pudo compartir el PDF.'); }
+    finally { establecerCompartiendoLista(false); }
+  };
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -1029,6 +1206,17 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
         })}
       </DesplazableVista>
 
+      {!modalVisible && !rechazarModalVisible && !documentoImagenModal && !filtrosVisibles &&
+        <PulsableOpacidad
+          style={[s.compartirFlotante, { bottom: margenes.bottom + 20 }, compartiendoLista && { opacity: 0.5 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Compartir PDF de solicitantes pendientes de evaluación psicológica"
+          accessibilityState={{ disabled: compartiendoLista, busy: compartiendoLista }}
+          disabled={compartiendoLista}
+          onPress={compartirLista}>
+          <Compartir size={25} color={C.white} strokeWidth={2.5} />
+        </PulsableOpacidad>}
+
       {/* ── Detail Modal ──────────────────────────────────────────────────────── */}
       {seleccionadoAplicacion &&
       <Modal
@@ -1088,6 +1276,12 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
                 </Vista>
             }
 
+              {seleccionadoAplicacion.ocrProcessingStatus === 'fallido' &&
+                <Vista style={s.resubBanner}>
+                  <Texto style={s.resubSub}>No se pudo completar la extracción de uno o más documentos. Revisa las imágenes y los datos disponibles.</Texto>
+                </Vista>
+              }
+
               {/* Info sections */}
               <PlegableSeccion titulo="Información de contacto" inicialAbierto>
                 <DetalleFila label="Email" value={seleccionadoAplicacion.email} />
@@ -1112,8 +1306,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               </PlegableSeccion>
 
               <PlegableSeccion titulo="Licencia de conducir">
-                <EnlaceDocumento titulo="Ver licencia frente" estado={documentoEstado.licenseFront} onPress={() => abrirDocumento('licenseFront')} />
-                <EnlaceDocumento titulo="Ver licencia dorso" estado={documentoEstado.licenseBack} onPress={() => abrirDocumento('licenseBack')} />
+                <EnlaceDocumento titulo="Ver licencia" estado={documentoEstado.licenseFront === 'rechazado' || documentoEstado.licenseBack === 'rechazado' ? 'rechazado' : documentoEstado.licenseFront === 'verificado' && documentoEstado.licenseBack === 'verificado' ? 'verificado' : undefined} onPress={() => abrirDocumento('licenseFront')} />
                 <DetalleFila label="Número" value={seleccionadoAplicacion.licenseFrontOcr?.licenseNumber || seleccionadoAplicacion.licenseNumber} />
                 <DetalleFila label="Nombre y apellidos" value={seleccionadoAplicacion.licenseFrontOcr?.fullName || ''} />
                 <DetalleFila label="Nacionalidad" value={seleccionadoAplicacion.licenseFrontOcr?.nationality || ''} />
@@ -1160,8 +1353,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
 
               <PlegableSeccion titulo="RUAT y vehículo">
                 <EnlaceDocumento titulo="Ver RUAT" estado={documentoEstado.ruatPhoto} onPress={() => abrirDocumento('ruatPhoto')} />
-                <EnlaceDocumento titulo="Ver auto frente" estado={documentoEstado.carFront} onPress={() => abrirDocumento('carFront')} />
-                <EnlaceDocumento titulo="Ver auto dorso" estado={documentoEstado.carBack} onPress={() => abrirDocumento('carBack')} />
+                <EnlaceDocumento titulo="Ver vehículo" estado={documentoEstado.carFront === 'rechazado' || documentoEstado.carBack === 'rechazado' ? 'rechazado' : documentoEstado.carFront === 'verificado' && documentoEstado.carBack === 'verificado' ? 'verificado' : undefined} onPress={() => abrirDocumento('carFront')} />
                 <DetalleFila
                 label="Marca"
                 value={seleccionadoAplicacion.ruatOcr?.vehicleBrand || seleccionadoAplicacion.vehicleBrand || ''} />
@@ -1250,6 +1442,43 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               }
               </PlegableSeccion>
 
+              <PlegableSeccion titulo="Informe psicológico">
+                {cargandoInformes && <ActividadIndicador color={C.primary} />}
+                {errorInformes && <PulsableOpacidad onPress={() => establecerRevisionInformes(valor => valor + 1)}>
+                  <Texto style={{ color: C.error }}>No se pudieron cargar los informes. Toca para reintentar.</Texto>
+                </PulsableOpacidad>}
+                {!cargandoInformes && !errorInformes && informes.length === 0 &&
+                  <Texto style={{ color: C.textSub }}>Todavía no hay informes registrados.</Texto>}
+                {informes.map((informe, indice) => <Vista key={informe.id_evaluacion_psicologica} style={s.informeGuardado}>
+                  <DetalleFila label={indice === 0 ? 'Último resultado' : 'Resultado anterior'}
+                    value={informe.resultado ? AdministradorServicio.resultadosPsicologicos[informe.resultado] : '—'} />
+                  <PulsableOpacidad accessibilityRole="button" onPress={() => {
+                    if (!informeSolicitudId) return;
+                    AdministradorServicio.abrirInformePsicologico(informeSolicitudId, informe.id_evaluacion_psicologica)
+                      .catch(e => mostrarAviso(e?.message || 'No se pudo abrir el informe.'));
+                  }}><Texto style={s.informeEnlace}>Ver informe PDF</Texto></PulsableOpacidad>
+                </Vista>)}
+                {seleccionadoAplicacion.status === 'pendiente' && (documentosAprobadosEnServidor ?
+                  <Vista style={s.informeFormulario}>
+                    <Texto style={{ color: C.textSub }}>Adjunta el informe emitido por el profesional y registra su resultado.</Texto>
+                    <PulsableOpacidad style={s.informeArchivo} onPress={adjuntarInforme} disabled={esEnviando}>
+                      <Texto style={s.informeEnlace}>{archivoInforme ? 'PDF adjunto · Cambiar archivo' : 'Adjuntar informe PDF (hasta 8 MB)'}</Texto>
+                    </PulsableOpacidad>
+                    <Texto style={s.informeEtiqueta}>Resultado</Texto>
+                    <Vista style={s.informeResultados}>
+                      {Object.entries(AdministradorServicio.resultadosPsicologicos).map(([valor, etiqueta]) =>
+                        <PulsableOpacidad key={valor} style={[s.informeResultado, resultadoInforme === valor && s.informeResultadoActivo]}
+                          accessibilityRole="radio" accessibilityState={{ checked: resultadoInforme === valor }} disabled={esEnviando}
+                          onPress={() => establecerResultadoInforme(valor as AdministradorServicio.ResultadoPsicologico)}>
+                          <Texto style={{ color: resultadoInforme === valor ? C.primary : C.text }}>{etiqueta}</Texto>
+                        </PulsableOpacidad>)}
+                    </Vista>
+                    <PulsableOpacidad style={[s.approveBtn, { padding: 12 }]} onPress={guardarInforme} disabled={esEnviando}>
+                      <Texto style={s.actionTxt}>{esEnviando ? 'Guardando…' : 'Guardar informe y resultado'}</Texto>
+                    </PulsableOpacidad>
+                  </Vista> : <Texto style={{ color: C.textSub }}>Aprueba primero los documentos para registrar el informe.</Texto>)}
+              </PlegableSeccion>
+
               {/* Summary */}
               {(aprobadoDocumentos.length > 0 || rechazadoDocumentos.length > 0) &&
             <Vista style={s.section}>
@@ -1316,7 +1545,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               {seleccionadoAplicacion.status === 'pendiente' &&
             <Vista style={s.actions}>
                   <PulsableOpacidad style={s.approveBtn} onPress={manejarAprobar} disabled={esEnviando}>
-                    <Texto style={s.actionTxt}>Aprobar</Texto>
+                    <Texto style={s.actionTxt}>{documentosAprobadosEnServidor ? 'Aprobar solicitud' : 'Aprobar documentos'}</Texto>
                   </PulsableOpacidad>
                   <PulsableOpacidad
                 style={s.rejectBtn}
@@ -1410,11 +1639,12 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
         visible={documentoImagenModal}
         animationType="fade"
         transparent
-        onRequestClose={() => establecerDocumentoImagenModal(false)}>
+        onRequestClose={() => { if (!guardandoDatos) establecerDocumentoImagenModal(false); }}>
 
-        <Vista style={s.overlay}>
+        <EvitarTeclado style={s.overlay} behavior={Plataforma.OS === 'ios' ? 'padding' : 'height'}>
           <PulsableOpacidad
             style={EstiloHoja.absoluteFill}
+            disabled={guardandoDatos}
             onPress={() => establecerDocumentoImagenModal(false)} />
 
           <Vista style={s.imgModal}>
@@ -1423,6 +1653,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               <Texto style={s.imgTitle} numberOfLines={1}>{imagenTitulo}</Texto>
               <PulsableOpacidad
                 style={s.imgCloseIcon}
+                disabled={guardandoDatos}
                 onPress={() => {
                   establecerDocumentoImagenModal(false);
                   establecerRealDocumentoClave(null);
@@ -1432,6 +1663,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
                 <X size={23} color={C.text} strokeWidth={3} />
               </PulsableOpacidad>
             </Vista>
+            <DesplazableVista style={{ width: '100%', flexShrink: 1 }} keyboardShouldPersistTaps="handled">
             {!documentoImagenUrl && <Texto style={{ color: C.textSub, marginBottom: 16 }}>Este documento no fue enviado. Puedes marcarlo como rechazado.</Texto>}
             {documentoImagenUrl && realDocumentoClave && ocrVistaPreviaDocumentos.has(realDocumentoClave) &&
             <Vista style={s.imgViewSwitch}>
@@ -1448,7 +1680,27 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               )}
               </Vista>
             }
-            {imagenFuente &&
+            {(esLicencia || esVehiculo) ?
+              <DocumentoCarrusel
+                nombre={esVehiculo ? 'vehículo' : 'licencia'}
+                bloqueado={guardandoDatos}
+                fuentes={fotosCarrusel.map(clave => {
+                  const archivo = seleccionadoAplicacion?.currentRequest?.files?.[clave];
+                  const url = documentoImagenVista === 'ocr' && seleccionadoAplicacion?.currentRequest?.id
+                    ? `${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(seleccionadoAplicacion.currentRequest.id)}/vista-previa-ocr/${clave}`
+                    : archivo?.filename ? `${API_HOST}/archivos/conductores/${encodeURIComponent(archivo.filename)}` : '';
+                  return url ? privadoImagenOrigen(url) : undefined;
+                })}
+                alCambiar={indice => {
+                  const clave = fotosCarrusel[indice];
+                  const archivo = seleccionadoAplicacion?.currentRequest?.files?.[clave];
+                  establecerRealDocumentoClave(clave);
+                  establecerDocumentoImagenUrl(archivo?.filename ? `${API_HOST}/archivos/conductores/${encodeURIComponent(archivo.filename)}` : '');
+                  establecerDocumentoImagenError(false);
+                }}
+                alAmpliar={() => establecerImagenCompletaVisible(true)}
+                alError={() => establecerDocumentoImagenError(true)} />
+              : imagenFuente &&
               <PulsableOpacidad style={s.docImg} onPress={() => establecerImagenCompletaVisible(true)} activeOpacity={0.9} accessibilityRole="button" accessibilityLabel="Ver imagen en pantalla completa">
                 <Imagen
                   key={`${realDocumentoClave}-${documentoImagenVista}`}
@@ -1478,6 +1730,42 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
                 )}
               </Vista>
             }
+            {puedeCorregirDatos && !edicionDatos &&
+              <PulsableOpacidad style={s.corregirDatosBoton} onPress={abrirCorreccion} disabled={cargandoDatos || guardandoDatos}>
+                <Texto style={s.corregirDatosTexto}>{cargandoDatos ? 'Cargando datos…' : 'Corregir datos'}</Texto>
+              </PulsableOpacidad>}
+            {edicionDatos && <Vista style={s.editorDatos}>
+              <Texto style={s.extractedTitle}>{esLicencia ? 'Corregir datos de la licencia' : 'Corregir datos del documento'}</Texto>
+              <Texto style={{color:C.textSub,fontSize:12,marginBottom:8}}>Comprueba los valores con la imagen original. Fechas: AAAA-MM-DD o DD/MM/AAAA.</Texto>
+              {edicionDatos.campos.map(campo=><Vista key={campo.clave} style={{marginBottom:10}}>
+                <Texto style={s.campoDatosEtiqueta}>{campo.etiqueta}</Texto>
+                {campo.opciones ? <Vista style={{flexDirection:'row',flexWrap:'wrap',gap:6}}>
+                  {['',...campo.opciones].map(opcion=><PulsableOpacidad key={opcion || 'vacio'} disabled={guardandoDatos}
+                    accessibilityRole="radio" accessibilityState={{checked:borradorDatos[campo.clave]===opcion}}
+                    style={[s.opcionDatos,borradorDatos[campo.clave]===opcion && {borderColor:C.primary,backgroundColor:C.primaryLight}]}
+                    onPress={()=>establecerBorradorDatos(anterior=>({...anterior,[campo.clave]:opcion}))}>
+                    <Texto style={{color:C.text,fontSize:12}}>{opcion || 'Sin dato'}</Texto>
+                  </PulsableOpacidad>)}
+                </Vista> : <TextoEntrada
+                  style={s.campoDatosEntrada} accessibilityLabel={campo.etiqueta} value={borradorDatos[campo.clave] || ''}
+                  onChangeText={valor=>establecerBorradorDatos(anterior=>({...anterior,[campo.clave]:valor}))}
+                  editable={!guardandoDatos} maxLength={2000} autoCorrect={false}
+                  placeholder={campo.tipo==='fecha' ? 'AAAA-MM-DD' : 'Sin dato'} />}
+              </Vista>)}
+              <Vista style={{flexDirection:'row',gap:8}}>
+                <PulsableOpacidad style={[s.corregirDatosBoton,{flex:1}]} disabled={guardandoDatos} onPress={()=>establecerEdicionDatos(null)}>
+                  <Texto style={s.corregirDatosTexto}>Cancelar</Texto>
+                </PulsableOpacidad>
+                <PulsableOpacidad style={[s.corregirDatosBoton,{flex:1,backgroundColor:C.primary}]} disabled={guardandoDatos} onPress={guardarCorreccion}>
+                  <Texto style={{color:C.white,fontWeight:'600'}}>{guardandoDatos ? 'Guardando…' : 'Guardar cambios'}</Texto>
+                </PulsableOpacidad>
+              </Vista>
+            </Vista>}
+            {validacionesDatos.length>0 && <Vista style={s.editorValidaciones}>
+              <Texto style={{color:C.error,fontWeight:'700',marginBottom:4}}>Validaciones pendientes</Texto>
+              {validacionesDatos.map(mensaje=><Texto key={mensaje} style={{color:C.error,textAlign:'left',marginBottom:4}}>{mensaje}</Texto>)}
+            </Vista>}
+            </DesplazableVista>
             {/* Si el doc está bloqueado (ya aprobado en versión anterior) solo mostrar info */}
             {realDocumentoClave && bloqueadoDocumentos.has(realDocumentoClave) ?
             <Vista
@@ -1511,8 +1799,17 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
             <Vista style={s.imgActions}>
                 <PulsableOpacidad
                 style={[s.imgBtn, s.imgVerifyBtn]}
-                disabled={!documentoImagenUrl || documentoImagenVista === 'original' && documentoImagenError}
+                disabled={!!edicionDatos || cargandoDatos || guardandoDatos || validacionesDatos.length > 0 || !documentoImagenUrl || documentoImagenVista === 'original' && documentoImagenError}
                 onPress={() => {
+                  if ((realDocumentoClave === 'licenseFront' || realDocumentoClave === 'licenseBack') &&
+                    emisionLicenciaFutura(seleccionadoAplicacion.licenseFrontOcr, seleccionadoAplicacion.licenseBackOcr)) {
+                    mostrarAviso('La fecha de emisión de la licencia no puede ser futura');
+                    return;
+                  }
+                  if (soatNoPublico) {
+                    mostrarAviso('Solo se puede aprobar un soat de uso publico');
+                    return;
+                  }
                   establecerDocumentoEstado((anterior) => ({ ...anterior, [realDocumentoClave]: 'verificado' }));
                   establecerDocumentoImagenModal(false);
                   establecerRealDocumentoClave(null);
@@ -1522,6 +1819,7 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
                 </PulsableOpacidad>
                 <PulsableOpacidad
                 style={[s.imgBtn, s.imgCorrectBtn]}
+                disabled={guardandoDatos || !!edicionDatos}
                 onPress={() => {
                   establecerDocumentoEstado((anterior) => realDocumentoClave === 'licenseFront' || realDocumentoClave === 'licenseBack'
                     ? { ...anterior, licenseFront: 'rechazado', licenseBack: 'rechazado' }
@@ -1535,7 +1833,9 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
               </Vista>
             }
           </Vista>
-        </Vista>
+          {aviso && documentoImagenModal &&
+            <Aviso key={aviso.id} message={aviso.mensaje} visible position="bottom" icon="!" iconCircle bottomOffset={10} fontWeight="700" textAlign="left" onHide={() => establecerAviso(null)} />}
+        </EvitarTeclado>
       </Modal>
       <ZoomableDocumentModal
         visible={imagenCompletaVisible}
@@ -1551,6 +1851,26 @@ const AdministradorConductorRegistroPantalla: React.FC<Propiedades> = ({ navigat
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = EstiloHoja.create({
+  corregirDatosBoton: {borderWidth:1,borderColor:C.primaryBorder,borderRadius:8,padding:11,alignItems:'center',marginBottom:10},
+  corregirDatosTexto: {color:C.primary,fontWeight:'600'},
+  editorDatos: {width:'100%',padding:12,backgroundColor:C.surface,borderRadius:10,marginBottom:12},
+  campoDatosEtiqueta: {color:C.text,fontSize:12,fontWeight:'600',marginBottom:4},
+  campoDatosEntrada: {borderWidth:1,borderColor:C.border,borderRadius:8,padding:10,color:C.text,backgroundColor:C.white},
+  opcionDatos: {padding:8,borderWidth:1,borderColor:C.border,borderRadius:8},
+  editorValidaciones: {width:'100%',padding:10,backgroundColor:C.errorLight,borderRadius:8,marginBottom:10},
+  compartirFlotante: {
+    position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28,
+    backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', elevation: 6,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 5
+  },
+  informeFormulario: { gap: 8, marginTop: 14 },
+  informeGuardado: { borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 12 },
+  informeEtiqueta: { color: C.text, fontWeight: '600', marginTop: 6 },
+  informeEnlace: { color: C.primary, fontWeight: '600', paddingVertical: 8 },
+  informeArchivo: { borderWidth: 1, borderColor: C.primaryBorder, borderRadius: 8, paddingHorizontal: 12 },
+  informeResultados: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  informeResultado: { borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 10 },
+  informeResultadoActivo: { borderColor: C.primary, backgroundColor: C.primaryLight },
   rejectionMessage: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1619,7 +1939,7 @@ const s = EstiloHoja.create({
   filterOptionText: { fontSize: 15, color: C.text },
   filterOptionTextActive: { color: C.primary, fontWeight: '700' },
 
-  listContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
+  listContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 100 },
 
   center: { alignItems: 'center', paddingVertical: 40, gap: 12 },
   loadingTxt: { fontSize: 13, color: C.textMuted },
@@ -1831,6 +2151,7 @@ const s = EstiloHoja.create({
     padding: 16,
     width: '100%',
     maxWidth: 380,
+    maxHeight: '90%',
     alignItems: 'center'
   },
   imgHeader: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -1852,6 +2173,7 @@ const s = EstiloHoja.create({
   imgViewOptionTextActive: { color: C.primary },
   docImg: { width: '100%', height: 250, borderRadius: 12, marginBottom: 12, overflow: 'hidden' },
   docImgInner: { width: '100%', height: '100%' },
+  licenciaSinImagen: { color: C.textSub, textAlign: 'center', marginTop: 90, paddingHorizontal: 16 },
   zoomHint: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.65)', color: C.white, fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 },
   imgActions: {
     flexDirection: 'row',
@@ -1874,3 +2196,4 @@ const s = EstiloHoja.create({
 });
 
 export default AdministradorConductorRegistroPantalla;
+

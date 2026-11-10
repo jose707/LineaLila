@@ -14,6 +14,7 @@ import Toast from "../components/Aviso";
 import { ExtraidoCamposModal, type FilaCampoExtraido as ExtraidoCampoFila } from "../components/ExtraidoCamposModal";
 import { signOut as signOutFirebase } from "../services/firebase.servicio";
 
+type ConsentimientoDocumento = {version: string;texto: string;};
 type Lado = 'ciFront' | 'ciBack';
 type MrzComparacion = 'match' | 'mismatch' | 'invalid' | 'unsupported' | 'unavailable' | 'incomplete' | 'not_applicable';
 const MRZ_OBSERVACIONES: Partial<Record<MrzComparacion, string>> = {
@@ -57,6 +58,9 @@ function IdentidadVerificacionPantalla() {
   const [autorretratoVisible, establecerAutorretratoVisible] = usarEstado(false);
   const [autorretratoFoto, establecerAutorretratoFoto] = usarEstado<string | null>(null);
   const [guardando, establecerGuardando] = usarEstado(false);
+  const [consentimientoDocumento, establecerConsentimientoDocumento] = usarEstado<ConsentimientoDocumento | null>(null);
+  const [consentimientoError, establecerConsentimientoError] = usarEstado(false);
+  const [consentimientoRecarga, establecerConsentimientoRecarga] = usarEstado(0);
   const [consentimiento, establecerConsentimiento] = usarEstado(false);
   const [consentimientoAvisoVisible, establecerConsentimientoAvisoVisible] = usarEstado(false);
   const [limiteAvisoVisible, establecerLimiteAvisoVisible] = usarEstado(false);
@@ -72,6 +76,19 @@ function IdentidadVerificacionPantalla() {
   const switchingCuenta = usarReferencia(false);
   const verificacionAprobadoReferencia = usarReferencia(false);
   const intentosClave = usuario?.id ? `identity-ci-ocr-failures:${usuario.id}` : null;
+
+  usarEfecto(() => {
+    let activo = true;
+    establecerConsentimiento(false);
+    establecerConsentimientoDocumento(null);
+    establecerConsentimientoError(false);
+    api.obtener('/autenticacion/verificar-identidad/consentimiento').then((datos: any) => {
+      if (!activo) return;
+      if (typeof datos?.version !== 'string' || !datos.version || typeof datos.texto !== 'string' || !datos.texto.trim()) throw new Error('Consentimiento no disponible');
+      establecerConsentimientoDocumento({version: datos.version, texto: datos.texto});
+    }).catch(() => {if (activo) establecerConsentimientoError(true);});
+    return () => {activo = false;};
+  }, [token, consentimientoRecarga]);
 
   usarEfecto(() => {
     let activo = true;
@@ -134,7 +151,7 @@ function IdentidadVerificacionPantalla() {
       establecerLimiteAvisoVisible(true);
       return;
     }
-    if (!consentimiento) {
+    if (!consentimiento || !consentimientoDocumento) {
       establecerConsentimientoAvisoVisible(true);
       return;
     }
@@ -192,6 +209,7 @@ function IdentidadVerificacionPantalla() {
 
   const appendCiHastaFormulario = (formulario: FormData, capturar: CiCapturar) => {
     for (const imagenLado of ['ciFront', 'ciBack'] as const) {
+      formulario.append(`${imagenLado}Origen`, 'captura_camara');
       const recorte = capturar.crops[imagenLado];
       if (!recorte) continue;
       formulario.append(`${imagenLado}CropX`, String(recorte.x));
@@ -214,7 +232,9 @@ function IdentidadVerificacionPantalla() {
   const completarVerificacion = async (comprobante: string | null, capturar: CiCapturar) => {
     try {
       const formulario = new FormData();
+      if (!consentimiento || !consentimientoDocumento) throw new Error('Lee y acepta la autorización antes de continuar.');
       formulario.append('consent', 'true');
+      formulario.append('consentVersion', consentimientoDocumento.version);
       if (FACE_LIVENESS_HABILITADO) {
         formulario.append('ocrTicket', comprobante!);
         const detector = NativoModules.FaceLivenessModule;
@@ -256,6 +276,11 @@ function IdentidadVerificacionPantalla() {
         actualizarUsuario({ estadoVerificacionIdentidad: 'verificado', documentosIdentidadEnviados: true, motivoRechazoIdentidad: null });
         return;
       }
+      if (error?.data?.code === 'CONSENT_VERSION_MISMATCH') {
+        limpiarCapturar();
+        establecerConsentimiento(false);
+        establecerConsentimientoRecarga(valor => valor + 1);
+      }
       const comprobanteVencido = String(error?.data?.error || error?.message || '').includes('lectura del CI expiró');
       if (comprobanteVencido) limpiarCapturar();
       establecerObservacion({
@@ -267,7 +292,7 @@ function IdentidadVerificacionPantalla() {
   };
 
   const verificarCi = async (capturar: CiCapturar) => {
-    if (enviando.current || !consentimiento || !intentosCargado || LIMITE_CI_INTENTOS_HABILITADO && intentosReferencia.current >= MAXIMO_CI_INTENTOS) return;
+    if (enviando.current || !consentimiento || !consentimientoDocumento || !intentosCargado || LIMITE_CI_INTENTOS_HABILITADO && intentosReferencia.current >= MAXIMO_CI_INTENTOS) return;
     enviando.current = true;
     establecerGuardando(true);
     establecerObservacion(null);
@@ -278,7 +303,9 @@ function IdentidadVerificacionPantalla() {
         return;
       }
       const formulario = new FormData();
+      if (!consentimiento || !consentimientoDocumento) throw new Error('Lee y acepta la autorización antes de continuar.');
       formulario.append('consent', 'true');
+      formulario.append('consentVersion', consentimientoDocumento.version);
       appendCiHastaFormulario(formulario, capturar);
       const respuesta = await fetch(`${API_BASE_URL}/autenticacion/verificar-identidad/ocr`, {
         method: 'POST', body: formulario,
@@ -315,6 +342,11 @@ function IdentidadVerificacionPantalla() {
         return;
       }
       if (!respuesta.ok) {
+        if (comprobado.code === 'CONSENT_VERSION_MISMATCH') {
+          limpiarCapturar();
+          establecerConsentimiento(false);
+          establecerConsentimientoRecarga(valor => valor + 1);
+        }
         establecerObservacion({ title: 'No pudimos verificar tu identidad', message: comprobado.error || 'Intenta nuevamente.' });
         return;
       }
@@ -422,6 +454,7 @@ function IdentidadVerificacionPantalla() {
       </DesplazableVista>
       {!listo && !comprobadoCi && (!LIMITE_CI_INTENTOS_HABILITADO || intentos < MAXIMO_CI_INTENTOS) && !guardando && <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom, 12) + 12 }]}>
         {(!tieneScannedCi || !consentimiento) && <PulsableOpacidad
+          disabled={!consentimientoDocumento}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: consentimiento }}
           style={s.consentRow}
@@ -430,9 +463,10 @@ function IdentidadVerificacionPantalla() {
           <Vista style={[s.consentBox, consentimiento && s.consentBoxChecked]}>
             {consentimiento && <Texto style={s.consentCheck}>✓</Texto>}
           </Vista>
-          <Texto style={s.consentText}>Autorizo la verificación de mi identidad con las fotos de mi cédula de identidad y la verificación facial.</Texto>
+          <Texto style={s.consentText}>{consentimientoDocumento?.texto || (consentimientoError ? 'No se pudo cargar la autorización.' : 'Cargando autorización…')}</Texto>
         </PulsableOpacidad>}
-        <PulsableOpacidad style={[s.footerButton, !consentimiento && s.footerButtonUnauthorised]} onPress={() => scan(fotos.ciFront ? 'ciBack' : 'ciFront')} disabled={!intentosCargado} accessibilityRole="button">
+        {consentimientoError && <PulsableOpacidad onPress={() => establecerConsentimientoRecarga(valor => valor + 1)}><Texto style={s.consentText}>Reintentar</Texto></PulsableOpacidad>}
+        <PulsableOpacidad style={[s.footerButton, !consentimiento && s.footerButtonUnauthorised]} onPress={() => scan(fotos.ciFront ? 'ciBack' : 'ciFront')} disabled={!intentosCargado || !consentimientoDocumento} accessibilityRole="button">
           <Texto style={[s.footerButtonText, !consentimiento && s.footerButtonTextUnauthorised]}>Continuar</Texto>
         </PulsableOpacidad>
       </Vista>}

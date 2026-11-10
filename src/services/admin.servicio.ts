@@ -1,4 +1,67 @@
 import api from "./api.cliente";
+import { NativeModules } from 'react-native';
+import { API_HOST } from '../config/constantes';
+import { AlmacenamientoAuxiliar } from './storage';
+
+export type DatosDocumentoRevision = {
+  revision: string;
+  campos: Array<{clave: string; etiqueta: string; valor: string; tipo: 'texto' | 'fecha'; opciones?: string[]}>;
+  validaciones: Array<{documento: string; mensaje: string}>;
+};
+export const obtenerDatosDocumento = (solicitudId: string, tipo: string) =>
+  api.obtener<DatosDocumentoRevision>(`/administracion/solicitudes/${encodeURIComponent(solicitudId)}/documentos/${encodeURIComponent(tipo)}/datos`);
+export async function corregirDatosDocumento(solicitudId: string, tipo: string, revision: string, campos: Record<string,string>) {
+  try {
+    return await api.put<DatosDocumentoRevision & {usuarioId: string; revisarDeNuevo: string[]; modificados: boolean}>(
+      `/administracion/solicitudes/${encodeURIComponent(solicitudId)}/documentos/${encodeURIComponent(tipo)}/datos`, {revision,campos});
+  } catch (error: any) { throw new Error(error?.data?.error || 'No se pudieron guardar las correcciones.'); }
+}
+
+export const resultadosPsicologicos = {
+  apto: 'Apto', no_apto: 'No apto', requiere_reevaluacion: 'Requiere reevaluación'
+};
+export type ResultadoPsicologico = keyof typeof resultadosPsicologicos;
+export type ArchivoInforme = { uri: string; name: string; type: string };
+export type InformePsicologico = {
+  id_evaluacion_psicologica: string;
+  resultado: ResultadoPsicologico | null;
+};
+
+export const obtenerInformesPsicologicos = (solicitudId: string) =>
+  api.obtener<InformePsicologico[]>(`/administracion/solicitudes/${encodeURIComponent(solicitudId)}/evaluaciones`);
+
+export async function compartirPendientesPsicologia() {
+  const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
+  if (!token) throw new Error('Inicia sesión para compartir la lista.');
+  if (!NativeModules.ComprobantePdf?.compartirPdf) throw new Error('Actualiza la app de Android para compartir el PDF.');
+  await NativeModules.ComprobantePdf.compartirPdf(
+    `${API_HOST}/api/administracion/psicologia/pendientes.pdf`, token);
+}
+
+export async function guardarInformePsicologico(solicitudId: string, archivo: ArchivoInforme, datos: {
+  resultado: ResultadoPsicologico;
+}) {
+  const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
+  if (!token) throw new Error('Inicia sesión para guardar el informe.');
+  const formulario = new FormData();
+  formulario.append('informe', { ...archivo, name: 'informe.pdf' } as unknown as Blob);
+  for (const [campo, valor] of Object.entries(datos)) formulario.append(campo, valor.trim());
+  const respuesta = await fetch(`${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(solicitudId)}/informes-psicologicos`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formulario
+  });
+  if (!respuesta.ok) {
+    const error = await respuesta.json().catch(() => ({}));
+    throw new Error(error.error || 'No se pudo guardar el informe psicológico.');
+  }
+}
+
+export async function abrirInformePsicologico(solicitudId: string, evaluacionId: string) {
+  const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
+  if (!token) throw new Error('Inicia sesión para ver el informe.');
+  if (!NativeModules.ComprobantePdf) throw new Error('La apertura de PDF requiere la app de Android actualizada.');
+  await NativeModules.ComprobantePdf.abrir(
+    `${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(solicitudId)}/evaluaciones/${encodeURIComponent(evaluacionId)}/informe`, token);
+}
 
 interface Usuario {
   id: string;
@@ -180,7 +243,7 @@ interface ConductorApplication {
   applicationDate: string;
   updatedAt?: string;
   status: 'pendiente' | 'observado' | 'aprobado' | 'rechazado';
-  ocrProcessingStatus?: 'pendiente' | 'complete';
+  ocrProcessingStatus?: 'pendiente' | 'complete' | 'fallido';
   identity?: IdentidadDetalles | null;
   rejectionReason?: string;
   verificationNotes: string;
@@ -351,7 +414,7 @@ usuarioId?: string)
       applicationDate: solicitud.createdAt || '',
       updatedAt: solicitud.updatedAt || '',
       status: solicitud.status || 'pendiente',
-      ocrProcessingStatus: solicitud.metadata?.ocrProcessingStatus || 'complete',
+      ocrProcessingStatus: solicitud.metadata?.ocrProcessingStatus || 'pendiente',
       rejectionReason: solicitud.rejectionReason || '',
       verificationNotes: '',
       userId: solicitud.userId,
@@ -411,6 +474,18 @@ const aprobarConductor = async (solicitudId: string, verificadoDocumentos: strin
     console.error('Error approving driver:', error);
     const errorMensaje = error?.data?.error || 'Error al aprobar el conductor';
     throw new Error(errorMensaje);
+  }
+};
+
+export const aprobarDocumentosSolicitud = async (
+  solicitudId: string, documentosVerificados: string[]
+): Promise<{ message: string }> => {
+  try {
+    return await api.put(`/administracion/solicitudes/${solicitudId}/documentos/aprobar`, {
+      verifiedDocuments: documentosVerificados
+    });
+  } catch (error: any) {
+    throw new Error(error?.data?.error || 'No se pudo guardar la aprobación documental.');
   }
 };
 

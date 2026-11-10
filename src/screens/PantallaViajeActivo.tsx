@@ -1,4 +1,5 @@
 import { MAPA_CLARO } from '../theme/mapa';
+import { distanciaARuta, actualizarDesvio } from '../utils/desvioRuta';
 import { privadoImagenOrigen } from "../utils/privateImageOrigen";
 import React, { useState as usarEstado, useEffect as usarEfecto, useRef as usarReferencia, useCallback as usarFuncionRetorno } from 'react';
 import {
@@ -312,6 +313,7 @@ const ActivoViajePantalla = () => {
     longitude: number;
   }> | null>(null);
   const [rutaError, establecerRutaError] = usarEstado(false);
+  const recalculoReferencia = usarReferencia({ muestras: 0, ultimoIntento: 0, pendiente: false, generacion: 0 });
   const [rutaReintentar, establecerRutaReintentar] = usarEstado(0);
   const [mostrarLlegadoConfirmarModal, establecerMostrarLlegadoConfirmarModal] = usarEstado(false);
   const [llegadoConfirmarError, establecerLlegadoConfirmarError] = usarEstado('');
@@ -621,27 +623,64 @@ const ActivoViajePantalla = () => {
   map((punto) => `${punto.latitude},${punto.longitude}`).join(';') : '';
 
   usarEfecto(() => {
+    const control = recalculoReferencia.current;
+    control.generacion++;
+    control.muestras = 0;
+    control.ultimoIntento = 0;
+    control.pendiente = false;
     if (!viaje || !rutaVisible) {
       establecerRutaCoordenadas(null);
       establecerRutaError(false);
       return;
     }
     let cancelado = false;
+    let reintento: ReturnType<typeof setTimeout> | undefined;
     establecerRutaCoordenadas(null);
     establecerRutaError(false);
     (async () => {
       try {
-        const { polyline: polilinea } = await viajesServicio.obtenerRutaViaje(viaje.rideId);
+        const { polyline: polilinea } = await viajesServicio.obtenerRutaViaje(viaje.rideId, viaje.status === 'en_curso');
         const coordenadas = decodificarPolilinea(polilinea);
         if (coordenadas.length < 2 || coordenadas.some((punto) => !Number.isFinite(punto.latitude) || !Number.isFinite(punto.longitude)))
         throw new Error('Geometría de ruta inválida');
         if (!cancelado) establecerRutaCoordenadas(coordenadas);
       } catch {
-        if (!cancelado) establecerRutaError(true);
+        if (!cancelado) {
+          establecerRutaError(true);
+          if (viaje.status === 'en_curso') {
+            reintento = setTimeout(() => establecerRutaReintentar((valor) => valor + 1), 30000);
+          }
+        }
       }
     })();
-    return () => {cancelado = true;};
-  }, [viaje?.rideId, rutaVisible, rutaPuntoClave, rutaReintentar]);
+    return () => {
+      cancelado = true;
+      if (reintento !== undefined) clearTimeout(reintento);
+      control.generacion++;
+    };
+  }, [viaje?.rideId, viaje?.status, rutaVisible, rutaPuntoClave, rutaReintentar]);
+
+  usarEfecto(() => {
+    const punto = viaje?.driverLocation;
+    const control = recalculoReferencia.current;
+    if (!esEnfocado || viaje?.status !== 'en_curso' || !punto ||
+      !rutaCoordenadas || control.pendiente) return;
+    if (!actualizarDesvio(control, distanciaARuta(punto, rutaCoordenadas), Date.now())) return;
+    control.pendiente = true;
+    const generacion = control.generacion;
+    viajesServicio.obtenerRutaViaje(viaje.rideId, true).then(({ polyline }) => {
+      if (!esMontadoReferencia.current || generacion !== control.generacion) return;
+      const puntos = decodificarPolilinea(polyline);
+      if (puntos.length < 2 || puntos.some((p) => !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)))
+        throw new Error('Geometría de ruta inválida');
+      establecerRutaCoordenadas(puntos);
+      establecerRutaError(false);
+    }).catch(() => {
+      // Conservar la ruta visible; las siguientes posiciones reintentan tras la pausa.
+    }).finally(() => {
+      if (generacion === control.generacion) control.pendiente = false;
+    });
+  }, [viaje?.driverLocation, viaje?.status, viaje?.rideId, rutaCoordenadas, esEnfocado]);
 
   // ── Helpers ──
   const decodificarPolilinea = (enc: string) => {
