@@ -10,6 +10,7 @@ export interface UsuarioAjustes {
   driverGenderFilter: 'any' | 'male' | 'female';
   driverMinRating: number;
   autoAcceptRides: boolean;
+  vibrarNuevasOfertas: boolean;
   allowNegotiation: boolean;
   notificationsEnabled: boolean;
   soundEnabled: boolean;
@@ -32,6 +33,7 @@ const predeterminadoAjustes: UsuarioAjustes = {
   driverGenderFilter: 'any',
   driverMinRating: 0,
   autoAcceptRides: false,
+  vibrarNuevasOfertas: false,
   allowNegotiation: true,
   notificationsEnabled: true,
   soundEnabled: true

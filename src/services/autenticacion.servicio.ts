@@ -251,48 +251,12 @@ const autenticacionServicio = {
     }
   },
 
-  // Check if Firebase user exists
-  comprobarUsuarioFirebase: async (
-  firebaseUid: string)
-  : Promise<{
+  comprobarUsuarioFirebase: (firebaseUid: string) => api.obtener<{
     exists: boolean;
     needsPhoneVerification?: boolean;
     token?: string;
     user?: Usuario;
-  }> => {
-    try {
-      const respuesta = await api.obtener<any>(
-        `/autenticacion/comprobar-firebase/${firebaseUid}`
-      );
-
-      if (respuesta.exists && respuesta.needsPhoneVerification) {
-        return {
-          exists: true,
-          needsPhoneVerification: true
-        };
-      }
-
-      if (respuesta.exists && respuesta.token && respuesta.user) {
-        // User exists, save token and user data
-        AlmacenamientoAuxiliar.establecerElemento('authToken', respuesta.token);
-        AlmacenamientoAuxiliar.establecerElemento('user', JSON.stringify(respuesta.user));
-      }
-
-      return {
-        exists: respuesta.exists,
-        needsPhoneVerification: respuesta.needsPhoneVerification,
-        token: respuesta.token,
-        user: respuesta.user
-      };
-    } catch (error: any) {
-      console.error('[Auth] Error checking Firebase user:');
-      console.error('   Status:', error.response?.status);
-      console.error('   Data:', error.response?.data);
-      console.error('   Message:', error.message);
-      // If there's an error, assume user doesn't exist
-      return { exists: false };
-    }
-  },
+  }>(`/autenticacion/comprobar-firebase/${encodeURIComponent(firebaseUid)}`),
 
   // Change user mode (passenger or driver)
   cambiarModo: async (modo: 'pasajero' | 'conductor'): Promise<Usuario> => {
@@ -320,20 +284,15 @@ const autenticacionServicio = {
 
       return respuesta.user;
     } catch (error: any) {
-      console.error('[Auth] Error changing mode:');
-      console.error('   Status:', error?.status);
-      console.error('   Data:', error?.data);
-      console.error('   Message:', error?.message);
-
-      // Check if it's a driver approval error
       if (error?.status === 403) {
-        throw new Error(
-          error?.data?.error || 'No tienes permisos para ser conductor'
-        );
+        const mensaje = error?.data?.error || 'No tienes permisos para ser conductor';
+        const suspendido = modo === 'conductor' &&
+          (error?.data?.code === 'CONDUCTOR_SUSPENDIDO' || mensaje === 'Tu permiso para conducir está suspendido.');
+        throw Object.assign(new Error(mensaje), { code: suspendido ? 'CONDUCTOR_SUSPENDIDO' : undefined });
       }
 
       throw new Error(
-        error?.data?.error || `Error al cambiar el modo a ${modo}`
+        error?.data?.error || error?.message || `Error al cambiar el modo a ${modo}`
       );
     }
   }

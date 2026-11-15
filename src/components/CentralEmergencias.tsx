@@ -17,7 +17,7 @@ type Alerta = {
   nombreConductor?: string | null; telefonoConductor?: string | null;
   contactosPasajero?: ContactoConfianza[]; contactosConductor?: ContactoConfianza[];
   vehiculoRegistrado?: { placa: string; marca: string; modelo: string; color: string | null } | null;
-  smsTotal?: number; smsEnviados?: number; smsFallidos?: number; smsPendientes?: number;
+  avisosTotal?: number; avisosEnviados?: number; avisosFallidos?: number; avisosPendientes?: number;
 };
 const ruta = '/administracion/emergencias';
 const estadosViaje: Record<string, string> = {
@@ -95,7 +95,6 @@ export default function CentralEmergencias({ alertas, error, resolver }: Omit<Re
             <Dato etiqueta="Vehículo registrado" valor={vehiculo && [vehiculo.marca, vehiculo.modelo].filter(Boolean).join(' ')} />
             <Dato etiqueta="Placa" valor={vehiculo?.placa} />
             <Dato etiqueta="Color" valor={vehiculo?.color} />
-            {vehiculo?.placa && <Text style={estilos.etiqueta}>Vehículo sin asignación confirmada a este viaje.</Text>}
           </View>
 
           <View style={estilos.bloque}>
@@ -106,9 +105,9 @@ export default function CentralEmergencias({ alertas, error, resolver }: Omit<Re
 
           <View style={estilos.bloque}>
             <Text accessibilityRole="header" style={estilos.titulo}>Avisos a contactos</Text>
-            {alerta.smsTotal ? (
-              <Text style={estilos.valor}>{alerta.smsEnviados} SMS aceptados por el proveedor · {alerta.smsPendientes} pendientes · {alerta.smsFallidos} fallidos</Text>
-            ) : <Text style={estilos.valor}>{alerta.smsTotal === 0 ? 'No se registraron SMS para este aviso.' : 'Sin datos de envío.'}</Text>}
+            {alerta.avisosTotal ? (
+              <Text style={estilos.valor}>{alerta.avisosEnviados} avisos WhatsApp aceptados por Meta · {alerta.avisosPendientes} pendientes · {alerta.avisosFallidos} fallidos</Text>
+            ) : <Text style={estilos.valor}>{alerta.avisosTotal === 0 ? 'No se registraron avisos para los contactos.' : 'Sin datos de envío.'}</Text>}
           </View>
 
           <View style={estilos.bloque}>

@@ -22,3 +22,10 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Keep generated Prefab paths below Windows' native tool path limits.
+project(":react-native-vision-camera-worklets") {
+    plugins.withId("com.android.library") {
+        android.externalNativeBuild.cmake.buildStagingDirectory = file("${rootDir}/.cxx-camera-worklets")
+    }
+}

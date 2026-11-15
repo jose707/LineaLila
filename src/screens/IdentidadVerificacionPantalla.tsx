@@ -43,8 +43,7 @@ const CI_CAMPO_ETIQUETAS: Record<string, string> = {
   address: 'Domicilio',
   occupation: 'Profesión',
   maritalStatus: 'Estado civil',
-  nationality: 'Nacionalidad',
-  bloodType: 'Grupo sanguíneo'
+  nationality: 'Nacionalidad'
 };
 const ciLeerFalloMensaje = (restante: number) =>
 `No se pudo verificar tu cédula de identidad. Toma las fotos en un lugar con buena luz y encuadra el documento correctamente. Te quedan ${restante} ${restante === 1 ? 'intento' : 'intentos'}.`;

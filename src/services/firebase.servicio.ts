@@ -1,6 +1,6 @@
 import autenticacion from '@react-native-firebase/auth';
 import { FirebaseAuthTypes as FirebaseAutenticacionTipos } from '@react-native-firebase/auth';
-import { GoogleSignin as GoogleIngresar } from '@react-native-google-signin/google-signin';
+import { GoogleSignin as GoogleIngresar, isCancelledResponse } from '@react-native-google-signin/google-signin';
 import messaging from '@react-native-firebase/messaging';
 import { Platform as Plataforma, PermissionsAndroid as PermisosAndroid } from 'react-native';
 
@@ -225,7 +225,7 @@ const configurarAccesoGoogle = async (): Promise<void> => {
       webClientId:
       '807854350071-3f5c1vk0ghju94qrrghaiiqaml8ss555.apps.googleusercontent.com',
       offlineAccess: true,
-      forceCodeForRefreshToken: true,
+      forceCodeForRefreshToken: false,
       profileImageSize: 120
     });
     console.log('âœ… Google Sign-In configured');
@@ -238,14 +238,14 @@ const configurarAccesoGoogle = async (): Promise<void> => {
  * Sign in with Google
  */export { configurarAccesoGoogle };
 const iniciarSesionConGoogle =
-async (): Promise<FirebaseAutenticacionTipos.UserCredential> => {
+async (): Promise<FirebaseAutenticacionTipos.UserCredential | null> => {
   try {
     // Ensure Google Sign-In is configured
     try {
       await GoogleIngresar.configure({
         webClientId: GOOGLE_WEB_CLIENTE_ID,
         offlineAccess: true,
-        forceCodeForRefreshToken: true,
+        forceCodeForRefreshToken: false,
         profileImageSize: 120
       });
     } catch {
@@ -284,6 +284,7 @@ async (): Promise<FirebaseAutenticacionTipos.UserCredential> => {
       try {
         console.log(`ðŸ” Google Sign-In attempt ${reintentos + 1}/${maximoReintentos}`);
         signoEnResultado = await GoogleIngresar.signIn();
+        if (isCancelledResponse(signoEnResultado)) return null;
         console.log('âœ… Google Sign-In user retrieved');
         break;
       } catch (signoEnError: any) {

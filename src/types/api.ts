@@ -136,6 +136,30 @@ export interface ViajeDetallesRespuesta extends Viaje {
   };
 }
 
+export interface ViajeRecorrido {
+  status: string;
+  pickupLocation: { latitude: number; longitude: number } | null;
+  dropoffLocation: { latitude: number; longitude: number } | null;
+  rutaRecorrida: { type: 'LineString'; coordinates: [number, number][] } | null;
+}
+
+export interface ViajeDetalleHistorial extends ViajeRecorrido {
+  id: string;
+  status: 'completado' | 'cancelado';
+  cancelledBy?: 'pasajero' | 'conductor' | 'sistema' | null;
+  passengerId: string;
+  driverId?: string | null;
+  passenger?: { name?: string } | null;
+  driver?: { User?: { name?: string; profilePhoto?: string | null } | null; vehicleModel?: string | null; vehiclePlate?: string | null } | null;
+  createdAt: string;
+  finalFare?: number | string | null;
+  fare?: number | string | null;
+  distance?: number | null;
+  pickupLocation: { latitude: number; longitude: number; address: string };
+  dropoffLocation: { latitude: number; longitude: number; address: string };
+  waypoints?: Array<{ id: string; sequence: number; address: string }>;
+}
+
 export interface ViajeSolicitudesRespuesta {
   rideId: string;
   passengerName: string;

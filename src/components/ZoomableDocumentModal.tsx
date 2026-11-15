@@ -17,13 +17,18 @@ interface Props {
   source?: ImageURISource;
   title: string;
   onClose: () => void;
+  onSwipe?: (direction: -1 | 1) => void;
 }
 
 const limit = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const distance = (touches: Array<{ pageX: number; pageY: number }>) =>
   Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY);
 
-export default function ZoomableDocumentModal({ visible, source, title, onClose }: Props) {
+export default function ZoomableDocumentModal({ visible, source, title, onClose, onSwipe }: Props) {
+  const swipe = useRef(onSwipe);
+  swipe.current = onSwipe;
+  const pinch = useRef(false);
+  const [failedUri, setFailedUri] = useState<string>();
   const scaleValue = useRef(new Animated.Value(1)).current;
   const xValue = useRef(new Animated.Value(0)).current;
   const yValue = useRef(new Animated.Value(0)).current;
@@ -57,9 +62,11 @@ export default function ZoomableDocumentModal({ visible, source, title, onClose 
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => { pinch.current = false; },
     onPanResponderMove: (event) => {
       const touches = event.nativeEvent.touches;
       if (touches.length >= 2) {
+        pinch.current = true;
         const nextDistance = distance(touches);
         if (gesture.current.count !== 2) {
           gesture.current = { count: 2, distance: nextDistance, baseScale: scale.current, x: 0, y: 0 };
@@ -74,7 +81,12 @@ export default function ZoomableDocumentModal({ visible, source, title, onClose 
         gesture.current = { ...gesture.current, count: 1, x: pageX, y: pageY };
       }
     },
-    onPanResponderRelease: () => { gesture.current.count = 0; },
+    onPanResponderRelease: (_, movement) => {
+      gesture.current.count = 0;
+      if (!pinch.current && scale.current === 1 && Math.abs(movement.dx) > 40 && Math.abs(movement.dx) > Math.abs(movement.dy)) {
+        swipe.current?.(movement.dx < 0 ? 1 : -1);
+      }
+    },
     onPanResponderTerminate: () => { gesture.current.count = 0; },
   })).current;
 
@@ -84,10 +96,15 @@ export default function ZoomableDocumentModal({ visible, source, title, onClose 
       <View style={styles.container}>
         <View style={styles.canvas} onLayout={(event) => { viewport.current = event.nativeEvent.layout; }} {...responder.panHandlers}>
           {source && <Animated.Image
+            key={source.uri}
             source={source}
+            onError={() => setFailedUri(source.uri)}
             resizeMode="contain"
             style={[styles.image, { transform: [{ translateX: xValue }, { translateY: yValue }, { scale: scaleValue }] }]}
           />}
+          {!!source?.uri && failedUri === source.uri && (
+            <Text accessibilityRole="alert" style={styles.imageError}>No se pudo abrir esta imagen.</Text>
+          )}
         </View>
         <View style={styles.header} pointerEvents="box-none">
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
@@ -112,6 +129,7 @@ export default function ZoomableDocumentModal({ visible, source, title, onClose 
 }
 
 const styles = StyleSheet.create({
+  imageError: { position: 'absolute', alignSelf: 'center', top: '50%', color: '#FFFFFF' },
   container: { flex: 1, backgroundColor: '#111111' },
   canvas: { flex: 1, overflow: 'hidden' },
   image: { width: '100%', height: '100%' },

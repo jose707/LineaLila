@@ -1,191 +1,89 @@
-// src/screens/ForgotPasswordPantalla.tsx
-import React, { useState as usarEstado } from "react";
-import {
-  View as Vista,
-  StyleSheet as EstiloHoja,
-  TextInput as TextoEntrada,
-  TouchableOpacity as PulsableOpacidad,
-  Text as Texto,
-  ScrollView as DesplazableVista,
-  ActivityIndicator as ActividadIndicador,
-  Alert } from
-"react-native";
-import { COLORS as Colores } from "../theme/colors";
-import type { NativeStackScreenProps as NativoPilaPantallaPropiedades } from "@react-navigation/native-stack";
+import React, { useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Mail, X } from 'lucide-react-native';
+import { usarAjustes } from '../context/AjustesContexto';
+import type { AutenticacionPilaParametroLista } from '../navigation/AutenticacionNavegador';
+import { COLORS as Colores } from '../theme/colors';
 
-type OlvidoContrasenaPantallaPropiedades = NativoPilaPantallaPropiedades<any, "ForgotPassword">;
+export default function OlvidadaContrasenaPantalla({ navigation }: NativeStackScreenProps<AutenticacionPilaParametroLista, 'ForgotPassword'>) {
+  const { settings: { darkMode: oscuro } } = usarAjustes();
+  const [correo, establecerCorreo] = useState('');
+  const [aviso, establecerAviso] = useState('');
+  const colorFondo = oscuro ? '#121212' : '#FFFFFF';
+  const texto = { color: oscuro ? '#FFFFFF' : '#111118' };
+  const secundario = { color: oscuro ? '#BDBDC7' : '#666675' };
 
-function OlvidadaContrasenaPantalla({
-  navigation: navegacion
-}: OlvidoContrasenaPantallaPropiedades) {
-  const [correo, establecerCorreo] = usarEstado("");
-  const [cargando, establecerCargando] = usarEstado(false);
-  const [enviado, establecerEnviado] = usarEstado(false);
-
-  const manejarEnviarRestablecer = async () => {
-    if (!correo) {
-      Alert.alert("Error", "Por favor ingresa tu correo electrónico");
+  const solicitarEnlace = () => {
+    if (!correo.trim()) {
+      establecerAviso('Ingresa tu correo electrónico.');
       return;
     }
 
-    try {
-      establecerCargando(true);
-      // Call forgot password API
-      // await authService.forgotPassword(email);
-      establecerEnviado(true);
-      Alert.alert(
-        "Éxito",
-        "Se envió un enlace de recuperación a tu correo electrónico"
-      );
-      setTimeout(() => navegacion.goBack(), 2000);
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "No se pudo enviar el correo");
-    } finally {
-      establecerCargando(false);
-    }
+    Keyboard.dismiss();
+    establecerAviso('La recuperación por correo aún no está disponible.');
   };
 
   return (
-    <DesplazableVista style={estilos.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
-      <Vista style={estilos.header}>
-        <PulsableOpacidad
-          onPress={() => navegacion.goBack()}
-          style={estilos.backButton}>
+    <SafeAreaView style={[s.pantalla, { backgroundColor: colorFondo }]}>
+      <StatusBar barStyle={oscuro ? 'light-content' : 'dark-content'} backgroundColor={colorFondo} />
+      <View style={s.cabecera}>
+        <Pressable onPress={() => navigation.goBack()} style={s.control} accessibilityRole="button" accessibilityLabel="Cerrar">
+          <X size={24} color={texto.color} strokeWidth={2.8} />
+        </Pressable>
+        <Text style={[s.titulo, texto]} accessibilityRole="header">Recuperar contraseña</Text>
+        <View style={s.control} />
+      </View>
 
-          <Texto style={estilos.backText}>← Atrás</Texto>
-        </PulsableOpacidad>
-        <Texto style={estilos.title}>Recuperar Contraseña</Texto>
-        <Texto style={estilos.subtitle}>
-          Ingresa tu correo y te enviaremos un enlace para resetear tu
-          contraseña
-        </Texto>
-      </Vista>
+      <KeyboardAvoidingView style={s.cuerpo} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={s.contenido} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={[s.descripcion, secundario]}>Ingresa el correo asociado a tu cuenta.</Text>
+          <View style={s.grupo}>
+            <Text style={[s.etiqueta, texto]}>Correo electrónico</Text>
+            <View style={[s.campo, oscuro && s.campoOscuro]}>
+              <View style={s.iconoCampo}><Mail size={21} color={secundario.color} strokeWidth={2.5} /></View>
+              <View style={[s.separador, oscuro && s.separadorOscuro]} />
+              <TextInput style={[s.entrada, texto]} accessibilityLabel="Correo electrónico"
+                placeholder="Tu correo electrónico" placeholderTextColor={secundario.color}
+                keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email"
+                value={correo} onChangeText={valor => { establecerCorreo(valor); establecerAviso(''); }} />
+            </View>
+          </View>
 
-      {/* Form */}
-      <Vista style={estilos.form}>
-        <Vista style={estilos.inputGroup}>
-          <Texto style={estilos.label}>Correo Electrónico</Texto>
-          <TextoEntrada
-            style={estilos.input}
-            placeholder="tu@email.com"
-            placeholderTextColor="#999"
-            keyboardType="email-address"
-            value={correo}
-            onChangeText={establecerCorreo}
-            editable={!cargando}
-            autoCapitalize="none" />
+          <Pressable style={s.boton} onPress={solicitarEnlace} accessibilityRole="button">
+            <Text style={s.botonTexto}>Enviar enlace</Text>
+          </Pressable>
 
-        </Vista>
+          {!!aviso && <Text style={[s.descripcion, secundario]} accessibilityRole="alert" accessibilityLiveRegion="polite">{aviso}</Text>}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
 
-        <PulsableOpacidad
-          style={[estilos.button, cargando && estilos.buttonDisabled]}
-          onPress={manejarEnviarRestablecer}
-          disabled={cargando}
-          activeOpacity={0.8}>
-
-          {cargando ?
-          <ActividadIndicador color="#FFF" size="small" /> :
-
-          <Texto style={estilos.buttonText}>Enviar Enlace</Texto>
-          }
-        </PulsableOpacidad>
-
-        {enviado &&
-        <Vista style={estilos.successMessage}>
-            <Texto style={estilos.successText}>
-              ✓ Revisa tu correo electrónico para las instrucciones de
-              recuperación
-            </Texto>
-          </Vista>
-        }
-      </Vista>
-    </DesplazableVista>);
-
-}export { OlvidadaContrasenaPantalla as default };
-
-const estilos = EstiloHoja.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF"
+const s = StyleSheet.create({
+  pantalla: { flex: 1 },
+  cuerpo: { flex: 1 },
+  cabecera: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  control: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  titulo: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '700' },
+  contenido: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32, gap: 16 },
+  descripcion: { fontSize: 14, lineHeight: 20 },
+  grupo: { gap: 6 },
+  etiqueta: { fontSize: 14, fontWeight: '600' },
+  campo: {
+    flexDirection: 'row', alignItems: 'center', minHeight: 58, borderWidth: 1,
+    borderColor: '#EAEAF0', borderRadius: 13, backgroundColor: '#FFFFFF', overflow: 'hidden'
   },
-  header: {
-    paddingTop: 20,
-    paddingBottom: 30,
-    paddingHorizontal: 24
+  campoOscuro: { borderColor: '#414141', backgroundColor: '#222222' },
+  iconoCampo: { width: 52, alignItems: 'center', justifyContent: 'center' },
+  separador: { width: 1, height: 28, backgroundColor: '#EAEAF0' },
+  separadorOscuro: { backgroundColor: '#414141' },
+  entrada: { flex: 1, paddingHorizontal: 14, paddingVertical: 13, fontSize: 18, fontWeight: '600' },
+  boton: {
+    minHeight: 54, borderRadius: 12, padding: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colores.primary
   },
-  backButton: {
-    marginBottom: 20
-  },
-  backText: {
-    color: Colores.primary,
-    fontSize: 14,
-    fontWeight: "600"
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colores.primary,
-    marginBottom: 8
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "400",
-    lineHeight: 20
-  },
-  form: {
-    paddingHorizontal: 24
-  },
-  inputGroup: {
-    marginBottom: 24
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: "#333"
-  },
-  button: {
-    backgroundColor: Colores.primary,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: Colores.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4
-  },
-  buttonDisabled: {
-    opacity: 0.6
-  },
-  buttonText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "600"
-  },
-  successMessage: {
-    marginTop: 20,
-    padding: 12,
-    backgroundColor: "#E8F5E9",
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: "#4CAF50"
-  },
-  successText: {
-    color: "#2E7D32",
-    fontSize: 14,
-    fontWeight: "500"
-  }
+  botonTexto: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', textAlign: 'center' }
 });

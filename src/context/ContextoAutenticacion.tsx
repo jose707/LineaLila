@@ -3,16 +3,18 @@ import React, {
   createContext as crearContexto,
   useState as usarEstado,
   useEffect as usarEfecto,
+  useRef,
   ReactNode,
   useCallback as usarFuncionRetorno } from
 'react';
-import { Alert, Platform as Plataforma, PermissionsAndroid as PermisosAndroid, NativeModules as NativoModules } from 'react-native';
+import { Alert, AppState, Keyboard, Platform as Plataforma, PermissionsAndroid as PermisosAndroid, NativeModules as NativoModules } from 'react-native';
 import { autenticacionServicio } from "../services/autenticacion.servicio";
 import { alFcmTokenRenovar, alPrimerPlanoNotificacion } from "../services/firebase.servicio";
 import { AlmacenamientoAuxiliar } from '../services/storage';
 import { Usuario, UsuarioRol } from "../types/modelos";
 import { IngresarSolicitud, RegistrarseSolicitud } from '../types/api';
 import { socketServicio } from "../services/socket.servicio";
+import api, { alDesactivarCuenta } from '../services/api.cliente';
 
 export interface AutenticacionContextoTipo {
   user: Usuario | null;
@@ -21,6 +23,9 @@ export interface AutenticacionContextoTipo {
   isAuthenticated: boolean;
   role: UsuarioRol | null;
   isDriverMode: boolean;
+  mensajeCuentaDesactivada: string | null;
+  cerrarAvisoCuentaDesactivada: () => void;
+  mostrarCuentaDesactivadaAlIngresar: (error: unknown) => boolean;
   phoneVerifiedToastVisible: boolean;
   showPhoneVerifiedToast: () => void;
   hidePhoneVerifiedToast: () => void;
@@ -37,6 +42,7 @@ export interface AutenticacionContextoTipo {
 }
 
 const AutenticacionContexto = crearContexto<AutenticacionContextoTipo | null>(null);export { AutenticacionContexto };
+const mensajeCuentaDesactivadaServidor = 'Tu cuenta ha sido deshabilitada. Contacta al administrador para más información.';
 
 const solicitudInicialPermisos = async () => {
   if (Plataforma.OS === 'android') {
@@ -86,6 +92,42 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
     establecerEsCargando(true);
   }, []);
   const [esConductorModo, establecerEsConductorModo] = usarEstado(false);
+  const desactivadaAlAbrir = useRef(false);
+  const [mensajeCuentaDesactivada, establecerMensajeCuentaDesactivada] = usarEstado<string | null>(null);
+  const cerrarAvisoCuentaDesactivada = usarFuncionRetorno(() => establecerMensajeCuentaDesactivada(null), []);
+  const mostrarCuentaDesactivadaAlIngresar = usarFuncionRetorno((error: unknown) => {
+    const respuesta = error as { status?: number; data?: { code?: string; error?: unknown } } | null;
+    const mensaje = respuesta?.data?.error;
+    if (respuesta?.status !== 403 ||
+      (respuesta.data?.code !== 'CUENTA_DESACTIVADA' && mensaje !== mensajeCuentaDesactivadaServidor)) return false;
+
+    Keyboard.dismiss();
+    establecerMensajeCuentaDesactivada(typeof mensaje === 'string' && mensaje.trim() ? mensaje : mensajeCuentaDesactivadaServidor);
+    return true;
+  }, []);
+
+  const limpiarSesionLocal = usarFuncionRetorno(() => {
+    establecerUsuario(null);
+    establecerToken(null);
+    establecerEsConductorModo(false);
+    AlmacenamientoAuxiliar.quitarElemento('activeRideState');
+    socketServicio.desconectar();
+    if (Plataforma.OS === 'android') NativoModules.ActiveRideLocationModule?.stop('');
+  }, []);
+
+  usarEfecto(() => alDesactivarCuenta(mensaje => {
+    desactivadaAlAbrir.current = true;
+    establecerMensajeCuentaDesactivada(mensaje.trim() || 'Contacta a soporte de Línea Lila para más información.');
+    limpiarSesionLocal();
+  }), [limpiarSesionLocal]);
+
+  usarEfecto(() => {
+    if (!token) return;
+    const suscripcion = AppState.addEventListener('change', estado => {
+      if (estado === 'active') void api.obtener('/autenticacion/sesion').catch(() => {});
+    });
+    return () => suscripcion.remove();
+  }, [token]);
 
   // Inicializar sesión al montar
   usarEfecto(() => {
@@ -101,6 +143,7 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
           // Intentar validar el token con el backend
           establecerToken(guardadoToken);
           const recienteUsuario = await autenticacionServicio.consultarUsuarioActual();
+          if (desactivadaAlAbrir.current) return;
 
           if (recienteUsuario) {
             console.log(
@@ -234,20 +277,11 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
     try {
       establecerEsCargando(true);
       await autenticacionServicio.salir();
-      establecerUsuario(null);
-      establecerToken(null);
-      establecerEsConductorModo(false);
-
-      // 🗑️ Limpiar estado de solicitud activa
-      AlmacenamientoAuxiliar.quitarElemento('activeRideState');
-      // 🔌 Desconectar WebSocket
-      socketServicio.desconectar();
-      if (Plataforma.OS === 'android') NativoModules.ActiveRideLocationModule?.stop('');
-      console.log('🗑️ [AuthContext] Estado de solicitud limpiado en logout');
+      limpiarSesionLocal();
     } finally {
       establecerEsCargando(false);
     }
-  }, []);
+  }, [limpiarSesionLocal]);
 
   const registrarse = usarFuncionRetorno(async (datos: RegistrarseSolicitud): Promise<Usuario> => {
     try {
@@ -315,6 +349,9 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
     isAuthenticated: !!token && !!usuario,
     role: usuario?.rol || null,
     isDriverMode: esConductorModo,
+    mensajeCuentaDesactivada,
+    cerrarAvisoCuentaDesactivada,
+    mostrarCuentaDesactivadaAlIngresar,
     phoneVerifiedToastVisible: telefonoVerificadoAvisoVisible,
     showPhoneVerifiedToast: mostrarTelefonoVerificadoAviso,
     hidePhoneVerifiedToast: ocultarTelefonoVerificadoAviso,

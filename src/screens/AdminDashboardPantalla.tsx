@@ -20,6 +20,7 @@ import {
   ChevronRight as ChevronDerecha,
   LogOut as RegistroOut,
   TriangleAlert,
+  Bell,
   ArrowUpRight as ArrowUpDerecha } from
 'lucide-react-native';
 import { NativeStackNavigationProp as NativoPilaNavegacionProp } from '@react-navigation/native-stack';
@@ -327,8 +328,10 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
         <SeccionEtiqueta text="GESTIÓN" />
         <NavFila label="Solicitudes de conductores" description="Revisar y aprobar solicitudes" icon={ClipboardLista} badge={estadisticas.pendingApprovals} onPress={() => navegacion.navigate('AdminDriverRegistration')} />
         <NavFila label="Gestión de usuarios" description="Ver, editar y administrar usuarios" icon={Usuarios} onPress={() => navegacion.navigate('AdminUsers')} />
+        <NavFila label="Notificaciones" description="Enviar avisos y consultar los envíos" icon={Bell} onPress={() => navegacion.navigate('AdminNotifications')} />
         <NavFila label="Gestión de conductores" description="Consultar permisos, vehículos y comisiones" icon={Car} onPress={() => navegacion.navigate('AdminDrivers')} />
         <NavFila label="Gestión de viajes" description="Monitorear viajes y disputas" icon={MapaPin} onPress={() => navegacion.navigate('AdminRides')} />
+        <NavFila label="Zonas de operación" description="Configurar tarifas y comisiones por zona" icon={MapaPin} onPress={() => navegacion.navigate('ZonasOperacion')} />
         <NavFila label="Pagos e ingresos" description="Ver transacciones y pagos" icon={CreditCard} onPress={() => navegacion.navigate('AdminPayments')} />
         <NavFila label="Análisis y reportes" description="Ver estadísticas detalladas" icon={BarChart2} onPress={() => navegacion.navigate('AdminAnalytics')} />
       </DesplazableVista>

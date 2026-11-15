@@ -21,7 +21,8 @@ import {
   Image as Imagen,
   RefreshControl as RenovarControl,
   Platform as Plataforma,
-  AppState as AplicacionEstado } from
+  AppState as AplicacionEstado,
+  Vibration } from
 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import MapaVista, { Marker, LatLng as LatitudLongitud, Polyline } from 'react-native-maps';
@@ -30,7 +31,7 @@ import { useNavigation as usarNavegacion, useFocusEffect as usarEnfoqueEfecto } 
 import type { NativeStackNavigationProp as NativoPilaNavegacionPropiedad } from '@react-navigation/native-stack';
 import {
   Bell,
-  CircleHelp as CircleAyuda,
+  Headphones,
   History as Historial,
   Menu,
   MessageCircle as MensajeCircle,
@@ -44,6 +45,7 @@ import {
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import usarViajes from "../hooks/usarRides";
 import { viajesServicio } from "../services/viajes.servicio";
+import { usarAjustes } from '../context/AjustesContexto';
 import socketServicio from "../services/socket.servicio";
 import { desconectarConductorEnSegundoPlano as disconnectConductorEnFondo } from "../services/conductorDisponibilidad.servicio";
 
@@ -149,27 +151,8 @@ const ConductorViajeSolicitudPantalla = () => {
   const navegacion = usarNavegacion<NativoPilaNavegacionPropiedad<any>>();
   const margenes = usarSeguraZonaMargenes();
   const { user: usuario, isDriverMode: esConductorModo } = usarAutenticacion();
+  const { settings: { vibrarNuevasOfertas } } = usarAjustes();
   const { obtenerSolicitudesViaje: obtenerViajeSolicitudes } = usarViajes();
-
-  // Restricción: DriverRideRequestScreen solo para conductores
-  usarEnfoqueEfecto(
-    React.useCallback(() => {
-      if (!esConductorModo) {
-        Alert.alert(
-          'Acceso denegado',
-          'Solo los conductores aprobados pueden aceptar viajes. Cambia a modo conductor en tu perfil.',
-          [
-          {
-            text: 'Ir a perfil',
-            onPress: () => navegacion.navigate('Profile')
-          }]
-
-        );
-        // Redirigir a Map
-        (navegacion as any).navigate('Map');
-      }
-    }, [esConductorModo, navegacion])
-  );
 
   const [esDisponible, establecerEsDisponible] = usarEstado(() => socketServicio.esConductorConectado());
   const [rapidoReserva, establecerRapidoReserva] = usarEstado<RapidoAsignacionViaje | null>(null);
@@ -179,6 +162,7 @@ const ConductorViajeSolicitudPantalla = () => {
   const rapidoNavegacionReferencia = usarReferencia<string | null>(null);
 
   usarEnfoqueEfecto(usarFuncionRetorno(() => {
+    if (!esConductorModo) return;
     let activo = true;
     let renovando = false;
     rapidoNavegacionReferencia.current = null;
@@ -186,13 +170,16 @@ const ConductorViajeSolicitudPantalla = () => {
       if (renovando) return;
       renovando = true;
       try {
-        const datos = await viajesServicio.obtenerAsignacionRapidaActual('conductor');
-        const viaje = datos.ride;
+        const confirmado = await viajesServicio.obtenerViajeActivo('conductor', usuario?.id);
         if (!activo) return;
-        establecerRapidoSegundosRestantes(tiempoRestanteReserva(datos));
-        if (viaje?.status === 'solicitado') {
-          rapidoReservaReferencia.current = viaje;
-          establecerRapidoReserva(viaje);
+        const datos = confirmado ? null : await viajesServicio.obtenerAsignacionRapidaActual('conductor');
+        if (!activo) return;
+        const reserva = datos?.ride;
+        const viaje = confirmado ?? reserva;
+        establecerRapidoSegundosRestantes(datos ? tiempoRestanteReserva(datos) : 0);
+        if (reserva?.status === 'solicitado') {
+          rapidoReservaReferencia.current = reserva;
+          establecerRapidoReserva(reserva);
           establecerReservaAviso('');
           establecerMostrarDetallesModal(false);
           establecerSeleccionadoViaje(null);
@@ -206,7 +193,7 @@ const ConductorViajeSolicitudPantalla = () => {
           establecerRapidoReserva(null);
           if (viaje && rapidoNavegacionReferencia.current !== viaje.id) {
             rapidoNavegacionReferencia.current = viaje.id;
-            navegacion.navigate('ActiveRide', { rideId: viaje.id });
+            navegacion.navigate('DriverActiveRide', { rideId: viaje.id });
           }
         }
       } catch {/* Keep a known reservation blocked until the server confirms its release. */} finally
@@ -217,7 +204,7 @@ const ConductorViajeSolicitudPantalla = () => {
     ['ride:assignment']
     );
     return () => {activo = false;parada();};
-  }, [navegacion, esDisponible]));
+  }, [navegacion, esDisponible, esConductorModo, usuario?.id]));
 
   const [esCargando, establecerEsCargando] = usarEstado(true);
   const [disponibilidadPendiente, establecerDisponibilidadPendiente] = usarEstado<'online' | 'offline' | null>(null);
@@ -250,6 +237,7 @@ const ConductorViajeSolicitudPantalla = () => {
   const esMontadoReferencia = usarReferencia(true);
   const solicitudesRevisionReferencia = usarReferencia(0);
   const rechazadoViajeIdsReferencia = usarReferencia(new Set<string>());
+  const ultimaOfertaAvisada = usarReferencia(new Set<string>());
   const seleccionadoViajeReferencia = usarReferencia<ViajeSolicitud | null>(null);
 
   usarEfecto(() => {
@@ -391,6 +379,13 @@ const ConductorViajeSolicitudPantalla = () => {
           solicitudesRevisionReferencia.current++;
           establecerViajes((anterior) => anterior.some((viaje) => viaje.rideId === datos.rideId) ? anterior : [nuevoViaje, ...anterior]);
           establecerEsCargando(false);
+          const avisadas = ultimaOfertaAvisada.current;
+          if (vibrarNuevasOfertas && AplicacionEstado.currentState === 'active' && datos.rideId && !avisadas.has(datos.rideId)) {
+            avisadas.add(datos.rideId);
+            const masAntigua = avisadas.values().next().value;
+            if (avisadas.size > 100 && masAntigua) avisadas.delete(masAntigua);
+            Vibration.vibrate(200);
+          }
         };
 
         socketServicio.al('ride:new_request', manejarNuevoSolicitud);
@@ -404,7 +399,7 @@ const ConductorViajeSolicitudPantalla = () => {
       }
 
       return () => {};
-    }, [esDisponible, mostrarEsperandoCapa, rapidoReserva])
+    }, [esDisponible, mostrarEsperandoCapa, rapidoReserva, vibrarNuevasOfertas])
   );
 
   usarEfecto(() => {
@@ -590,7 +585,7 @@ const ConductorViajeSolicitudPantalla = () => {
         establecerRealOfertaId(null);
         establecerOfertaRechazado(false);
         establecerOfertaEstado('waiting');
-        navegacion.navigate('ActiveRide', {
+        navegacion.navigate('DriverActiveRide', {
           rideId: esperandoViaje.rideId,
           confirmationMessage: '¡Oferta aceptada!'
         });
@@ -855,40 +850,29 @@ const ConductorViajeSolicitudPantalla = () => {
     }
   };
 
-  const representarVacioEstado = () =>
-  <Vista style={[estilos.emptyStateArea, !esDisponible && estilos.emptyStateAreaOffline]}>
-      <Vista style={[estilos.emptyStateCard, !esDisponible && estilos.emptyStateCardOffline]}>
-        <Vista style={estilos.emptyStateTopRow}>
-          <Vista style={[estilos.emptyStateIcon, !esDisponible && estilos.emptyStateIconOffline]}>
-            {esDisponible ?
-          esCargando ? <ActividadIndicador size="small" color={THEME.primary} /> : <Radio size={28} color={THEME.primary} /> :
+  const representarVacioEstado = () => {
+    const buscandoOfertas = esDisponible && esCargando;
+    const IconoEstado = esDisponible ? Radio : Power;
+    const titulo = !esDisponible ? 'Estás fuera de servicio' : buscandoOfertas
+      ? 'Buscando ofertas cercanas' : 'Sin ofertas por ahora';
 
-          <Power size={28} color="#64748B" />
-          }
-          </Vista>
-          <Vista style={[estilos.emptyStateBadge, !esDisponible && estilos.emptyStateBadgeOffline]}>
-            <Vista style={[estilos.emptyStateDot, !esDisponible && estilos.emptyStateDotOffline]} />
-            <Texto style={[estilos.emptyStateBadgeText, !esDisponible && estilos.emptyStateBadgeTextOffline]}>
-              {esDisponible ? 'EN LÍNEA' : 'DESCONECTADO'}
-            </Texto>
-          </Vista>
+    return (
+      <Vista style={estilos.emptyStateCard} accessibilityLiveRegion="polite" accessibilityState={{ busy: buscandoOfertas }}>
+        <Vista style={estilos.emptyStateIcon}>
+          {buscandoOfertas ? <ActividadIndicador color={THEME.primary} /> : (
+            <IconoEstado size={34} color={esDisponible ? THEME.primary : '#666675'} strokeWidth={2.5} />
+          )}
         </Vista>
-        <Texto style={estilos.emptyStateTitle}>
-          {esDisponible ? esCargando ? 'Buscando ofertas cercanas' : 'Sin ofertas por ahora' : 'Estás fuera de servicio'}
-        </Texto>
-        <Texto style={estilos.emptyStateDescription}>
-          {esDisponible ?
-        'Las nuevas solicitudes de viaje en tu zona aparecerán aquí.' :
-        'Mientras estés desconectado no recibirás solicitudes de viaje.'}
-        </Texto>
-        <Vista style={estilos.emptyStateDivider} />
-        <Texto style={estilos.emptyStateHint}>
-          {esDisponible ?
-        'Mantente en línea para recibir la próxima oferta.' :
-        'Toca «En servicio» abajo para volver a conectarte.'}
-        </Texto>
+        <Texto style={estilos.emptyStateTitle} accessibilityRole="header">{titulo}</Texto>
+        {!buscandoOfertas && (
+          <Texto style={estilos.emptyStateDescription}>
+            {esDisponible ? 'Las nuevas solicitudes de tu zona aparecerán aquí.' :
+              'Toca «En servicio» para empezar a recibir solicitudes de viaje.'}
+          </Texto>
+        )}
       </Vista>
-    </Vista>;
+    );
+  };
 
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -897,40 +881,42 @@ const ConductorViajeSolicitudPantalla = () => {
       {/* Header */}
       <Vista style={estilos.header}>
         <PulsableOpacidad
-          onPress={() => navegacion.navigate('Profile')}
+          onPress={() => navegacion.navigate('PerfilConductorPantalla')}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir perfil de conductor"
           style={estilos.headerIconBtn}
           activeOpacity={0.7}>
 
-          <Menu size={20} color={THEME.text} />
+          <Menu size={24} color={THEME.text} strokeWidth={2.8} />
         </PulsableOpacidad>
 
         <Vista style={estilos.headerCenter}>
           <Texto style={estilos.headerTitle}>Panel conductor</Texto>
-          <Texto
-            style={[estilos.headerSubtitle, esDisponible && viajes.length > 0 && estilos.headerSubtitleOffers]}
-            numberOfLines={1}>
-
-            {!esDisponible ?
-            'Activa el servicio para recibir ofertas' :
-            viajes.length > 0 ?
-            `${viajes.length} ${viajes.length === 1 ? 'oferta disponible' : 'ofertas disponibles'}` :
-            esCargando ? 'Buscando ofertas cercanas' : 'Esperando nuevas ofertas'}
-          </Texto>
+          {esDisponible && viajes.length > 0 && (
+            <Texto style={estilos.headerSubtitle} numberOfLines={1}>
+              {`${viajes.length} ${viajes.length === 1 ? 'oferta disponible' : 'ofertas disponibles'}`}
+            </Texto>
+          )}
         </Vista>
 
         <PulsableOpacidad
           onPress={() => navegacion.navigate('Support')}
           style={estilos.headerIconBtn}
           activeOpacity={0.7}
+          accessibilityRole="button"
           accessibilityLabel="Ayuda y Soporte">
 
-          <CircleAyuda size={20} color={THEME.textSecondary} />
+          <Headphones size={24} color={THEME.text} strokeWidth={2.5} />
         </PulsableOpacidad>
       </Vista>
 
       {/* Main Body */}
       <Vista style={{ flex: 1 }}>
-        {!esDisponible ? representarVacioEstado() :
+        {!esDisponible ? (
+          <DesplazableVista contentContainerStyle={[estilos.list, estilos.emptyList]} showsVerticalScrollIndicator={false}>
+            {representarVacioEstado()}
+          </DesplazableVista>
+        ) :
         <FlatLista
           data={viajes}
           renderItem={representarViajeTarjeta}
@@ -1316,10 +1302,8 @@ const estilos = EstiloHoja.create({
     borderBottomColor: '#F1F5F9'
   },
   headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center'
   },
@@ -1338,11 +1322,8 @@ const estilos = EstiloHoja.create({
   headerSubtitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#64748B',
+    color: THEME.primary,
     marginTop: 2
-  },
-  headerSubtitleOffers: {
-    color: THEME.primary
   },
 
   list: {
@@ -1588,95 +1569,30 @@ const estilos = EstiloHoja.create({
   },
 
   // ─── Empty driver states ───
-  emptyStateArea: {
-    paddingHorizontal: 6
-  },
-  emptyStateAreaOffline: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 95
-  },
   emptyStateCard: {
-    backgroundColor: '#FBF8FF',
-    borderWidth: 1,
-    borderColor: '#EDE2F7',
-    borderRadius: 26,
-    padding: 24
-  },
-  emptyStateCardOffline: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0'
-  },
-  emptyStateTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 22
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    gap: 8
   },
   emptyStateIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: 19,
-    backgroundColor: '#EFE3FB',
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center'
   },
-  emptyStateIconOffline: {
-    backgroundColor: '#E8EDF3'
-  },
-  emptyStateBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#EDE2F7'
-  },
-  emptyStateBadgeOffline: {
-    backgroundColor: '#E8EDF3'
-  },
-  emptyStateDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: THEME.primary
-  },
-  emptyStateDotOffline: {
-    backgroundColor: '#94A3B8'
-  },
-  emptyStateBadgeText: {
-    color: THEME.primary,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5
-  },
-  emptyStateBadgeTextOffline: {
-    color: '#64748B'
-  },
   emptyStateTitle: {
-    color: THEME.text,
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 8
+    color: '#111118',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center'
   },
   emptyStateDescription: {
-    color: THEME.textSecondary,
-    fontSize: 15,
-    lineHeight: 22
-  },
-  emptyStateDivider: {
-    height: 1,
-    backgroundColor: '#E6E0EB',
-    marginVertical: 20
-  },
-  emptyStateHint: {
-    color: '#475569',
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 19
+    color: '#666675',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center'
   },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end' },
   quickAssignmentOverlay: { flex: 1, backgroundColor: 'rgba(25, 10, 35, 0.65)' },

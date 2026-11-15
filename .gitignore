@@ -78,3 +78,6 @@ yarn-error.log
 backend/.env
 backend/serviceAccountKey.json
 /backend/
+
+# Native build staging with short Windows paths
+/android/.cxx-camera-worklets/

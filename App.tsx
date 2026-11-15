@@ -28,7 +28,7 @@ const ViajeNotificacionOpener = () => {
       if (!viajeId) return;
       const navigateWhenListo = (intento = 0) => {
         if (!activo) return;
-        if (navegacionReferencia.isReady()) navegacionReferencia.navigate('ActiveRide', { rideId: viajeId });else
+        if (navegacionReferencia.isReady() && navegacionReferencia.getRootState()?.routeNames.includes('DriverActiveRide')) navegacionReferencia.navigate('DriverActiveRide', { rideId: viajeId });else
         if (intento < 20) setTimeout(() => navigateWhenListo(intento + 1), 100);
       };
       navigateWhenListo();

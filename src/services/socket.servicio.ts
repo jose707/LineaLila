@@ -2,6 +2,7 @@
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from "../config/constantes";
 import { AlmacenamientoAuxiliar } from './storage';
+import { cerrarCuentaDesactivada } from './api.cliente';
 
 export interface ContenidoUbicacionConductor {
   rideId?: string;
@@ -48,6 +49,12 @@ class SocketServicio {
       timeout: 15000,
       forceNew: false
     });
+    const conexion = this.socket;
+    const manejarCuentaDesactivada = ({ error }: { error?: string }) => {
+      const auth = conexion.auth;
+      cerrarCuentaDesactivada(typeof auth === 'object' ? auth.token : undefined, error);
+    };
+    conexion.on('cuenta:desactivada', manejarCuentaDesactivada);
 
     this.socket.on('connect', () => {
       console.log('🔌 [Socket] Connected:', this.socket?.id);
@@ -64,6 +71,8 @@ class SocketServicio {
     });
 
     this.socket.on('connect_error', (error) => {
+      const datos = (error as Error & { data?: { code?: string; error?: string } }).data;
+      if (datos?.code === 'CUENTA_DESACTIVADA') manejarCuentaDesactivada(datos);
       console.warn('⚠️ [Socket] Connection error:', error.message);
       this.esConectando = false;
     });
@@ -200,12 +209,30 @@ class SocketServicio {
   }
 
   /** Confirma con el servidor un cambio solicitado desde el control de disponibilidad. */
-  confirmarConductorDisponibilidad(
+  async confirmarConductorDisponibilidad(
   conectado: boolean,
   coordenadas?: {latitude: number;longitude: number;})
   : Promise<boolean> {
+    this.conectar();
     const socket = this.socket;
-    if (!socket?.connected) return Promise.resolve(false);
+    if (!socket) return false;
+    if (!socket.connected) {
+      const conectadoAlServidor = await new Promise<boolean>((resolver) => {
+        const terminar = (resultado: boolean) => {
+          clearTimeout(temporizador);
+          socket.off('connect', alConectar);
+          socket.off('connect_error', alFallar);
+          resolver(resultado);
+        };
+        const alConectar = () => terminar(true);
+        const alFallar = () => terminar(false);
+        const temporizador = setTimeout(() => terminar(false), 15000);
+        socket.once('connect', alConectar);
+        socket.once('connect_error', alFallar);
+        if (socket.connected) terminar(true);
+      });
+      if (!conectadoAlServidor || this.socket !== socket || !socket.connected) return false;
+    }
 
     return new Promise((resolver) => {
       socket.timeout(8000).emit(

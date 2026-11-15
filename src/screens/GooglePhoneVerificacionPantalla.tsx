@@ -159,7 +159,8 @@ function GoogleTelefonoVerificacionPantalla({
     photoURL?: string;
   };
 
-  const { loginWithToken: ingresarConToken, showPhoneVerifiedToast: mostrarTelefonoVerificadoAviso } = usarAutenticacion();
+  const { loginWithToken: ingresarConToken, showPhoneVerifiedToast: mostrarTelefonoVerificadoAviso,
+    mostrarCuentaDesactivadaAlIngresar } = usarAutenticacion();
   const margenes = usarSeguraZonaMargenes();
 
   const [telefonoFormateado, establecerTelefonoFormateado] = usarEstado('');
@@ -278,6 +279,10 @@ function GoogleTelefonoVerificacionPantalla({
       mostrarTelefonoVerificadoAviso();
       otpCompletadoReferencia.current = true;
     } catch (error: any) {
+      if (mostrarCuentaDesactivadaAlIngresar(error)) {
+        await firebaseServicio.signOut().catch(() => {});
+        return;
+      }
       Alert.alert(
         'Código incorrecto',
         error.message || 'Verifica el código e intenta de nuevo'
@@ -288,7 +293,8 @@ function GoogleTelefonoVerificacionPantalla({
       establecerCargando(false);
       establecerCargandoAccion(null);
     }
-  }, [otpCodigo, cargando, verificacionId, telefonoFormateado, correo, mostrarNombre, firebaseUid, fotoUrl, ingresarConToken, mostrarTelefonoVerificadoAviso]);
+  }, [otpCodigo, cargando, verificacionId, telefonoFormateado, correo, mostrarNombre, firebaseUid, fotoUrl,
+    ingresarConToken, mostrarTelefonoVerificadoAviso, mostrarCuentaDesactivadaAlIngresar]);
 
   const manejarReenviarOtp = async () => {
     if (reenviarTemporizador > 0 || enviandoOtpReferencia.current) return;

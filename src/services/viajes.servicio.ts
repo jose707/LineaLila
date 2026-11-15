@@ -6,6 +6,7 @@ import {
   CompletarViajeSolicitud,
   PaginadaRespuesta as PaginatedRespuesta,
   ViajeDetallesRespuesta,
+  ViajeDetalleHistorial,
   ViajeSolicitudesRespuesta,
   CancelacionMotivo,
   TarifaAjustesRespuesta } from
@@ -13,10 +14,18 @@ import {
 import { Viaje } from "../types/modelos";
 import { RapidaAsignacionRespuesta as RapidoAsignacionRespuesta } from "../types/rapidaAsignacion";
 import { desfaseRelojServidor as servidorRelojDesplazamiento } from "../utils/ofertaCountdown";
+import { AlmacenamientoAuxiliar } from './storage';
+
+type RolViaje = 'pasajero' | 'conductor';
+const claveUltimoViaje = (usuarioId: string, rol: RolViaje) => `ultimoViaje:${usuarioId}:${rol}`;
 
 const viajesServicio = {
+  compartirUbicacion: (viajeId: string) =>
+    api.post<{ruta: string}>(`/viajes/${encodeURIComponent(viajeId)}/compartir`, {}),
   registrarEmergencia: (idViaje: string, ubicacion?: {latitud: number; longitud: number}) =>
     api.post<{idAlerta: string; registradaEnCentral: boolean; contactos: {total: number; aceptados: number; fallidos: number}}>(`/viajes/${idViaje}/emergencia`, ubicacion ?? {}),
+  obtenerMiEmergencia: (idViaje: string) =>
+    api.obtener<{ idAlerta: string | null }>(`/viajes/${encodeURIComponent(idViaje)}/emergencia`),
   reservarAsignacionRapida: (datos: CrearViajeSolicitud): Promise<RapidoAsignacionRespuesta> =>
   api.post('/viajes/rapida/reservar', datos),
   obtenerAsignacionRapidaActual: (rol: 'pasajero' | 'conductor' = 'pasajero'): Promise<RapidoAsignacionRespuesta> =>
@@ -57,8 +66,11 @@ const viajesServicio = {
     }
   },
 
-  obtenerRutaViaje: (viajeId: string, recalcular = false): Promise<{polyline: string;}> =>
-  api.obtener(`/viajes/${viajeId}/ruta${recalcular ? '?recalcular=1' : ''}`),
+  obtenerDetalleHistorial: (viajeId: string) =>
+    api.obtener<ViajeDetalleHistorial>(`/viajes/${encodeURIComponent(viajeId)}`, { params: { historial: 1 } }),
+
+  obtenerRutaViaje: (viajeId: string, recalcular = false, haciaRecogida = false): Promise<{polyline: string; duration?: number | null}> =>
+  api.obtener(`/viajes/${viajeId}/ruta${haciaRecogida ? '?recogida=1' : recalcular ? '?recalcular=1' : ''}`),
 
   obtenerConfiguracionTarifas: async (latitud?: number, longitud?: number): Promise<TarifaAjustesRespuesta | null> => {
     try {
@@ -211,7 +223,8 @@ const viajesServicio = {
   obtenerHistorialViajes: async (
   _UsuarioId: string,
   pagina: number = 1,
-  limite: number = 10)
+  limite: number = 10,
+  { propagarError = false }: { propagarError?: boolean } = {})
   : Promise<any> => {
     try {
       const desplazamiento = (pagina - 1) * limite;
@@ -220,6 +233,7 @@ const viajesServicio = {
       });
       return respuesta;
     } catch (error: any) {
+      if (propagarError) throw error;
       console.warn(
         '[getRideHistory] fallo al cargar historial:',
         error?.status ?? error?.message
@@ -228,13 +242,28 @@ const viajesServicio = {
     }
   },
 
-  obtenerViajeActivo: async (): Promise<Viaje | null> => {
+  recordarViajeActivo: (usuarioId: string, rol: RolViaje, viajeId: string) => {
+    AlmacenamientoAuxiliar.establecerElemento(claveUltimoViaje(usuarioId, rol), viajeId);
+  },
+
+  olvidarViajeActivo: (usuarioId: string, rol: RolViaje, viajeId: string) => {
+    const clave = claveUltimoViaje(usuarioId, rol);
+    if (AlmacenamientoAuxiliar.obtenerElemento(clave) === viajeId) AlmacenamientoAuxiliar.quitarElemento(clave);
+  },
+
+  obtenerViajeActivo: async (rol?: RolViaje, usuarioId?: string): Promise<Viaje | null> => {
+    const clave = rol && usuarioId ? claveUltimoViaje(usuarioId, rol) : null;
+    const ultimoViajeId = clave ? AlmacenamientoAuxiliar.obtenerElemento(clave) : null;
     try {
-      const respuesta: any = await api.obtener<Viaje>('/viajes/activo');
-      return respuesta.ride || respuesta || null;
-    } catch (error) {
-      console.debug('No active ride found');
-      return null;
+      const params = rol ? { role: rol, ...(ultimoViajeId ? { ultimoViajeId } : {}) } : undefined;
+      const respuesta = await api.obtener<{ ride: Viaje | null }>('/viajes/activo', { params });
+      if (!respuesta.ride && clave && ultimoViajeId && AlmacenamientoAuxiliar.obtenerElemento(clave) === ultimoViajeId) {
+        AlmacenamientoAuxiliar.quitarElemento(clave);
+      }
+      return respuesta.ride ?? null;
+    } catch (error: any) {
+      if (error?.status === 404) return null;
+      throw error;
     }
   },
 

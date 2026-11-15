@@ -1,4 +1,3 @@
-import ConfirmarInferiorHoja from '../components/ConfirmarInferiorSheet';
 import { privadoImagenOrigen } from "../utils/privateImageOrigen";
 import React, { useState as usarEstado, useEffect as usarEfecto } from 'react';
 import {
@@ -8,6 +7,7 @@ import {
   ScrollView as DesplazableVista,
   TouchableOpacity as PulsableOpacidad,
   Alert,
+  AppState,
   Modal,
   Image as Imagen } from
 
@@ -16,21 +16,23 @@ import { SafeAreaView as SeguraZonaVista } from 'react-native-safe-area-context'
 import { useNavigation as usarNavegacion, useFocusEffect as usarEnfoqueEfecto } from '@react-navigation/native';
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import { usarAjustes } from "../context/AjustesContexto";
-import { obtenerMiSolicitudEstado as obtenerMySolicitudEstado } from "../services/admin.servicio";
+import { obtenerMiSolicitudEstado } from "../services/admin.servicio";
 import { autenticacionServicio } from "../services/autenticacion.servicio";
+import { alPrimerPlanoNotificacion } from '../services/firebase.servicio';
 import { calificacionesServicio } from "../services/ratings.servicio";
+import { InsigniaPerfilVerificado } from '../theme/icons';
 import {
   User as Usuario,
   History as Historial,
   Bell,
-  Settings as Ajustes,
   Car,
-  Wallet,
+  Clock,
+  FileWarning,
+  CircleX,
+  Settings as Ajustes,
   ChevronRight as ChevronDerecha,
-  Circle,
   X,
   Star,
-  AlertCircle,
   Headphones } from
 'lucide-react-native';
 
@@ -40,13 +42,6 @@ interface UsuarioPerfil {
   telefono: string;
   calificacion: number;
   totalViajes: number;
-}
-
-interface ConductorPerfil extends UsuarioPerfil {
-  vehicle: string;
-  plate: string;
-  documentId: string;
-  joinDate: string;
 }
 
 const Colores = {
@@ -65,14 +60,17 @@ const Colores = {
   warning: '#D97706'
 };
 
+const estadosSolicitud = {
+  pendiente: { titulo: 'Solicitud en revisión', mensaje: 'Estamos revisando tu solicitud.', icono: Clock },
+  observado: { titulo: 'Solicitud observada', mensaje: 'Hay documentos por corregir. Ver detalles.', icono: FileWarning },
+  rechazado: { titulo: 'Solicitud rechazada', mensaje: 'Consulta el motivo del rechazo.', icono: CircleX }
+};
+
 
 
 
 const PerfilPantalla = () => {
   const navegacion = usarNavegacion<any>();
-  const [confirmarSalida, establecerConfirmarSalida] = usarEstado(false);
-  const [saliendo, establecerSaliendo] = usarEstado(false);
-  const [errorSalida, establecerErrorSalida] = usarEstado('');
   const [detalleSolicitud, establecerDetalleSolicitud] = usarEstado<{
     titulo: string;
     documentos: string[];
@@ -80,225 +78,158 @@ const PerfilPantalla = () => {
     reenviar?: () => void;
   } | null>(null);
   const cerrarDetalleSolicitud = () => establecerDetalleSolicitud(null);
-  const { user: usuario, logout: salir, isDriverMode: esConductorModo, setIsDriverMode: establecerEsConductorModo, updateUser: actualizarUsuario } =
+  const { user: usuario, setIsDriverMode: establecerEsConductorModo, updateUser: actualizarUsuario } =
   usarAutenticacion();
   const { settings: ajustes } = usarAjustes();
   const esOscuro = ajustes.darkMode;
 
-  const [perfil, establecerPerfil] = usarEstado<ConductorPerfil>({
+  const [perfil, establecerPerfil] = usarEstado<UsuarioPerfil>({
     nombre: 'Usuario',
     correo: 'usuario@email.com',
     telefono: '+591 7123456',
-    vehicle: 'Toyota Corolla 2020',
-    plate: 'ABC-1234',
-    documentId: '1234567',
     calificacion: 5.0,
-    totalViajes: 0,
-    joinDate: 'Enero 2024'
+    totalViajes: 0
   });
 
-  const [conductorEstado, establecerConductorEstado] = usarEstado<{
-    hasApplication: boolean;
-    status?: string | null;
-    driver?: any;
-  } | null>(null);
-  const [cargandoConductorEstado, establecerCargandoConductorEstado] = usarEstado(true);
+  const [conductorEstado, establecerConductorEstado] = usarEstado<Awaited<ReturnType<typeof obtenerMiSolicitudEstado>> | null>(null);
+  const usuarioId = usuario?.id;
+  const [cambiandoModo, establecerCambiandoModo] = usarEstado(false);
   const [calculadoCalificacion, establecerCalculadoCalificacion] = usarEstado<number>(5.0);
 
 
   usarEfecto(() => {
     if (usuario) {
-      const totalViajes =
-      esConductorModo && usuario.totalViajesComoConductor ?
-      usuario.totalViajesComoConductor :
-      usuario.totalViajes;
-
       establecerPerfil((anterior) => ({
         ...anterior,
         nombre: usuario?.nombre ?? anterior.nombre,
         correo: usuario?.correo ?? anterior.correo,
         telefono: usuario?.telefono ?? anterior.telefono,
         calificacion: calculadoCalificacion,
-        totalViajes: totalViajes ?? anterior.totalViajes
+        totalViajes: usuario.totalViajes ?? anterior.totalViajes
       }));
     }
-  }, [usuario, esConductorModo, calculadoCalificacion]);
-
-  const cargarConductorEstado = React.useCallback(async () => {
-    try {
-      establecerCargandoConductorEstado(true);
-      const estado = await obtenerMySolicitudEstado();
-      establecerConductorEstado(estado);
-    } catch (error) {
-      console.error('Error loading driver status:', error);
-    } finally {
-      establecerCargandoConductorEstado(false);
-    }
-  }, [establecerCargandoConductorEstado, establecerConductorEstado]);
+  }, [usuario, calculadoCalificacion]);
 
   const cargarMiCalificacion = React.useCallback(async () => {
     try {
       const datos = await calificacionesServicio.obtenerMiCalificacion();
-      // Seleccionar rating según el modo actual
-      const calificacion = esConductorModo && datos.driverRating !== null ?
-      datos.driverRating :
-      datos.passengerRating;
-      const finalCalificacion = calificacion ?? 5.0;
+      const finalCalificacion = datos.passengerRating ?? 5.0;
       establecerCalculadoCalificacion(finalCalificacion);
 
-      // Viajes completados según el modo actual
-      const viajes = esConductorModo && datos.driverTrips !== undefined ?
-      datos.driverTrips :
-      datos.passengerTrips ?? 0;
-
-      establecerPerfil((anterior) => ({ ...anterior, calificacion: finalCalificacion, totalViajes: viajes }));
+      establecerPerfil((anterior) => ({ ...anterior, calificacion: finalCalificacion, totalViajes: datos.passengerTrips ?? 0 }));
     } catch (error) {
       console.error('Error loading calificacion:', error);
     }
-  }, [esConductorModo, establecerCalculadoCalificacion, establecerPerfil]);
+  }, []);
 
   usarEnfoqueEfecto(
     React.useCallback(() => {
-      cargarConductorEstado();
-      cargarMiCalificacion();
-    }, [cargarConductorEstado, cargarMiCalificacion])
+      if (!usuarioId) return;
+      let version = 0;
+      let visible = true;
+      const actualizarSolicitud = async () => {
+        const consulta = ++version;
+        try {
+          const estado = await obtenerMiSolicitudEstado({ propagarError: true });
+          if (visible && consulta === version) establecerConductorEstado(estado);
+        } catch {
+          // Conservar el último estado confirmado si falla la consulta.
+        }
+      };
+      void actualizarSolicitud();
+      void cargarMiCalificacion();
+      const app = AppState.addEventListener('change', estado => {
+        if (estado === 'active') void actualizarSolicitud();
+      });
+      const notificacion = alPrimerPlanoNotificacion((_titulo, _cuerpo, datos) => {
+        if (datos.request_id) void actualizarSolicitud();
+      });
+      return () => {
+        visible = false;
+        app.remove();
+        notificacion();
+      };
+    }, [usuarioId, cargarMiCalificacion])
   );
 
-  const manejarAlternarModo = async () => {
+  const activarModoConductor = async () => {
+    if (cambiandoModo) return;
+    establecerCambiandoModo(true);
     try {
-      if (!conductorEstado?.hasApplication || conductorEstado.status !== 'aprobado') {
-        manejarBecomeConductor();
-        return;
-      }
-      const nuevoModo = !esConductorModo;
-      const cadenaModo = nuevoModo ? 'conductor' : 'pasajero';
-
-      // Call backend to save the mode change
-      const actualizadoUsuario = await autenticacionServicio.cambiarModo(cadenaModo);
-
-      // Update auth context with new user data
+      const actualizadoUsuario = await autenticacionServicio.cambiarModo('conductor');
       if (actualizadoUsuario) {
         actualizarUsuario(actualizadoUsuario);
       }
 
-      // Update local state
-      establecerEsConductorModo(nuevoModo);
-      console.log('✅ [ProfileScreen] Modo cambiado y contexto actualizado:', {
-        newMode: nuevoModo,
-        userDriverRating: actualizadoUsuario?.calificacionConductor,
-        userRating: actualizadoUsuario?.calificacion
-      });
-
-      Alert.alert(
-        nuevoModo ? 'Modo Conductor' : 'Modo Pasajero',
-        nuevoModo ?
-        'Ahora puedes aceptar viajes' :
-        'Ahora puedes solicitar viajes',
-        [
-        {
-          text: 'Ok',
-          onPress: () =>
-          (navegacion as any).navigate(nuevoModo ? 'DriverHome' : 'Map')
-        }]
-
-      );
+      establecerEsConductorModo(true);
     } catch (error: any) {
+      if (error?.code === 'CONDUCTOR_SUSPENDIDO') {
+        navegacion.navigate('ConductorSuspendido');
+        return;
+      }
       console.error('Error al cambiar modo:', error);
       Alert.alert(
         'Error',
         error.message || 'Ocurrió un error al cambiar de modo'
       );
+    } finally {
+      establecerCambiandoModo(false);
     }
   };
 
-  const manejarBecomeConductor = async () => {
-    try {
-      establecerCargandoConductorEstado(true);
-      const estado = await obtenerMySolicitudEstado();
-      establecerConductorEstado(estado);
-      establecerCargandoConductorEstado(false);
+  const solicitudEstado = conductorEstado?.hasApplication ? conductorEstado.status : null;
+  const esAprobadoConductor = solicitudEstado === 'aprobado';
+  const estadoVisible = solicitudEstado && solicitudEstado !== 'aprobado' ? estadosSolicitud[solicitudEstado] : null;
+  const IconoSolicitud = estadoVisible?.icono ?? Car;
+  const tituloConductor = estadoVisible?.titulo ?? (esAprobadoConductor ? 'Modo conductor' : 'Conviértete en conductor');
+  const colorConductor = solicitudEstado === 'rechazado' ? '#B91C1C' :
+    solicitudEstado === 'observado' ? '#92400E' : Colores.primary;
 
-      if (estado?.hasApplication) {
-        const { status: solicitudEstado } = estado;
-        if (solicitudEstado === 'pendiente') {
-          Alert.alert(
-            'Solicitud en revisión',
-            'Tu solicitud está siendo revisada. Te notificaremos en 24–48 horas.',
-            [{ text: 'Entendido' }]
-          );
-        } else if (solicitudEstado === 'aprobado') {
-          // Save driver mode to backend
-          const actualizadoUsuario = await autenticacionServicio.cambiarModo('conductor');
-          if (actualizadoUsuario) {
-            actualizarUsuario(actualizadoUsuario);
-          }
-          establecerEsConductorModo(true);
-          console.log('✅ [ProfileScreen] Aprobado como conductor:', {
-            userDriverRating: actualizadoUsuario?.calificacionConductor,
-            userRating: actualizadoUsuario?.calificacion
-          });
-          Alert.alert('Acceso aprobado', 'Ya puedes operar como conductor.', [
-          {
-            text: 'Ok',
-            onPress: () => (navegacion as any).navigate('DriverHome')
-          }]
-          );
-        } else if (solicitudEstado === 'observado' || solicitudEstado === 'rechazado') {
-          const rechazoMotivo =
-          estado?.request?.rejectionReason || 'No especificada';
-          const rechazadoDocumentosLista = estado?.request?.rejectedDocuments || [];
-          const documentoClaveHastaNombre: {[key: string]: string;} = {
-            profilePhoto: 'Foto de perfil',
-            ciFront: 'CI Frente',
-            ciBack: 'CI Dorso',
-            licenseFront: 'Licencia de conducir',
-            licenseBack: 'Licencia de conducir',
-            ticPhoto: 'TIC',
-            antecedentsPhoto: 'Antecedentes',
-            carFront: 'Auto frente',
-            carBack: 'Auto dorso',
-            carLeft: 'Auto lateral izquierdo',
-            carRight: 'Auto lateral derecho',
-            soatPhoto: 'SOAT',
-            ruatPhoto: 'RUAT',
-            domicileProof: 'Comprobante de domicilio'
-          };
-          const rechazadoDocumentoNames = rechazadoDocumentosLista.
-          map((k: string) => documentoClaveHastaNombre[k] || k).
-          filter(Boolean);
-          const documentos = estado?.request?.documents || {};
-          const aprobadoDocumentos = Object.entries(documentos).
-          filter(([_, documento]: [string, any]) => documento?.status === 'verificado').
-          map(([clave]) => documentoClaveHastaNombre[clave] || clave).
-          filter(Boolean);
-          const puedeResubmit = solicitudEstado === 'observado' || rechazadoDocumentosLista.length > 0 || !estado?.request?.metadata?.finalRejection;
-          establecerDetalleSolicitud({
-            titulo: solicitudEstado === 'observado' ? 'Solicitud observada' : 'Solicitud rechazada',
-            motivo: rechazoMotivo,
-            documentos: [...new Set(rechazadoDocumentoNames)],
-            reenviar: puedeResubmit ? () => {
-              cerrarDetalleSolicitud();
-              establecerConductorEstado(null);
-              navegacion.navigate('DocumentoReenvio', {
-                rejectedDocs: rechazadoDocumentosLista,
-                approvedDocs: aprobadoDocumentos,
-                rejectionReason: rechazoMotivo,
-                domicilio: estado?.request?.metadata?.domicile,
-                requestStatus: solicitudEstado
-              });
-            } : undefined
-          });
-        }
-      } else {
-        navegacion.navigate('DriverRegistrationGuide', { user: usuario });
-      }
-    } catch {
-      Alert.alert('Error', 'Ocurrió un error. Intenta de nuevo.');
-    }
+  const abrirDetalleSolicitud = () => {
+    if (solicitudEstado !== 'observado' && solicitudEstado !== 'rechazado') return;
+    const solicitud = conductorEstado?.request;
+    const motivo = solicitud?.rejectionReason?.trim() || 'Motivo no especificado';
+    const rechazados = solicitud?.rejectedDocuments ?? [];
+    const nombresDocumentos: Record<string, string> = {
+      profilePhoto: 'Foto de perfil',
+      ciFront: 'CI Frente',
+      ciBack: 'CI Dorso',
+      licenseFront: 'Licencia de conducir',
+      licenseBack: 'Licencia de conducir',
+      ticPhoto: 'TIC',
+      antecedentsPhoto: 'Antecedentes',
+      carFront: 'Auto frente',
+      carBack: 'Auto dorso',
+      carLeft: 'Auto lateral izquierdo',
+      carRight: 'Auto lateral derecho',
+      soatPhoto: 'SOAT',
+      ruatPhoto: 'RUAT',
+      domicileProof: 'Comprobante de domicilio'
+    };
+    const nombreDocumento = (clave: string) => nombresDocumentos[clave] || clave;
+    const aprobados = Object.entries(solicitud?.documents ?? {})
+      .filter(([, documento]) => documento.status === 'verificado')
+      .map(([clave]) => nombreDocumento(clave));
+
+    establecerDetalleSolicitud({
+      titulo: estadosSolicitud[solicitudEstado].titulo,
+      motivo,
+      documentos: [...new Set(rechazados.map(nombreDocumento))],
+      reenviar: rechazados.length > 0 ? () => {
+        cerrarDetalleSolicitud();
+        navegacion.navigate('DocumentoReenvio', {
+          rejectedDocs: rechazados,
+          approvedDocs: aprobados,
+          rejectionReason: motivo,
+          domicilio: solicitud?.metadata?.domicile,
+          requestStatus: solicitudEstado
+        });
+      } : undefined
+    });
   };
 
-  const esAprobadoConductor =
-  conductorEstado?.hasApplication && conductorEstado.status === 'aprobado';
+  const abrirOpcionConductor = esAprobadoConductor ? activarModoConductor : estadoVisible ? abrirDetalleSolicitud :
+    () => navegacion.navigate('DriverRegistrationGuide', { user: usuario });
 
   const perfilFotoUrl = usuario?.fotoPerfil || usuario?.urlFoto || null;
 
@@ -335,6 +266,9 @@ const PerfilPantalla = () => {
                   <Usuario size={32} color={Colores.primary} />
                 </Vista>
               }
+              {usuario?.estadoVerificacionIdentidad === 'verificado' && (
+                <InsigniaPerfilVerificado etiqueta="Identidad verificada" />
+              )}
             </Vista>
             <Vista style={estilos.heroInfo}>
               <Texto style={[estilos.heroNameNew, esOscuro && estilos.heroNameDark]}>{perfil.nombre}</Texto>
@@ -359,11 +293,8 @@ const PerfilPantalla = () => {
         <Vista style={estilos.menuGrid}>
           <PulsableOpacidad
             style={estilos.menuGridItem}
-            onPress={() => navegacion.navigate('ProfileDetail', {
-              vehicleModel: conductorEstado?.driver?.vehicle?.model ?? perfil.vehicle,
-              vehiclePlate: conductorEstado?.driver?.vehicle?.plate ?? perfil.plate,
-              isApprovedDriver: esAprobadoConductor
-            })}>
+            onPress={() => navegacion.navigate('ProfileDetail')}
+            accessibilityRole="button">
 
             <Vista style={estilos.menuCardContent}>
               <Vista style={estilos.menuGridIcon}>
@@ -425,105 +356,31 @@ const PerfilPantalla = () => {
               </Vista>
               <ChevronDerecha size={20} color={Colores.textTertiary} />
             </PulsableOpacidad>
-
-            {!esAprobadoConductor && !conductorEstado?.hasApplication &&
-            <PulsableOpacidad
-              style={estilos.menuItemNew}
-              onPress={manejarBecomeConductor}>
-
-                <Vista style={estilos.menuItemLeftNew}>
+            {conductorEstado !== null && (
+              <PulsableOpacidad
+                style={estilos.menuItemNew}
+                onPress={solicitudEstado === 'pendiente' ? undefined : abrirOpcionConductor}
+                disabled={solicitudEstado === 'pendiente' || cambiandoModo}
+                accessibilityRole={solicitudEstado === 'pendiente' ? undefined : 'button'}
+                accessible
+                accessibilityLiveRegion="polite">
+                <Vista style={[estilos.menuItemLeftNew, estilos.solicitudFila]}>
                   <Vista style={estilos.menuItemIcon}>
-                    <Car size={25} color={Colores.primary} />
+                    <IconoSolicitud size={25} color={colorConductor} strokeWidth={2.5} />
                   </Vista>
-                  <Texto style={estilos.menuItemTextNew}>Conviértete en conductor</Texto>
+                  <Vista style={estilos.solicitudTexto}>
+                    <Texto style={estilos.menuItemTextNew}>{tituloConductor}</Texto>
+                    {estadoVisible && <Texto style={estilos.solicitudMensaje}>{estadoVisible.mensaje}</Texto>}
+                  </Vista>
                 </Vista>
-                <ChevronDerecha size={20} color={Colores.textTertiary} />
-              </PulsableOpacidad>
-            }
-
-            {(esAprobadoConductor || esConductorModo || usuario?.rol === 'conductor') && (
-              <PulsableOpacidad style={estilos.menuItemNew} onPress={() => navegacion.navigate('DriverCommissions')} accessibilityRole="button">
-                <Vista style={estilos.menuItemLeftNew}>
-                  <Vista style={estilos.menuItemIcon}><Wallet size={25} color={Colores.primary} /></Vista>
-                  <Texto style={estilos.menuItemTextNew}>Comisiones</Texto>
-                </Vista>
-                <ChevronDerecha size={20} color={Colores.textTertiary} />
+                {solicitudEstado !== 'pendiente' && <ChevronDerecha size={20} color={Colores.textTertiary} />}
               </PulsableOpacidad>
             )}
-
-            {(conductorEstado?.status === 'observado' || conductorEstado?.status === 'rechazado') &&
-            <PulsableOpacidad
-              style={estilos.menuItemNew}
-              onPress={manejarBecomeConductor}>
-
-                <Vista style={estilos.menuItemLeftNew}>
-                  <Vista style={estilos.menuItemIcon}>
-                    <AlertCircle size={25} color={Colores.danger} />
-                  </Vista>
-                  <Texto style={estilos.menuItemTextNew}>
-                    {conductorEstado.status === 'observado' ? 'Solicitud observada' : 'Solicitud rechazada'}
-                  </Texto>
-                </Vista>
-                <ChevronDerecha size={20} color={Colores.textTertiary} />
-              </PulsableOpacidad>
-            }
-
-            {conductorEstado?.status === 'pendiente' &&
-            <PulsableOpacidad
-              style={estilos.menuItemNew}
-              onPress={() => {}}>
-
-                <Vista style={estilos.menuItemLeftNew}>
-                  <Vista style={estilos.menuItemIcon}>
-                    <Circle size={25} color={Colores.warning} />
-                  </Vista>
-                  <Texto style={estilos.menuItemTextNew}>Solicitud en revisión</Texto>
-                </Vista>
-              </PulsableOpacidad>
-            }
           </Vista>
         </Vista>
 
       </DesplazableVista>
 
-      {/* BOTTOM ACTIONS (fixed at the bottom) */}
-      <Vista style={[estilos.logoutContainer, esOscuro && estilos.logoutContainerDark]}>
-        {esAprobadoConductor &&
-        <PulsableOpacidad
-          style={[estilos.driverCard, esConductorModo && estilos.driverCardActive]}
-          onPress={manejarAlternarModo}
-          disabled={cargandoConductorEstado}
-          activeOpacity={0.7}>
-
-            <Texto style={[estilos.driverTitle, esConductorModo && estilos.driverTitleActive]}>
-              {esConductorModo ? 'Modo Pasajero' : 'Modo Conductor'}
-            </Texto>
-          </PulsableOpacidad>
-        }
-
-        <PulsableOpacidad
-          style={[estilos.logoutBtn, estilos.logoutBtnSinMargen, esOscuro && estilos.logoutBtnDark]}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          onPress={() => { establecerErrorSalida(''); establecerConfirmarSalida(true); }}>
-          <Texto style={estilos.logoutText}>Cerrar sesión</Texto>
-        </PulsableOpacidad>
-      </Vista>
-      <ConfirmarInferiorHoja
-        visible={confirmarSalida}
-        title="Cerrar sesión"
-        message="¿Quieres cerrar sesión en tu cuenta?"
-        confirmLabel="Cerrar sesión"
-        cancelLabel="Cancelar"
-        loading={saliendo}
-        error={errorSalida}
-        onCancel={() => establecerConfirmarSalida(false)}
-        onConfirm={async () => {
-          establecerSaliendo(true);
-          establecerErrorSalida('');
-          try { await salir(); } catch { establecerErrorSalida('No se pudo cerrar sesión. Intenta nuevamente.'); }
-          finally { establecerSaliendo(false); }
-        }} />
       <Modal visible={detalleSolicitud !== null} transparent animationType="fade" onRequestClose={cerrarDetalleSolicitud}>
         {detalleSolicitud && (
           <Vista style={estilos.detalleFondo}>
@@ -567,14 +424,6 @@ const estilos = EstiloHoja.create({
     padding: 12,
     width: '100%'
   },
-  logoutContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 12,
-    backgroundColor: '#FFFFFF'
-  },
-  logoutContainerDark: { backgroundColor: '#1A1A1A' },
-  logoutBtnSinMargen: { marginTop: 0 },
   detalleFondo: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.45)' },
   detalleTarjeta: { maxHeight: '85%', padding: 20, borderRadius: 24, backgroundColor: Colores.surface },
   detalleCabecera: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
@@ -636,6 +485,7 @@ const estilos = EstiloHoja.create({
     borderRadius: 20,
     overflow: 'hidden',
     alignItems: 'center',
+    paddingTop: 4,
     paddingBottom: 15
 
   },
@@ -792,17 +642,6 @@ const estilos = EstiloHoja.create({
   },
 
   /* DRIVER CARD MEJORADO */
-  driverCard: {
-    backgroundColor: '#F7F7F9',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  driverCardActive: {
-    backgroundColor: '#F3EAFC'
-  },
   driverIconWrap: {
     width: 56,
     height: 56,
@@ -813,14 +652,6 @@ const estilos = EstiloHoja.create({
   },
   driverInfo: {
     flex: 1
-  },
-  driverTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colores.textSecondary
-  },
-  driverTitleActive: {
-    color: Colores.primary
   },
   driverSubtitle: {
     fontSize: 13,
@@ -930,26 +761,6 @@ const estilos = EstiloHoja.create({
     color: Colores.text
   },
 
-  /* LOGOUT */
-  logoutBtn: {
-    marginTop: 24,
-    minHeight: 54,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    backgroundColor: Colores.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8
-  },
-  logoutBtnDark: { backgroundColor: '#2D2D2D', borderColor: '#713C3C' },
-  logoutText: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: Colores.danger,
-    textAlign: 'center'
-  },
   /* NUEVOS ESTILOS PROFESIONALES - UBER/CABIFY STYLE */
   containerDark: {
     backgroundColor: '#1A1A1A'
@@ -1022,7 +833,7 @@ const estilos = EstiloHoja.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: Colores.primary,
     padding: 2,
     backgroundColor: Colores.surface
@@ -1033,7 +844,7 @@ const estilos = EstiloHoja.create({
   avatarFallbackNew: {
     width: '100%',
     height: '100%',
-    borderRadius: 30,
+    borderRadius: 27,
     backgroundColor: Colores.primaryLight,
     justifyContent: 'center',
     alignItems: 'center'
@@ -1044,20 +855,7 @@ const estilos = EstiloHoja.create({
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 30
-  },
-  avatarBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colores.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colores.surface
+    borderRadius: 27
   },
   heroNameNew: {
     fontSize: 22,
@@ -1170,6 +968,9 @@ const estilos = EstiloHoja.create({
     alignItems: 'center'
 
   },
+  solicitudFila: { flex: 1 },
+  solicitudTexto: { flex: 1 },
+  solicitudMensaje: { marginTop: 3, color: '#666675', fontSize: 14, lineHeight: 19 },
   menuItemTextNew: {
     fontSize: 15,
     fontWeight: '500',

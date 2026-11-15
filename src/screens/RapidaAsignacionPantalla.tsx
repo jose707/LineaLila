@@ -53,7 +53,7 @@ function RapidoAsignacionPantalla({
       !leaving.current)
       {
         leaving.current = true;
-        navegacion.replace('ActiveRide', { rideId: datos.ride.id });
+        navegacion.replace('PassengerActiveRide', { rideId: datos.ride.id });
       }
     },
     [navegacion]

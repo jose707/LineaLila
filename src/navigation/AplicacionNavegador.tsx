@@ -12,7 +12,9 @@ import BuscarPantalla from "../screens/BuscarPantalla";
 // Importar pantallas - Cliente/Conductor (Perfil unificado)
 
 import PerfilPantalla from "../screens/PerfilPantalla";
-import PerfilDetallePantalla from "../screens/PerfilDetailPantalla";
+import CuentaDesactivadaPantalla from '../screens/CuentaDesactivadaPantalla';
+import PerfilDetallePantalla from "../screens/PerfilDetallePantalla";
+import PerfilConductorPantalla from "../screens/PerfilConductorPantalla";
 import AjustesPantalla from "../screens/AjustesPantalla";
 import ContactosEmergenciaPantalla from '../screens/ContactosEmergenciaPantalla';
 import NotificacionesPantalla from "../screens/NotificationsPantalla";
@@ -23,7 +25,8 @@ import ViajeHistorialPantalla from "../screens/ViajeHistorialPantalla";
 // Importar pantallas - Viajes (Nuevas)
 import ConductorViajeSolicitudPantalla from "../screens/ConductorViajeSolicitudPantalla";
 
-import ActivoViajePantalla from "../screens/PantallaViajeActivo";
+import ConductorViajeActivoPantalla from '../screens/ConductorViajeActivoPantalla';
+import PasajeroViajeActivoPantalla from '../screens/PasajeroViajeActivoPantalla';
 import RapidoAsignacionPantalla from "../screens/RapidaAsignacionPantalla";
 import ViajeCompletadoPantalla from "../screens/ViajeCompletadoPantalla";
 import NegotiationPantalla from "../screens/NegociacionPantalla";
@@ -38,13 +41,20 @@ import IdentidadVerificacionPantalla from "../screens/IdentidadVerificacionPanta
 import AdministradorPanelPantalla from "../screens/AdminDashboardPantalla";
 import AdminEmergenciasPantalla from "../screens/AdminEmergenciasPantalla";
 import AdministradorUsuariosPantalla from "../screens/AdminUsersPantalla";
+import AdminUsuarioDetallePantalla from '../screens/AdminUsuarioDetallePantalla';
+import AdminConductorDetallePantalla from '../screens/AdminConductorDetallePantalla';
+import AdministradorNotificacionesPantalla from '../screens/AdminNotificacionesPantalla';
 import AdminConductoresPantalla from '../screens/AdminConductoresPantalla';
 import ConductorComisionesPantalla from '../screens/ConductorComisionesPantalla';
 import AdministradorViajesPantalla from "../screens/AdminRidesPantalla";
+import AdminViajeDetallePantalla from '../screens/AdminViajeDetallePantalla';
 import AdministradorPagosPantalla from "../screens/AdminPaymentsPantalla";
+import ZonasOperacionPantalla from '../screens/ZonasOperacionPantalla';
 import AdministradorSoportePantalla from "../screens/AdminSoportePantalla";
 import AdministradorAnaliticaPantalla from "../screens/AdminAnaliticaPantalla";
 import AdministradorConductorRegistroPantalla from "../screens/AdminConductorRegistrationPantalla";
+import AdminSolicitudConductorDetallePantalla from "../screens/AdminSolicitudConductorDetallePantalla";
+import AdminDocumentosPantalla from '../screens/AdminDocumentosPantalla';
 
 // 🔥 DEFINIR TIPOS DE PARÁMETROS ACTUALIZADOS
 export type Detener = {
@@ -101,7 +111,9 @@ export type RaizPilaParametroLista = {
   };
   // Screens del cliente/conductor
   Profile: undefined;
+  ConductorSuspendido: undefined;
   ProfileDetail: undefined;
+  PerfilConductorPantalla: undefined;
   Settings: undefined;
   ContactosEmergencia: undefined;
   Notifications: undefined;
@@ -111,7 +123,8 @@ export type RaizPilaParametroLista = {
   // Screens de viajes (Nuevas)
   DriverRideRequest: undefined;
 
-  ActiveRide: {rideId: string;confirmationMessage?: string;};
+  DriverActiveRide: {rideId: string;confirmationMessage?: string;};
+  PassengerActiveRide: {rideId: string;confirmationMessage?: string;};
   QuickAssignment: {rideId: string;request?: CrearViajeSolicitud;initialSnapshot?: RapidoAsignacionRespuesta;};
   RideCompleted: {rideId: string;};
   Negotiation: {
@@ -142,12 +155,19 @@ export type RaizPilaParametroLista = {
   AdminDashboard: undefined;
   AdminEmergencias: undefined;
   AdminUsers: undefined;
+  AdminUserDetails: { usuarioId: string };
+  AdminNotifications: undefined;
+  ZonasOperacion: undefined;
   AdminDrivers: undefined;
-  AdminRides: undefined;
+  AdminDriverDetails: { conductorId: string };
+  AdminDocuments: { usuarioId: string; origen: 'usuario' | 'conductor' };
+  AdminRides: { passengerId: string; driverId?: never } | { driverId: string; passengerId?: never } | undefined;
+  AdminRideDetails: { rideId: string };
   AdminPayments: { conductor?: { id: string; nombre: string }; periodo?: string; liquidacionId?: string } | undefined;
   AdminSupport: undefined;
   AdminAnalytics: undefined;
-  AdminDriverRegistration: { usuarioId: string } | undefined;
+  AdminDriverRegistration: undefined;
+  AdminDriverRequestDetails: { usuarioId: string };
 };
 
 const Pila = crearNativoPilaNavegador<RaizPilaParametroLista>();
@@ -186,12 +206,9 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 
       {/* SCREENS DEL PASAJERO */}
 
-      <Pila.Screen
-        name="Map"
-        component={MapaPantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
+      {rol !== 'conductor' && (
+        <Pila.Screen name="Map" component={MapaPantalla} options={{ animation: 'slide_from_right' }} />
+      )}
 
       <Pila.Screen
         name="Search"
@@ -204,19 +221,20 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 
       {/* SCREENS DE AUTENTICACIÓN */}
 
-      <Pila.Screen
-        name="Profile"
-        component={PerfilPantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
-
-      <Pila.Screen
-        name="ProfileDetail"
-        component={PerfilDetallePantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
+      {rol === 'conductor' ? (
+        <Pila.Screen name="PerfilConductorPantalla" component={PerfilConductorPantalla}
+          options={{ animation: 'slide_from_right' }} />
+      ) : rol !== 'administrador' && (
+        <>
+          <Pila.Screen name="Profile" component={PerfilPantalla} options={{ animation: 'slide_from_right' }} />
+          <Pila.Screen name="ConductorSuspendido" options={{ animation: 'slide_from_right' }}>
+            {({ navigation }) => <CuentaDesactivadaPantalla titulo="Conducción suspendida"
+              mensaje="Puedes seguir usando Línea Lila en modo pasajero. Contacta a la administración para más información."
+              alVolver={navigation.goBack} />}
+          </Pila.Screen>
+          <Pila.Screen name="ProfileDetail" component={PerfilDetallePantalla} options={{ animation: 'slide_from_right' }} />
+        </>
+      )}
 
       <Pila.Screen
         name="ClientRideDetails"
@@ -234,20 +252,19 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 
 
       {/* SCREENS DE VIAJES (NUEVAS) */}
-      <Pila.Screen
-        name="DriverRideRequest"
-        component={ConductorViajeSolicitudPantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
+      {rol === 'conductor' && (
+        <Pila.Screen name="DriverRideRequest" component={ConductorViajeSolicitudPantalla}
+          options={{ animation: 'slide_from_right' }} />
+      )}
 
       <Pila.Screen name="QuickAssignment" component={RapidoAsignacionPantalla} options={{ title: 'Asignación rápida' }} />
-      <Pila.Screen
-        name="ActiveRide"
-        component={ActivoViajePantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
+      {rol === 'conductor' ? (
+        <Pila.Screen name="DriverActiveRide" component={ConductorViajeActivoPantalla}
+          options={{ animation: 'slide_from_right' }} />
+      ) : rol !== 'administrador' && (
+        <Pila.Screen name="PassengerActiveRide" component={PasajeroViajeActivoPantalla}
+          options={{ animation: 'slide_from_right' }} />
+      )}
 
       <Pila.Screen
         name="Negotiation"
@@ -294,12 +311,10 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 
       {/* SCREENS DEL CONDUCTOR */}
 
-      <Pila.Screen
-        name="DriverHome"
-        component={ConductorViajeSolicitudPantalla}
-        options={{
-          animation: 'slide_from_right'
-        }} />
+      {rol === 'conductor' && (
+        <Pila.Screen name="DriverHome" component={ConductorViajeSolicitudPantalla}
+          options={{ animation: 'slide_from_right' }} />
+      )}
 
 
       <Pila.Screen name="DriverRegistrationGuide" component={ConductorGuiaPantalla} options={{ animation: 'slide_from_right' }} />
@@ -337,6 +352,8 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
         component={AdminEmergenciasPantalla}
         options={{ animation: 'slide_from_right' }} />
 
+      <Pila.Screen name="AdminNotifications" component={AdministradorNotificacionesPantalla} options={{ animation: 'slide_from_right' }} />
+      <Pila.Screen name="ZonasOperacion" component={ZonasOperacionPantalla} options={{ animation: 'slide_from_right' }} />
       <Pila.Screen
         name="AdminUsers"
         component={AdministradorUsuariosPantalla}
@@ -355,6 +372,15 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
         options={{
           animation: 'slide_from_right'
         }} />
+
+      <Pila.Screen name="AdminRideDetails" component={AdminViajeDetallePantalla} options={{ animation: 'slide_from_right' }} />
+      {rol === 'administrador' && (
+        <>
+          <Pila.Screen name="AdminUserDetails" component={AdminUsuarioDetallePantalla} options={{ animation: 'slide_from_right' }} />
+          <Pila.Screen name="AdminDriverDetails" component={AdminConductorDetallePantalla} options={{ animation: 'slide_from_right' }} />
+          <Pila.Screen name="AdminDocuments" component={AdminDocumentosPantalla} options={{ animation: 'slide_from_right' }} />
+        </>
+      )}
 
       <Pila.Screen
         name="AdminPayments"
@@ -383,6 +409,10 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
         options={{
           animation: 'slide_from_right'
         }} />
+      <Pila.Screen
+        name="AdminDriverRequestDetails"
+        component={AdminSolicitudConductorDetallePantalla}
+        options={{ animation: 'slide_from_right' }} />
 
     </Pila.Navigator>);
 

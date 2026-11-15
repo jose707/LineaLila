@@ -8,6 +8,17 @@ export type DatosDocumentoRevision = {
   campos: Array<{clave: string; etiqueta: string; valor: string; tipo: 'texto' | 'fecha'; opciones?: string[]}>;
   validaciones: Array<{documento: string; mensaje: string}>;
 };
+
+export type DatosIdentidadRevision = {
+  revision: string;
+  campos: Array<{ clave: string; etiqueta: string; valor: string; tipo: 'texto' | 'fecha'; maximo?: number }>;
+};
+const rutaDatosIdentidad = (usuarioId: string) => `/administracion/usuarios/${encodeURIComponent(usuarioId)}/datos-identidad`;
+export const obtenerDatosIdentidad = (usuarioId: string) =>
+  api.obtener<DatosIdentidadRevision>(rutaDatosIdentidad(usuarioId));
+export const corregirDatosIdentidad = (usuarioId: string, revision: string, campos: Record<string, string>) =>
+  api.put<DatosIdentidadRevision>(rutaDatosIdentidad(usuarioId), { revision, campos });
+
 export const obtenerDatosDocumento = (solicitudId: string, tipo: string) =>
   api.obtener<DatosDocumentoRevision>(`/administracion/solicitudes/${encodeURIComponent(solicitudId)}/documentos/${encodeURIComponent(tipo)}/datos`);
 export async function corregirDatosDocumento(solicitudId: string, tipo: string, revision: string, campos: Record<string,string>) {
@@ -75,6 +86,11 @@ interface Usuario {
 }
 
 export interface DetalleAdministrativoUsuario {
+  usuario: {
+    id: string; nombre: string; correo: string | null; telefono: string | null; rol: Usuario['role'];
+    fechaRegistro: string | null; foto: string | null; activo: boolean; telefonoVerificado: boolean;
+    estadoIdentidad: string | null;
+  };
   solicitudConductor: { id: string; status: string; version: number } | null;
   historial: { id: string; activo: boolean; motivo: string | null; fecha: string; administrador: string | null }[];
 }
@@ -105,6 +121,7 @@ export interface ConductorOperativo {
 }
 
 export interface FichaConductorOperativo extends ConductorOperativo {
+  viajeActivo?: { id: string; estado: 'aceptado' | 'llegado' | 'en_curso' } | null;
   saldoPendiente: number;
   comisiones: { id: string; periodo: string; vence: string | null; total: number; pagado: number; saldo: number; estado: string }[];
   historial: { id: string; estado: EstadoConduccion; motivo: string; fecha: string; administrador: string | null }[];
@@ -219,6 +236,7 @@ interface DomicilioComprobanteOcrCampos {
 interface ConductorApplication {
   id: string;
   name: string;
+  photo?: string;
   email: string;
   phone: string;
   licenseNumber: string;
@@ -244,6 +262,7 @@ interface ConductorApplication {
   updatedAt?: string;
   status: 'pendiente' | 'observado' | 'aprobado' | 'rechazado';
   ocrProcessingStatus?: 'pendiente' | 'complete' | 'fallido';
+  ocrCamposPendientes?: Record<string, string[]>;
   identity?: IdentidadDetalles | null;
   rejectionReason?: string;
   verificationNotes: string;
@@ -415,6 +434,7 @@ usuarioId?: string)
       updatedAt: solicitud.updatedAt || '',
       status: solicitud.status || 'pendiente',
       ocrProcessingStatus: solicitud.metadata?.ocrProcessingStatus || 'pendiente',
+      ocrCamposPendientes: solicitud.metadata?.ocrCamposPendientes,
       rejectionReason: solicitud.rejectionReason || '',
       verificationNotes: '',
       userId: solicitud.userId,
@@ -572,7 +592,7 @@ const enableUsuario = async (usuarioId: string): Promise<any> => {
 /**
  * Get driver request status for current user (nuevo sistema versionado)
  */export { enableUsuario };
-const obtenerMiSolicitudEstado = async (): Promise<{
+const obtenerMiSolicitudEstado = async ({ propagarError = false } = {}): Promise<{
   hasApplication: boolean;
   status?: 'pendiente' | 'observado' | 'aprobado' | 'rechazado' | null;
   request?: {
@@ -598,6 +618,7 @@ const obtenerMiSolicitudEstado = async (): Promise<{
     const respuesta: any = await api.obtener('/solicitudes/estado');
     return respuesta;
   } catch (error: any) {
+    if (propagarError) throw error;
     console.error('Error getting request status:', error);
     // Retornar estado por defecto si no hay solicitud
     return { hasApplication: false, status: null };
@@ -609,11 +630,25 @@ const obtenerMiSolicitudEstado = async (): Promise<{
  */export { obtenerMiSolicitudEstado };
 const obtenerMiConductorEstado = async (): Promise<{
   hasApplication: boolean;
-  status?: 'pendiente' | 'observado' | 'aprobado' | 'rechazado' | null;
-  driver?: any;
+  status?: 'pendiente' | 'observado' | 'aprobado' | 'rechazado' | 'suspendido' | null;
+  driver?: {
+    id: string;
+    vehiclePlate?: string | null;
+    documentosVerificados?: Record<'licencia' | 'soat', { vencimiento: string | null; inicio: string | null } | null>;
+    vehicle?: {
+      id: string;
+      model?: string | null;
+      plate?: string | null;
+      ruatFile?: string | null;
+      ruatStatus?: 'pendiente' | 'verificado' | 'rechazado' | null;
+      ruatVerified?: boolean;
+      ruatRequired?: boolean;
+      ruatRequiredReason?: string;
+    } | null;
+  } | null;
 }> => {
   try {
-    const respuesta: any = await api.obtener('/conductores/estado');
+    const respuesta = await api.obtener<Awaited<ReturnType<typeof obtenerMiConductorEstado>>>('/conductores/estado');
     return respuesta;
   } catch (error: any) {
     console.error('Error getting driver status:', error);

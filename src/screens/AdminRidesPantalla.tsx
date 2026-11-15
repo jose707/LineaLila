@@ -12,9 +12,9 @@ import {
   ActivityIndicator as ActividadIndicador,
   RefreshControl as RenovarControl } from
 'react-native';
-import { Car, Check, Clock, Hash, MapPin, Menu, Phone, Search, User, X } from 'lucide-react-native';
+import { Car, Check, Menu, Search, User, X } from 'lucide-react-native';
 import { SafeAreaView as SeguraZonaVista } from 'react-native-safe-area-context';
-import { NativeStackNavigationProp as NativoPilaNavegacionProp } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RaizPilaParametroLista } from "../navigation/AplicacionNavegador";
 import { DestinoIndicadorIcono, PasajeroMapaIcono } from '../components/MapUbicacionIcons';
 import api from "../services/api.cliente";
@@ -32,8 +32,7 @@ const C = {
   error: '#EF4444'
 };
 
-type NavPropiedad = NativoPilaNavegacionProp<RaizPilaParametroLista, 'AdminRides'>;
-interface Propiedades {navigation: NavPropiedad;}
+type Propiedades = NativeStackScreenProps<RaizPilaParametroLista, 'AdminRides'>;
 
 interface ViajeDesdeApi {
   id: string;
@@ -91,7 +90,7 @@ const formatoTarifa = (valor: ViajeDesdeApi['finalFare']) =>
   valor != null && Number.isFinite(Number(valor)) ? `Bs ${Number(valor).toFixed(2)}` : '—';
 
 const formatoDistancia = (valor: ViajeDesdeApi['distance']) =>
-  valor != null && Number.isFinite(Number(valor)) ? `${Number(valor).toFixed(1)} km` : '—';
+  valor != null && Number.isFinite(Number(valor)) ? `${(Number(valor) / 1000).toFixed(1)} km` : '—';
 
 // ─── Filters config ───────────────────────────────────────────────────────────
 const FILTERS = [
@@ -105,7 +104,8 @@ type ViajeEstado = typeof FILTERS[number]['value'];
 
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navegacion }) => {
+const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navegacion, route }) => {
+  const { passengerId, driverId } = route.params ?? {};
   const [viajes, establecerViajes] = usarEstado<ViajeDesdeApi[]>([]);
   const [total, establecerTotal] = usarEstado(0);
   const [pagina, establecerPagina] = usarEstado(0);
@@ -119,8 +119,6 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
   const [filtrosVisibles, establecerFiltrosVisibles] = usarEstado(false);
   const [estadoFiltro, establecerEstadoFiltro] = usarEstado<ViajeEstado>('all');
 
-  const [seleccionadoViaje, establecerSeleccionadoViaje] = usarEstado<ViajeDesdeApi | null>(null);
-  const [modalVisible, establecerModalVisible] = usarEstado(false);
 
   const Limite = 20;
 
@@ -137,6 +135,8 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
     try {
       const parametros: Record<string, string | number> = { limit: Limite, offset: desplazamiento };
       if (estadoFiltro !== 'all') {parametros.status = estadoFiltro;}
+      if (passengerId) parametros.passengerId = passengerId;
+      if (driverId) parametros.driverId = driverId;
 
       const datos = await api.obtener<{rides: ViajeDesdeApi[];total: number;}>('/administracion/viajes', { params: parametros });
 
@@ -155,7 +155,7 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
       establecerRenovando(false);
       establecerCargandoMas(false);
     }
-  }, [estadoFiltro]);
+  }, [estadoFiltro, passengerId, driverId]);
 
   usarEfecto(() => {consultarViajes({ reset: true });}, [consultarViajes]);
 
@@ -195,7 +195,9 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
         <PulsableOpacidad onPress={() => navegacion.goBack()} style={s.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar gestión de viajes">
           <X size={24} color={C.text} strokeWidth={2.8} />
         </PulsableOpacidad>
-        <Texto style={s.headerTitle} numberOfLines={1}>Gestión de viajes</Texto>
+        <Texto style={s.headerTitle} numberOfLines={1}>
+          {driverId ? 'Viajes del conductor' : passengerId ? 'Viajes del pasajero' : 'Gestión de viajes'}
+        </Texto>
         <PulsableOpacidad
           style={s.backBtn}
           accessibilityRole="button"
@@ -306,7 +308,7 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
         <PulsableOpacidad
           key={viaje.id}
           style={s.card}
-          onPress={() => {establecerSeleccionadoViaje(viaje);establecerModalVisible(true);}}
+          onPress={() => navegacion.navigate('AdminRideDetails', { rideId: viaje.id })}
           activeOpacity={0.75} accessibilityRole="button">
 
               {/* Card header */}
@@ -358,84 +360,9 @@ const AdministradorViajesPantalla: React.FC<Propiedades> = ({ navigation: navega
         </DesplazableVista>
       }
 
-      {/* ── Detail Modal ── */}
-      {seleccionadoViaje &&
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => establecerModalVisible(false)}>
-          <Vista style={s.modalOverlay}>
-            <Vista style={s.modalSheet}>
-              {/* Modal header */}
-              <Vista style={s.modalHeader}>
-                <PulsableOpacidad onPress={() => establecerModalVisible(false)} style={s.backBtn} accessibilityRole="button" accessibilityLabel="Cerrar detalle">
-                  <X size={25} color={C.primary} />
-                </PulsableOpacidad>
-                <Texto style={s.headerTitle}>Detalle del viaje</Texto>
-                <Vista style={s.backBtn} />
-              </Vista>
-
-              <DesplazableVista style={s.modalBody} contentContainerStyle={{ paddingBottom: 40 }}>
-                <Vista style={s.modalStatusBanner}>
-                  <Vista style={[s.statusDot, { backgroundColor: estadoColor(seleccionadoViaje.status) }]} />
-                  <Texto style={[s.statusTxt, { color: estadoColor(seleccionadoViaje.status) }]}>{estadoEtiqueta(seleccionadoViaje.status)}</Texto>
-                </Vista>
-
-                {/* Info rows */}
-                <Vista style={s.infoCard}>
-                  <InformacionFila icon={Hash} label="ID del viaje" value={seleccionadoViaje.id} />
-                  <InformacionFila icon={Clock} label="Fecha / Hora" value={formatoFecha(seleccionadoViaje.createdAt)} />
-                  <InformacionFila icon={User} label="Pasajero" value={seleccionadoViaje.passenger?.name || '—'} />
-                  <InformacionFila icon={Phone} label="Teléfono pasajero" value={seleccionadoViaje.passenger?.phone || '—'} />
-                  <InformacionFila icon={Car} label="Conductor" value={seleccionadoViaje.driver?.name || 'No asignado'} />
-                  <InformacionFila icon={Phone} label="Teléfono conductor" value={seleccionadoViaje.driver?.phone || '—'} />
-                  <InformacionFila icon={MapPin} label="Recogida" value={seleccionadoViaje.pickup_address || '—'} />
-                  <InformacionFila icon={MapPin} label="Destino" value={seleccionadoViaje.dropoff_address || '—'} last />
-                </Vista>
-
-                {/* Metrics */}
-                <Vista style={s.metricsRow}>
-                  <MetricCaja label="Distancia" value={formatoDistancia(seleccionadoViaje.distance)} />
-                  <MetricCaja label="Duración" value={formatoDuracion(seleccionadoViaje.duration)} />
-                  <MetricCaja label="Tarifa" value={formatoTarifa(seleccionadoViaje.finalFare)} highlight />
-                </Vista>
-              </DesplazableVista>
-            </Vista>
-          </Vista>
-        </Modal>
-      }
     </SeguraZonaVista>);
 
 };
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-const InformacionFila = ({ icon: Icono, label: etiqueta, value: valor, last: ultimo }: {icon: typeof MapPin;label: string;value: string;last?: boolean;}) =>
-<Vista style={[ir.row, !ultimo && ir.border]}>
-    <Icono size={25} color={C.primary} style={ir.icon} />
-    <Vista style={{ flex: 1 }}>
-      <Texto style={ir.label}>{etiqueta}</Texto>
-      <Texto style={ir.value}>{valor}</Texto>
-    </Vista>
-  </Vista>;
-
-const ir = EstiloHoja.create({
-  row: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 11 },
-  border: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  icon: { marginRight: 12 },
-  label: { fontSize: 13, color: C.textMuted, fontWeight: '500', marginBottom: 2 },
-  value: { fontSize: 15, color: C.text, fontWeight: '500' },
-});
-
-const MetricCaja = ({ label: etiqueta, value: valor, highlight }: {label: string;value: string;highlight?: boolean;}) =>
-<Vista style={[mb.box, highlight && mb.highlight]}>
-    <Texto style={mb.label}>{etiqueta}</Texto>
-    <Texto style={[mb.value, highlight && mb.highlightTxt]}>{valor}</Texto>
-  </Vista>;
-
-const mb = EstiloHoja.create({
-  box: { flex: 1, backgroundColor: C.white, borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: C.border },
-  highlight: { borderColor: C.border },
-  label: { fontSize: 13, color: C.textMuted, fontWeight: '500', marginBottom: 2 },
-  value: { fontSize: 15, color: C.text, fontWeight: '500' },
-  highlightTxt: { color: C.primary }
-});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = EstiloHoja.create({
@@ -489,14 +416,6 @@ const s = EstiloHoja.create({
   loadMoreText: { fontSize: 15, color: C.text, fontWeight: '500' },
   loadMoreWrap: { minHeight: 48, borderRadius: 24, backgroundColor: '#F5F5F7', alignItems: 'center', justifyContent: 'center' },
 
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' },
-  modalHeader: { backgroundColor: C.white, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 10, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  modalBody: { padding: 16 },
-  modalStatusBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
-  infoCard: { backgroundColor: C.white, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: C.border },
-  metricsRow: { flexDirection: 'row', gap: 10 }
 });
 
 export default AdministradorViajesPantalla;

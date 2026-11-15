@@ -11,7 +11,7 @@ import {
   Alert,
   StatusBar as EstadoBar,
   Animated as Animado,
-  Dimensions } from
+  useWindowDimensions } from
 'react-native';
 import Svg, { Path as Ruta } from 'react-native-svg';
 import * as firebaseServicio from "../services/firebase.servicio";
@@ -21,14 +21,14 @@ import { LOGINSCREEN_COLORS as C } from '../theme/colors';
 import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps as NativoPilaPantallaPropiedades } from '@react-navigation/native-stack';
 
-const { height: alto } = Dimensions.get('window');
-
 type IngresarPantallaPropiedades = NativoPilaPantallaPropiedades<any, 'Login'>;
 
 function IngresarPantalla({ navigation: navegacion }: IngresarPantallaPropiedades) {
   const [cargando, establecerCargando] = usarEstado(false);
-  const { loginWithToken: ingresarConToken } = usarAutenticacion();
+  const { loginWithToken: ingresarConToken, mostrarCuentaDesactivadaAlIngresar } = usarAutenticacion();
   const margenes = usarSeguraZonaMargenes();
+  const { height: alto, width: ancho } = useWindowDimensions();
+  const altoIlustracion = Math.min(alto * 0.6, ancho * 1.2);
 
   const anims = usarMemoria(
     () => ({
@@ -81,6 +81,7 @@ function IngresarPantalla({ navigation: navegacion }: IngresarPantallaPropiedade
       establecerCargando(true);
       await firebaseServicio.configurarAccesoGoogle();
       const usuarioCredencial = await firebaseServicio.iniciarSesionConGoogle();
+      if (!usuarioCredencial) return;
       const firebaseUsuario = usuarioCredencial.user;
 
       if (!firebaseUsuario.email)
@@ -90,7 +91,7 @@ function IngresarPantalla({ navigation: navegacion }: IngresarPantallaPropiedade
         firebaseUsuario.uid
       );
 
-      if (existenteUsuarioComprobar.exists && existenteUsuarioComprobar.needsPhoneVerification) {
+      if (existenteUsuarioComprobar.exists === false || existenteUsuarioComprobar.needsPhoneVerification === true) {
         navegacion.navigate('GooglePhoneVerification', {
           email: firebaseUsuario.email || '',
           firebaseUid: firebaseUsuario.uid,
@@ -100,21 +101,15 @@ function IngresarPantalla({ navigation: navegacion }: IngresarPantallaPropiedade
         return;
       }
 
-      if (existenteUsuarioComprobar.exists) {
-        await ingresarConToken(
-          existenteUsuarioComprobar.token || '',
-          existenteUsuarioComprobar.user || {} as any
-        );
-      } else {
-        navegacion.navigate('GooglePhoneVerification', {
-          email: firebaseUsuario.email || '',
-          firebaseUid: firebaseUsuario.uid,
-          displayName: firebaseUsuario.displayName || '',
-          photoURL: firebaseUsuario.photoURL || ''
-        });
-      }
+      const { token, user } = existenteUsuarioComprobar;
+      if (!token || !user) throw new Error('No se pudo confirmar la sesión con Google.');
+      await ingresarConToken(token, user);
     } catch (error: any) {
-      const errorMensaje = error?.message || 'No se pudo iniciar sesión con Google';
+      if (mostrarCuentaDesactivadaAlIngresar(error)) {
+        await firebaseServicio.signOut().catch(() => {});
+        return;
+      }
+      const errorMensaje = error?.data?.error || error?.message || 'No se pudo iniciar sesión con Google';
       Alert.alert('Error', errorMensaje, [
       { text: 'Reintentar', onPress: () => manejarGoogleSignoEn() },
       { text: 'Cancelar', onPress: () => establecerCargando(false), style: 'cancel' }]
@@ -126,40 +121,38 @@ function IngresarPantalla({ navigation: navegacion }: IngresarPantallaPropiedade
 
   return (
     <Vista style={estilos.root}>
-      <EstadoBar barStyle="light-content" backgroundColor={C.bg} />
+      <EstadoBar barStyle="dark-content" backgroundColor={estilos.portada.backgroundColor} />
 
       <DesplazableVista
         style={estilos.container}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-        estilos.contentContainer,
-        { paddingBottom: 36 + margenes.bottom }]
-        }>
+        contentContainerStyle={estilos.contentContainer}>
 
-        {/* ── Grupo Superior: Logo ── */}
-        <Vista>
+        <Vista style={[estilos.portada, { height: altoIlustracion + margenes.top }]}>
+          <Imagen source={require('../../assets/login-ciudad-lila.png')}
+            style={[estilos.ilustracion, { height: ancho * 1277 / 1232, bottom: -ancho * 0.24 }]}
+            resizeMode="cover" accessible={false} />
           <Animado.View
             style={[
             estilos.header,
             {
+              top: margenes.top + 12,
               opacity: anims.fade,
               transform: [{ translateY: anims.slide }, { scale: anims.scale }]
             }]
             }>
 
-            <Vista style={estilos.logoWrapper}>
-              <Imagen
-                source={require('../../assets/logo.png')}
-                style={estilos.logoImage}
-                resizeMode="contain" />
-
-            </Vista>
-            <Texto style={estilos.tagline}>Transporte seguro por mujeres</Texto>
+            <Imagen source={require('../../assets/logo.png')} style={estilos.logoImage}
+              resizeMode="contain" accessible accessibilityLabel="Línea Lila" />
           </Animado.View>
         </Vista>
 
         {/* ── Grupo Inferior: Botones + Legal ── */}
-        <Vista>
+        <Vista style={[estilos.panelAcceso, { paddingBottom: 24 + margenes.bottom }]}>
+          <Vista style={estilos.bienvenida}>
+            <Texto style={estilos.tituloAcceso} accessibilityRole="header">La ciudad es tuya</Texto>
+            <Texto style={estilos.tagline}>Transporte seguro</Texto>
+          </Vista>
           {/* Google — blanco puro, contraste máximo */}
           <Animado.View
             style={{
@@ -242,43 +235,36 @@ const estilos = EstiloHoja.create({
   // ── Raíz ──
   root: {
     flex: 1,
-    backgroundColor: C.bg
+    backgroundColor: C.white
   },
 
   container: { flex: 1 },
   contentContainer: {
-    flexGrow: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingBottom: 36
+    flexGrow: 1
   },
 
   // ── Header ──
-  header: {
-    alignItems: 'center',
-    paddingTop: alto * 0.08,
-    paddingBottom: 40
-  },
-
-  logoWrapper: {
-    paddingTop: 50
-  },
+  portada: { overflow: 'hidden', backgroundColor: '#E4D6FC' },
+  ilustracion: { position: 'absolute', width: '100%' },
+  header: { position: 'absolute', left: 24 },
   logoImage: {
-    width: 160,
-    height: 160
+    width: 54,
+    height: 54,
+    tintColor: C.bg
   },
-
+  bienvenida: { gap: 4, marginBottom: 24 },
+  tituloAcceso: { color: '#111118', fontSize: 32, fontWeight: '800', letterSpacing: -0.6 },
   tagline: {
-    fontSize: 15,
-    color: C.tagline,
-    fontWeight: '500',
-    letterSpacing: 0.3,
-    textAlign: 'center'
+    fontSize: 16,
+    color: '#666675',
+    fontWeight: '500'
   },
 
   // ── Botones ──
-  actionsContainer: {
-    marginBottom: 32
+  panelAcceso: {
+    flexGrow: 1,
+    paddingTop: 8,
+    paddingHorizontal: 24
   },
 
   // Google: blanco puro
@@ -315,9 +301,8 @@ const estilos = EstiloHoja.create({
     letterSpacing: 0.1
   },
 
-  // Email: lila medio
   emailBtn: {
-    backgroundColor: C.emailBtn,
+    backgroundColor: C.bg,
     marginTop: 15,
     borderRadius: 10,
     paddingVertical: 13,
@@ -343,13 +328,13 @@ const estilos = EstiloHoja.create({
     paddingHorizontal: 16
   },
   legalText: {
-    fontSize: 11.5,
-    color: C.legal,
+    fontSize: 13,
+    color: '#666675',
     textAlign: 'center',
-    lineHeight: 17
+    lineHeight: 19
   },
   legalLink: {
-    color: C.legalLink,
+    color: C.googleText,
     fontWeight: '600'
   }
 });

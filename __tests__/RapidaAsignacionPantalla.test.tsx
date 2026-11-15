@@ -109,7 +109,7 @@ test('recupera y permite confirmar una reserva con la respuesta anterior del ser
     ride: { ...viaje, status: 'aceptado' }, serverTime: vencimiento, segundosRestantes: 0
   });
   await act(async () => confirmar.props.onPress());
-  expect(navegacion.replace).toHaveBeenCalledWith('ActiveRide', { rideId: viaje.id });
+  expect(navegacion.replace).toHaveBeenCalledWith('PassengerActiveRide', { rideId: viaje.id });
   expect(salida()).toContain('ABC123');
   expect(salida()).not.toContain('Creando solicitud');
 });

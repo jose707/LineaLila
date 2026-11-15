@@ -50,6 +50,7 @@ import { ViajeSolicitudPanel } from "../components/ViajeSolicitudPanel";
 import { AnimadoRutaPolilinea } from "../components/AnimadoRutaPolilinea";
 import { DestinoIndicadorIcono as DestinoIndicadorIcon, PasajeroMapaIcono, ParadaMapaIcono as ParadaMapaIcon } from "../components/MapUbicacionIcons";
 import GuardadoLugaresModal, { GuardadoLugar } from '../components/SavedPlacesModal';
+import ConfirmarInferiorHoja from '../components/ConfirmarInferiorSheet';
 import Toast from "../components/Aviso";
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
@@ -64,8 +65,10 @@ import { viajesServicio } from "../services/viajes.servicio";
 import { autenticacionServicio } from "../services/autenticacion.servicio";
 import { obtenerMiSolicitudEstado } from '../services/admin.servicio';
 import { alPrimerPlanoNotificacion } from '../services/firebase.servicio';
-import { AlmacenamientoAuxiliar } from '../services/storage';
+import { usarAjustes } from '../context/AjustesContexto';
+import { guardarLugares, idLugarFavorito, leerLugaresGuardados } from '../utils/lugaresGuardados';
 import socketServicio from "../services/socket.servicio";
+import { iniciarAdaptativaSincronizacion } from '../utils/adaptativaSincronizar';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const LOCATIONIQ_API_CLAVE = 'pk.2c35bb8a74b61271c3e0f669fb81718d';
@@ -159,6 +162,8 @@ const MapaPantalla = () => {
   const navegacion = usarNavegacion<MapaPantallaNavegacionPropiedad>();
   const ruta = usarRuta<MapaPantallaRutaPropiedad>();
   const { user: usuario, updateUser: actualizarUsuario, isDriverMode: esConductorModo } = usarAutenticacion();
+  const usuarioId = usuario?.id;
+  const { settings: { preferredVehicleType: vehiculoPreferido } } = usarAjustes();
   const margenes = usarSeguraZonaMargenes();
   const { height: pantallaAlto } = usarWindowDimensions();
   const [documentosPorReenviar, establecerDocumentosPorReenviar] = usarEstado(false);
@@ -181,26 +186,6 @@ const MapaPantalla = () => {
     });
     return () => { activo = false; app.remove(); mensaje(); };
   }, []));
-
-  // Restricción: MapScreen solo para pasajeros
-  usarEnfoqueEfecto(
-    React.useCallback(() => {
-      if (esConductorModo) {
-        Alert.alert(
-          'Acceso denegado',
-          'Solo los pasajeros pueden solicitar viajes. Cambia a modo pasajero en tu perfil.',
-          [
-          {
-            text: 'Ir a perfil',
-            onPress: () => navegacion.navigate('Profile')
-          }]
-
-        );
-        // Redirigir a DriverHome
-        (navegacion as any).navigate('DriverHome');
-      }
-    }, [esConductorModo, navegacion])
-  );
 
   // 🔒 BackHandler para double-back-to-exit
   usarEfecto(() => {
@@ -263,6 +248,7 @@ const MapaPantalla = () => {
   const [seleccionandoModo, establecerSeleccionandoModo] = usarEstado<'origin' | 'destination' | null>(null);
   const [esAddingParada, establecerEsAddingParada] = usarEstado(false);
   const [guardandoModo, establecerGuardandoModo] = usarEstado<'home' | 'work' | 'favorite' | null>(null);
+  const guardandoLugar = usarReferencia(false);
   const [mapaCentroUbicacion, establecerMapaCentroUbicacion] = usarEstado<LatitudLongitud | null>(
     null
   );
@@ -288,13 +274,28 @@ const MapaPantalla = () => {
     establecerEsCreandoViaje(false);
     if (esConductorModo) return;
     let activo = true;
-    viajesServicio.obtenerAsignacionRapidaActual().then(({ ride: viaje }) => {
-      if (!activo || !viaje || creandoViajeReferencia.current) return;
-      if (viaje.status === 'solicitado') navegacion.navigate('QuickAssignment', { rideId: viaje.id });else
-      navegacion.navigate('ActiveRide', { rideId: viaje.id });
-    }).catch(() => {});
-    return () => {activo = false;};
-  }, [esConductorModo, navegacion]));
+    const renovar = async () => {
+      try {
+        const confirmado = await viajesServicio.obtenerViajeActivo('pasajero', usuario?.id);
+        if (!activo || creandoViajeReferencia.current) return;
+        if (confirmado) {
+          navegacion.navigate('PassengerActiveRide', { rideId: confirmado.id });
+          return;
+        }
+        const { ride: reserva } = await viajesServicio.obtenerAsignacionRapidaActual();
+        if (!activo || !reserva || creandoViajeReferencia.current) return;
+        if (reserva.status === 'solicitado') {
+          navegacion.navigate('QuickAssignment', { rideId: reserva.id });
+        } else {
+          navegacion.navigate('PassengerActiveRide', { rideId: reserva.id });
+        }
+      } catch (error) {
+        console.warn('No se pudo consultar el viaje activo del pasajero:', error);
+      }
+    };
+    const detener = iniciarAdaptativaSincronizacion(renovar, () => null, ['ride:accepted']);
+    return () => { activo = false; detener(); };
+  }, [esConductorModo, navegacion, usuario?.id]));
   const alternarAnimacion = usarReferencia(new Animado.Value(0)).current;
 
   usarEfecto(() => {
@@ -306,7 +307,10 @@ const MapaPantalla = () => {
     }).start();
   }, [negociacionModo, alternarAnimacion]);
   const [seleccionadoVehiculoTipo, establecerSeleccionadoVehiculoTipo] =
-  usarEstado<string>('taxi');
+  usarEstado<string>(vehiculoPreferido);
+  usarEfecto(() => {
+    establecerSeleccionadoVehiculoTipo(vehiculoPreferido);
+  }, [vehiculoPreferido]);
   const [seleccionadoPagoMetodo, establecerSeleccionadoPagoMetodo] =
   usarEstado<string>('efectivo');
   const [mapaWrapDimensions, establecerMapaWrapDimensions] = usarEstado({
@@ -336,15 +340,17 @@ const MapaPantalla = () => {
     farePerKm: 0.5,
     farePerMinute: 0.58
   });
-  const [recienteViajes, establecerRecienteViajes] = usarEstado<ViajeHistorial[]>([]);
-  const [recienteViajesCargando, establecerRecienteViajesCargando] = usarEstado(true);
-  const [favoritoIds, establecerFavoritoIds] = usarEstado<Set<string>>(new Set());
+  const [historialLocal, establecerHistorialLocal] = usarEstado<{ usuarioId: string; viajes: ViajeHistorial[] }>();
+  const recienteViajes = historialLocal?.usuarioId === usuarioId ? historialLocal?.viajes ?? [] : [];
   const [mostrarParadasModal, establecerMostrarParadasModal] = usarEstado(false);
   const [mostrarAgregarParadaModal, establecerMostrarAgregarParadaModal] = usarEstado(false);
   const [mostrarGuardadoLugaresModal, establecerMostrarGuardadoLugaresModal] = usarEstado(false);
-  const [guardadoInicioDireccion, establecerGuardadoInicioDireccion] = usarEstado<GuardadoLugar | null>(null);
-  const [guardadoTrabajoDireccion, establecerGuardadoTrabajoDireccion] = usarEstado<GuardadoLugar | null>(null);
-  const [guardadoFavoritoLugares, establecerGuardadoFavoritoLugares] = usarEstado<GuardadoLugar[]>([]);
+  const [lugarPorEliminar, establecerLugarPorEliminar] = usarEstado<{ usuarioId: string; id: string; titulo: string; mensaje: string } | null>(null);
+  const eliminacionLugar = lugarPorEliminar?.usuarioId === usuarioId ? lugarPorEliminar : null;
+  const [lugaresLocales, establecerLugaresLocales] = usarEstado<{ usuarioId: string; lugares: GuardadoLugar[] }>();
+  const guardadoLugares = lugaresLocales?.usuarioId === usuarioId ? lugaresLocales?.lugares ?? [] : [];
+  const guardadoInicioDireccion = guardadoLugares.find(lugar => lugar.type === 'home');
+  const guardadoTrabajoDireccion = guardadoLugares.find(lugar => lugar.type === 'work');
   const [avisoVisible, establecerAvisoVisible] = usarEstado(false);
   const [avisoMensaje, establecerAvisoMensaje] = usarEstado('');
   const [avisoIcono, establecerAvisoIcono] = usarEstado('✓');
@@ -505,75 +511,50 @@ const MapaPantalla = () => {
     limpiarVencidoCache();
   }, []);
 
-  // Mostrar destinos recientes, independientemente del origen usado antes.
+  // Mostrar destinos recientes de la cuenta, independientemente del origen usado antes.
   usarEnfoqueEfecto(usarFuncionRetorno(() => {
+    if (!usuarioId) return;
     let activo = true;
-    establecerRecienteViajesCargando(true);
-    cacheViajeHistorialGestor.obtenerViajes().then((viajes) => {
-      if (activo) {
-        establecerRecienteViajes(viajes.slice(0, 3));
-        const guardadoFavoritos = AlmacenamientoAuxiliar.obtenerElemento('favoriteTripIds');
-        if (guardadoFavoritos) {
-          try {
-            const ids = JSON.parse(guardadoFavoritos);
-            if (Array.isArray(ids)) establecerFavoritoIds(new Set(ids));
-          } catch {/* Un favorito dañado no impide mostrar destinos recientes. */}
-        }
-      }
-    }).finally(() => {
-      if (activo) establecerRecienteViajesCargando(false);
+    cacheViajeHistorialGestor.obtenerViajes(usuarioId).then((viajes) => {
+      if (activo) establecerHistorialLocal({ usuarioId, viajes: viajes.slice(0, 3) });
     });
-    return () => {activo = false;};
-  }, []));
+    return () => { activo = false; };
+  }, [usuarioId]));
 
-  // El historial de búsqueda guarda solo el destino seleccionado.
   usarEfecto(() => {
-    if (!destinoUbicacion || !destinoDireccion.trim()) return;
+    if (!usuarioId || !destinoUbicacion || !destinoDireccion.trim()) return;
     let activo = true;
     cacheViajeHistorialGestor.agregarViaje({
       destinationLocation: destinoUbicacion,
       destinationAddress: destinoDireccion
-    }).then(() => cacheViajeHistorialGestor.obtenerViajes()).then((viajes) => {
-      if (activo) establecerRecienteViajes(viajes.slice(0, 3));
+    }, usuarioId).then(() => cacheViajeHistorialGestor.obtenerViajes(usuarioId)).then((viajes) => {
+      if (activo) establecerHistorialLocal({ usuarioId, viajes: viajes.slice(0, 3) });
     });
-    return () => {activo = false;};
-  }, [destinoUbicacion, destinoDireccion]);
+    return () => { activo = false; };
+  }, [usuarioId, destinoUbicacion, destinoDireccion]);
 
-  // Cargar favoritos y direcciones guardadas
   usarEfecto(() => {
-    const cargarGuardadoLugares = () => {
-      const guardado = AlmacenamientoAuxiliar.obtenerElemento('favoriteTripIds');
-      if (guardado) {
-        establecerFavoritoIds(new Set(JSON.parse(guardado)));
-      }
-      const inicioDatos = AlmacenamientoAuxiliar.obtenerElemento('savedHomeAddress');
-      if (inicioDatos) {
-        establecerGuardadoInicioDireccion(JSON.parse(inicioDatos));
-      }
-      const trabajoDatos = AlmacenamientoAuxiliar.obtenerElemento('savedWorkAddress');
-      if (trabajoDatos) {
-        establecerGuardadoTrabajoDireccion(JSON.parse(trabajoDatos));
-      }
-      const favDatos = AlmacenamientoAuxiliar.obtenerElemento('savedFavoritePlaces');
-      if (favDatos) {
-        establecerGuardadoFavoritoLugares(JSON.parse(favDatos));
-      }
-    };
-    cargarGuardadoLugares();
-  }, []);
+    if (usuarioId) establecerLugaresLocales({ usuarioId, lugares: leerLugaresGuardados(usuarioId) });
+  }, [usuarioId]);
 
-  const alternarFavorito = usarFuncionRetorno((viajeId: string) => {
-    establecerFavoritoIds((anterior) => {
-      const siguiente = new Set(anterior);
-      if (siguiente.has(viajeId)) {
-        siguiente.delete(viajeId);
-      } else {
-        siguiente.add(viajeId);
-      }
-      AlmacenamientoAuxiliar.establecerElemento('favoriteTripIds', JSON.stringify([...siguiente]));
-      return siguiente;
-    });
-  }, []);
+  const actualizarLugares = (cambiar: (lugares: GuardadoLugar[]) => GuardadoLugar[]) => {
+    if (!usuarioId) return;
+    const lugares = cambiar(leerLugaresGuardados(usuarioId));
+    guardarLugares(usuarioId, lugares);
+    establecerLugaresLocales({ usuarioId, lugares });
+  };
+
+  const esFavorito = (ubicacion: LatitudLongitud) =>
+    guardadoLugares.some(lugar => lugar.type === 'favorite' && lugar.id === idLugarFavorito(ubicacion));
+
+  const alternarFavorito = (viaje: ViajeHistorial) => {
+    const ubicacion = viaje.destinationLocation;
+    const direccion = viaje.destinationAddress;
+    const id = idLugarFavorito(ubicacion);
+    actualizarLugares(lugares => lugares.some(lugar => lugar.id === id)
+      ? lugares.filter(lugar => lugar.id !== id)
+      : [...lugares, { ...ubicacion, id, type: 'favorite', label: direccion.split(',')[0] || 'Favorito', address: direccion }]);
+  };
 
   const asegurarRecogida = async (): Promise<LatitudLongitud | null> => {
     if (recogidaUbicacion) return recogidaUbicacion;
@@ -586,40 +567,6 @@ const MapaPantalla = () => {
     establecerMostrarMarcador(false);
     establecerUbicacionCargando(false);
     return realRecogida;
-  };
-
-  const manejarGuardarInicio = async () => {
-    const ubicacion = recogidaUbicacion || mapaCentroUbicacion;
-    if (!ubicacion) return;
-    const direccion = recogidaDireccion || temporalRecogidaDireccion || (await obtenerExactoDireccion(ubicacion));
-    const lugar: GuardadoLugar = {
-      id: 'home',
-      type: 'home',
-      label: 'Casa',
-      address: direccion,
-      latitude: ubicacion.latitude,
-      longitude: ubicacion.longitude
-    };
-    establecerGuardadoInicioDireccion(lugar);
-    AlmacenamientoAuxiliar.establecerElemento('savedHomeAddress', JSON.stringify(lugar));
-    Alert.alert('Casa guardada', 'Tu dirección de casa ha sido guardada.');
-  };
-
-  const manejarGuardarTrabajo = async () => {
-    const ubicacion = recogidaUbicacion || mapaCentroUbicacion;
-    if (!ubicacion) return;
-    const direccion = recogidaDireccion || temporalRecogidaDireccion || (await obtenerExactoDireccion(ubicacion));
-    const lugar: GuardadoLugar = {
-      id: 'work',
-      type: 'work',
-      label: 'Trabajo',
-      address: direccion,
-      latitude: ubicacion.latitude,
-      longitude: ubicacion.longitude
-    };
-    establecerGuardadoTrabajoDireccion(lugar);
-    AlmacenamientoAuxiliar.establecerElemento('savedWorkAddress', JSON.stringify(lugar));
-    Alert.alert('Trabajo guardado', 'Tu dirección de trabajo ha sido guardada.');
   };
 
   const mostrarAviso = (mensaje: string, icono = '✓') => {
@@ -637,78 +584,33 @@ const MapaPantalla = () => {
 
   const confirmarGuardarModo = async () => {
     const ubicacion = mapaCentroUbicacion;
-    if (!ubicacion || !guardandoModo) return;
-    const direccion = temporalRecogidaDireccion || (await obtenerExactoDireccion(ubicacion));
-    const lugar: GuardadoLugar = {
-      id: guardandoModo === 'favorite' ? `fav-${Date.now()}` : guardandoModo,
-      type: guardandoModo === 'favorite' ? 'favorite' : guardandoModo,
-      label: guardandoModo === 'home' ? 'Casa' : guardandoModo === 'work' ? 'Trabajo' : direccion.split(',')[0] || 'Favorito',
-      address: direccion,
-      latitude: ubicacion.latitude,
-      longitude: ubicacion.longitude
-    };
-    if (guardandoModo === 'home') {
-      establecerGuardadoInicioDireccion(lugar);
-      AlmacenamientoAuxiliar.establecerElemento('savedHomeAddress', JSON.stringify(lugar));
-    } else if (guardandoModo === 'work') {
-      establecerGuardadoTrabajoDireccion(lugar);
-      AlmacenamientoAuxiliar.establecerElemento('savedWorkAddress', JSON.stringify(lugar));
-    } else {
-      establecerGuardadoFavoritoLugares((anterior) => {
-        const actualizado = [...anterior, lugar];
-        AlmacenamientoAuxiliar.establecerElemento('savedFavoritePlaces', JSON.stringify(actualizado));
-        return actualizado;
-      });
+    if (!ubicacion || !guardandoModo || !usuarioId || guardandoLugar.current) return;
+    guardandoLugar.current = true;
+    const direccion = await obtenerExactoDireccion(ubicacion).catch(() => '').finally(() => { guardandoLugar.current = false; });
+    if (!direccion.trim()) {
+      mostrarAviso('No se pudo obtener la dirección. Intenta de nuevo.', '!');
+      return;
     }
+    const lugar: GuardadoLugar = {
+      ...ubicacion,
+      id: guardandoModo === 'favorite' ? idLugarFavorito(ubicacion) : guardandoModo,
+      type: guardandoModo,
+      label: guardandoModo === 'home' ? 'Casa' : guardandoModo === 'work' ? 'Trabajo' : direccion.split(',')[0] || 'Favorito',
+      address: direccion
+    };
+    actualizarLugares(lugares => [...lugares.filter(guardado => guardado.id !== lugar.id), lugar]);
     establecerGuardandoModo(null);
     mostrarAviso('Se agregó destino correctamente');
     centroHastaUsuarioUbicacion(false);
   };
 
-  const manejarEliminarInicio = () => {
-    Alert.alert('Eliminar Casa', '¿Quieres eliminar tu dirección de casa?', [
-    { text: 'Cancelar', style: 'cancel' },
-    {
-      text: 'Eliminar',
-      style: 'destructive',
-      onPress: () => {
-        establecerGuardadoInicioDireccion(null);
-        AlmacenamientoAuxiliar.quitarElemento('savedHomeAddress');
-      }
-    }]
-    );
+  const solicitarEliminarLugar = (id: string, titulo: string, mensaje: string) => {
+    if (usuarioId) establecerLugarPorEliminar({ usuarioId, id, titulo, mensaje });
   };
 
-  const manejarEliminarTrabajo = () => {
-    Alert.alert('Eliminar Trabajo', '¿Quieres eliminar tu dirección de trabajo?', [
-    { text: 'Cancelar', style: 'cancel' },
-    {
-      text: 'Eliminar',
-      style: 'destructive',
-      onPress: () => {
-        establecerGuardadoTrabajoDireccion(null);
-        AlmacenamientoAuxiliar.quitarElemento('savedWorkAddress');
-      }
-    }]
-    );
-  };
-
-  const manejarEliminarFavorito = (lugarId: string) => {
-    Alert.alert('Eliminar favorito', '¿Quieres eliminar este lugar guardado?', [
-    { text: 'Cancelar', style: 'cancel' },
-    {
-      text: 'Eliminar',
-      style: 'destructive',
-      onPress: () => {
-        establecerGuardadoFavoritoLugares((anterior) => {
-          const actualizado = anterior.filter((p) => p.id !== lugarId);
-          AlmacenamientoAuxiliar.establecerElemento('savedFavoritePlaces', JSON.stringify(actualizado));
-          return actualizado;
-        });
-      }
-    }]
-    );
-  };
+  const manejarEliminarInicio = () => solicitarEliminarLugar('home', 'Eliminar Casa', '¿Quieres eliminar tu dirección de casa?');
+  const manejarEliminarTrabajo = () => solicitarEliminarLugar('work', 'Eliminar Trabajo', '¿Quieres eliminar tu dirección de trabajo?');
+  const manejarEliminarFavorito = (id: string) => solicitarEliminarLugar(id, 'Eliminar favorito', '¿Quieres eliminar este lugar guardado?');
 
   const manejarAgregarFavorito = () => {
     establecerMostrarGuardadoLugaresModal(false);
@@ -723,7 +625,7 @@ const MapaPantalla = () => {
 
   const manejarInicioPulsar = async () => {
     if (guardadoInicioDireccion) {
-      await asegurarRecogida();
+      if (!(await asegurarRecogida())) return;
       usarLugarComoDestino(guardadoInicioDireccion);
       return;
     }
@@ -733,7 +635,7 @@ const MapaPantalla = () => {
 
   const manejarTrabajoPulsar = async () => {
     if (guardadoTrabajoDireccion) {
-      await asegurarRecogida();
+      if (!(await asegurarRecogida())) return;
       usarLugarComoDestino(guardadoTrabajoDireccion);
       return;
     }
@@ -746,8 +648,11 @@ const MapaPantalla = () => {
   };
 
   const manejarSeleccionarGuardadoLugar = async (lugar: GuardadoLugar) => {
+    if (!(await asegurarRecogida())) {
+      Alert.alert('Ubicación no disponible', 'No se pudo definir tu origen actual. Intenta de nuevo.');
+      return;
+    }
     establecerMostrarGuardadoLugaresModal(false);
-    await asegurarRecogida();
     usarLugarComoDestino(lugar);
   };
 
@@ -762,14 +667,6 @@ const MapaPantalla = () => {
     });
     establecerDestinoDireccion(viaje.destinationAddress);
   };
-
-  const guardadoLugares = usarMemoria<GuardadoLugar[]>(() => {
-    const lugares: GuardadoLugar[] = [];
-    if (guardadoInicioDireccion) lugares.push(guardadoInicioDireccion);
-    if (guardadoTrabajoDireccion) lugares.push(guardadoTrabajoDireccion);
-    lugares.push(...guardadoFavoritoLugares);
-    return lugares;
-  }, [guardadoInicioDireccion, guardadoTrabajoDireccion, guardadoFavoritoLugares]);
 
   usarEfecto(() => {
     if (!ruta.params) return;
@@ -927,7 +824,15 @@ const MapaPantalla = () => {
 
 
         // La proyección nativa puede no estar lista en el primer render.
-      }}if (revision !== direccionLookupRevisionReferencia.current) return;establecerMapaCentroUbicacion(centro);if (!recogidaUbicacion || seleccionandoModo !== null) {try {establecerSearchingDireccion(true);const direccion = await obtenerExactoDireccion(centro);if (revision === direccionLookupRevisionReferencia.current) establecerTemporalRecogidaDireccion(direccion);
+      }
+    }
+    if (revision !== direccionLookupRevisionReferencia.current) return;
+    establecerMapaCentroUbicacion(centro);
+    if (!recogidaUbicacion || seleccionandoModo !== null || guardandoModo !== null) {
+      try {
+        establecerSearchingDireccion(true);
+        const direccion = await obtenerExactoDireccion(centro);
+        if (revision === direccionLookupRevisionReferencia.current) establecerTemporalRecogidaDireccion(direccion);
       } catch {
       } finally {
         if (revision === direccionLookupRevisionReferencia.current) establecerSearchingDireccion(false);
@@ -1671,7 +1576,7 @@ const MapaPantalla = () => {
 
                 <Vista style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                   <Vista style={s.searchIcon}>
-                    <Icon.Busqueda size={22} color="#7C3AED" />
+                    <Icon.Busqueda size={22} color={T.accent} />
                   </Vista>
                   <Texto style={s.searchPlaceholder} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>¿A dónde vamos?</Texto>
                 </Vista>
@@ -1684,7 +1589,7 @@ const MapaPantalla = () => {
                 onLongPress={guardadoInicioDireccion ? manejarEliminarInicio : undefined}>
 
                   <Vista style={s.quickDestIcon}>
-                    <Icon.Home size={26} color="#7C3AED" />
+                    <Icon.Home size={26} color={T.accent} />
                   </Vista>
                   <Vista style={[s.quickDestContent, guardadoInicioDireccion && { justifyContent: 'center' }]}>
                     <Texto style={[s.quickDestText, guardadoInicioDireccion && { fontSize: 15, fontWeight: '600' }]}>Casa</Texto>
@@ -1697,7 +1602,7 @@ const MapaPantalla = () => {
                 onLongPress={guardadoTrabajoDireccion ? manejarEliminarTrabajo : undefined}>
 
                   <Vista style={s.quickDestIcon}>
-                    <Icon.Briefcase size={26} color="#7C3AED" />
+                    <Icon.Briefcase size={26} color={T.accent} />
                   </Vista>
                   <Vista style={[s.quickDestContent, guardadoTrabajoDireccion && { justifyContent: 'center' }]}>
                     <Texto style={[s.quickDestText, guardadoTrabajoDireccion && { fontSize: 15, fontWeight: '600' }]}>Trabajo</Texto>
@@ -1706,7 +1611,7 @@ const MapaPantalla = () => {
                 </PulsableOpacidad>
                 <PulsableOpacidad style={s.quickDestItem} onPress={manejarFavoritosPulsar}>
                   <Vista style={s.quickDestIcon}>
-                    <Icon.Star size={26} color="#7C3AED" />
+                    <Icon.Star size={26} color={T.accent} />
                   </Vista>
                   <Vista style={s.quickDestContent}>
                     <Texto style={s.quickDestText}>Favoritos</Texto>
@@ -1715,14 +1620,8 @@ const MapaPantalla = () => {
                 </PulsableOpacidad>
               </Vista>
 
-              <Vista style={s.recentTripsSection}>
-                {recienteViajes.length === 0 &&
-              <Vista style={s.recentTripsEmptySpace}>
-                    {!recienteViajesCargando &&
-                <Texto style={s.recentTripsEmpty}>Sin búsquedas recientes</Texto>
-                }
-                  </Vista>
-              }
+              {recienteViajes.length > 0 && (
+                <Vista style={s.recentTripsSection}>
                 {recienteViajes.map((viaje) =>
               <PulsableOpacidad
                 key={viaje.id}
@@ -1730,7 +1629,7 @@ const MapaPantalla = () => {
                 onPress={() => manejarRecienteViajePulsar(viaje)}>
 
                     <Vista style={s.recentTripIcon}>
-                      <MapaPin size={26} color="#7C3AED" />
+                      <MapaPin size={26} color={T.accent} />
                     </Vista>
                     <Vista style={s.recentTripContent}>
                       <Texto style={s.recentTripText} numberOfLines={1}>
@@ -1739,18 +1638,21 @@ const MapaPantalla = () => {
                     </Vista>
                     <PulsableOpacidad
                   style={s.recentTripStar}
-                  onPress={() => alternarFavorito(viaje.id)}
+                  onPress={() => alternarFavorito(viaje)}
+                  accessibilityRole="button"
+                  accessibilityLabel={esFavorito(viaje.destinationLocation) ? 'Quitar de favoritos' : 'Agregar a favoritos'}
                   activeOpacity={0.7}>
 
                       <Icon.Star
                     size={20}
-                    color="#7C3AED"
-                    filled={favoritoIds.has(viaje.id)} />
+                    color={T.accent}
+                    filled={esFavorito(viaje.destinationLocation)} />
 
                     </PulsableOpacidad>
                   </PulsableOpacidad>
               )}
-              </Vista>
+                </Vista>
+              )}
             </Vista>
           </Animado.View>
         }
@@ -1993,13 +1895,25 @@ const MapaPantalla = () => {
 
       {/* SAVED PLACES MODAL */}
       <GuardadoLugaresModal
-        visible={mostrarGuardadoLugaresModal}
+        visible={mostrarGuardadoLugaresModal && !eliminacionLugar}
         onClose={() => establecerMostrarGuardadoLugaresModal(false)}
         onSelect={manejarSeleccionarGuardadoLugar}
         onAdd={manejarAgregarFavorito}
         onDelete={manejarEliminarFavorito}
         savedPlaces={guardadoLugares} />
 
+      <ConfirmarInferiorHoja
+        visible={!!eliminacionLugar}
+        title={eliminacionLugar?.titulo ?? ''}
+        message={eliminacionLugar?.mensaje ?? ''}
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        onCancel={() => establecerLugarPorEliminar(null)}
+        onConfirm={() => {
+          if (!eliminacionLugar) return;
+          actualizarLugares(lugares => lugares.filter(lugar => lugar.id !== eliminacionLugar.id));
+          establecerLugarPorEliminar(null);
+        }} />
 
       {/* TOAST — superpuesto sobre todo */}
       <Toast
@@ -2150,8 +2064,6 @@ const s = EstiloHoja.create({
   quickDestAdd: { fontSize: 11, color: '#999999', fontWeight: '400' },
   recentTripsSection: { paddingHorizontal: 24, paddingBottom: 10 },
   recentTripItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
-  recentTripsEmptySpace: { height: 180, alignItems: 'center', justifyContent: 'center' },
-  recentTripsEmpty: { color: '#999999', fontSize: 14, textAlign: 'center' },
   recentTripIcon: { width: 40, height: 40, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   recentTripContent: { flex: 1 },
   recentTripText: { fontSize: 18, color: '#000000', fontWeight: '500' },

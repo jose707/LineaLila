@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import {
   Search as Buscar,
   LocateFixed,
@@ -229,3 +230,19 @@ const Icono = {
   <ChevronIzquierda size={tamano} color={color} strokeWidth={trazoAncho} />
 
 };export { Icono as Icon };
+
+export function InsigniaPerfilVerificado({ etiqueta }: { etiqueta: string }) {
+  return (
+    <View accessible accessibilityLabel={etiqueta} style={estilosInsignia.perfil}>
+      <Comprobar size={13} color={T.white} strokeWidth={3} />
+    </View>
+  );
+}
+
+const estilosInsignia = StyleSheet.create({
+  perfil: {
+    position: 'absolute', right: -5, top: -4, width: 23, height: 23,
+    borderRadius: 12, borderWidth: 2, borderColor: T.white, backgroundColor: T.accent,
+    alignItems: 'center', justifyContent: 'center'
+  }
+});

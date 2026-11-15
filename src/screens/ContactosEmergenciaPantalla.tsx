@@ -130,7 +130,7 @@ export default function ContactosEmergenciaPantalla() {
         <View style={estilos.iconoAviso}><ShieldCheck size={30} color={principal} strokeWidth={2.5} /></View>
         <View style={estilos.flex}>
           <Text style={[estilos.avisoTitulo, oscuro && estilos.textoClaro]}>Tu seguridad es importante</Text>
-          <Text style={[estilos.descripcion, oscuro && estilos.secundarioOscuro]}>Si activas el botón de emergencia, se intentará enviar un SMS a estos contactos con la ubicación disponible.</Text>
+          <Text style={[estilos.descripcion, oscuro && estilos.secundarioOscuro]}>Si activas el botón de emergencia, se intentará enviar un WhatsApp a estos contactos con la ubicación disponible.</Text>
         </View>
       </View>
 

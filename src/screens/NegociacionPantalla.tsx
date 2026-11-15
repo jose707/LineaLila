@@ -103,7 +103,7 @@ const NegociacionPantalla: React.FC = () => {
     establecerMostrarOfertasCapa(false);
     establecerConductorOfertas([]);
     AlmacenamientoAuxiliar.quitarElemento('activeRideState');
-    navegacion.replace('ActiveRide', {
+    navegacion.replace('PassengerActiveRide', {
       rideId: activoViajeId,
       confirmationMessage: '¡Conductor asignado!'
     });

@@ -20,7 +20,6 @@ import {
 import { SafeAreaView as SeguraZonaVista, useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import { launchCamera as launchCamara, launchImageLibrary as launchImagenLibrary } from 'react-native-image-picker';
 import {
-  User as Usuario,
   CreditCard,
   FileText as ArchivoTexto,
   Car,
@@ -29,7 +28,8 @@ import {
   Image as ImagenIcon,
   Check as Comprobar,
   ChevronRight as ChevronDerecha,
-  ChevronLeft as ChevronIzquierda,
+  House,
+  ShieldCheck,
   X,
   Upload as Subir,
   ScanLine as ScanLinea,
@@ -59,11 +59,9 @@ const Colores = {
   border: '#E5E5EA',
   borderSubtle: '#F0F0F5',
   success: '#16A34A',
-  successLight: '#DCFCE7',
   warning: '#D97706',
   warningLight: '#FEF3C7',
   danger: '#DC2626',
-  dangerLight: '#FEF2F2',
   white: '#FFFFFF'
 };
 
@@ -197,10 +195,6 @@ function SeccionIcono({
 }: {id: string;size?: number;color: string;strokeWidth?: number;}) {
   const propiedades = { size: tamano, color, strokeWidth: trazoAncho };
   switch (id) {
-    case 'personal':
-      return <Usuario {...propiedades} />;
-    case 'ci':
-      return <CreditCard {...propiedades} />;
     case 'license':
       return <CreditCard {...propiedades} />;
     case 'antecedents':
@@ -208,7 +202,7 @@ function SeccionIcono({
     case 'tic':
       return <CreditCard {...propiedades} />;
     case 'domicile':
-      return <ArchivoTexto {...propiedades} />;
+      return <House {...propiedades} />;
     case 'vehicle':
       return <Car {...propiedades} />;
     case 'docs':
@@ -218,368 +212,138 @@ function SeccionIcono({
   }
 }
 
-// ─── SectionModal ─────────────────────────────────────────────────────────────
-function SeccionModal({
-  visible,
-  title: titulo,
-  onClose: alCerrar,
-  onDone: alTerminado,
-  onShow,
-  children: hijos,
-  doneDisabled: terminadoDeshabilitado
-
-
-
-
-
-
-
-}: {visible: boolean;title: string;onClose: () => void;onDone: () => void;onShow?: () => void;children: React.ReactNode;doneDisabled?: boolean;}) {
+function CabeceraRegistro({ titulo, onClose }: { titulo: string; onClose: () => void }) {
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onShow={onShow}
-      onRequestClose={alCerrar}>
-
-      <KeyboardAvoidingVista
-        style={{ flex: 1 }}
-        behavior={Plataforma.OS === 'ios' ? 'padding' : undefined}>
-
-        <SeguraZonaVista style={mo.safe} edges={['top', 'left', 'right', 'bottom']}>
-          <Vista style={mo.header}>
-            <PulsableOpacidad onPress={alCerrar} style={mo.closeBtn} activeOpacity={0.7}>
-              <X size={18} color={Colores.textSecondary} strokeWidth={2.4} />
-            </PulsableOpacidad>
-            <Texto style={mo.title} numberOfLines={1}>
-              {titulo}
-            </Texto>
-            <PulsableOpacidad
-              onPress={alTerminado}
-              style={[mo.doneBtn, terminadoDeshabilitado && mo.doneBtnDis]}
-              disabled={terminadoDeshabilitado}
-              activeOpacity={0.8}>
-
-              <Texto style={[mo.doneText, terminadoDeshabilitado && mo.doneTextDis]}>
-                Guardar
-              </Texto>
-            </PulsableOpacidad>
-          </Vista>
-          <DesplazableVista
-            contentContainerStyle={mo.content}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}>
-
-            {hijos}
-          </DesplazableVista>
-        </SeguraZonaVista>
-      </KeyboardAvoidingVista>
-    </Modal>);
-
+    <Vista style={s.header}>
+      <PulsableOpacidad onPress={onClose} style={s.closeBtn} accessibilityRole="button"
+        accessibilityLabel="Cerrar" activeOpacity={0.7}>
+        <X size={24} color={Colores.text} strokeWidth={2.8} />
+      </PulsableOpacidad>
+      <Texto style={s.headerTitle} accessibilityRole="header">{titulo}</Texto>
+      <Vista style={s.headerSpacer} />
+    </Vista>
+  );
 }
 
-const mo = EstiloHoja.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
-    backgroundColor: '#FFFFFF'
-  },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  title: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colores.text,
-    paddingHorizontal: 8
-  },
-  doneBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: Colores.primary,
-    borderRadius: 12
-  },
-  doneBtnDis: { backgroundColor: '#F3EAFC' },
-  doneText: { fontSize: 13, fontWeight: '600', color: Colores.white },
-  doneTextDis: { color: Colores.primary, opacity: 0.5 },
-  content: { padding: 18, paddingBottom: 48, backgroundColor: '#FFFFFF' }
-});
-
-// ─── PhotoSheet ───────────────────────────────────────────────────────────────
-function FotoHoja({
-  visible,
-  label: etiqueta,
-  current: real,
-  onCamera: alCamara,
-  onGallery: alGaleria,
-  onClose: alCerrar
-
-
-
-
-
-
-
-}: {visible: boolean;label: string;current: string | null;onCamera: () => void;onGallery: () => void;onClose: () => void;}) {
+function BotonRegistro({ titulo, onPress, deshabilitado, cargando = false }: {
+  titulo: string; onPress: () => void; deshabilitado?: boolean; cargando?: boolean;
+}) {
+  const bloqueado = deshabilitado || cargando;
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={alCerrar}>
+    <PulsableOpacidad style={[s.submitBtn, bloqueado && s.submitBtnOff]}
+      onPress={onPress} disabled={bloqueado} activeOpacity={0.85} accessibilityRole="button"
+      accessibilityLabel={titulo} accessibilityState={{ disabled: !!bloqueado, busy: cargando }}>
+      {cargando ? <ActividadIndicador color={Colores.primary} size="small" /> :
+        <Texto style={[s.submitTxt, bloqueado && s.submitTxtOff]}>{titulo}</Texto>}
+    </PulsableOpacidad>
+  );
+}
 
-      <PulsableOpacidad
-        style={ps.backdrop}
-        activeOpacity={1}
-        onPress={alCerrar} />
-
-      <Vista style={ps.sheet}>
-        <Vista style={ps.handle} />
-        {real ?
-        <Imagen source={privadoImagenOrigen(real)} style={ps.preview} /> :
-
-        <Vista style={ps.empty}>
-            <Subir size={28} color={Colores.textTertiary} strokeWidth={1.6} />
+function SeccionModal({ visible, title, onClose, onDone, onShow, children, doneDisabled }: {
+  visible: boolean; title: string; onClose: () => void; onDone: () => void;
+  onShow?: () => void; children: React.ReactNode; doneDisabled?: boolean;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet"
+      onShow={onShow} onRequestClose={onClose}>
+      <KeyboardAvoidingVista style={s.flex} behavior={Plataforma.OS === 'ios' ? 'padding' : undefined}>
+        <SeguraZonaVista style={s.container}>
+          <CabeceraRegistro titulo={title} onClose={onClose} />
+          <DesplazableVista style={s.flex} contentContainerStyle={s.sectionContent}
+            keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {children}
+          </DesplazableVista>
+          <Vista style={s.footer}>
+            <BotonRegistro titulo="Guardar" onPress={onDone} deshabilitado={doneDisabled} />
           </Vista>
-        }
-        <Texto style={ps.label}>{etiqueta}</Texto>
-        <Texto style={ps.sub}>
-          {real ?
-          'Toca una opción para reemplazar la foto' :
-          'Elige cómo subir la imagen requerida'}
-        </Texto>
+        </SeguraZonaVista>
+      </KeyboardAvoidingVista>
+    </Modal>
+  );
+}
 
-        <PulsableOpacidad
-          style={ps.btn}
-          onPress={alCamara}
-          activeOpacity={0.75}>
-
-          <Vista style={ps.btnIco}>
-            <Camara size={20} color={Colores.primary} strokeWidth={2} />
-          </Vista>
-          <Vista style={{ flex: 1 }}>
-            <Texto style={ps.btnLbl}>Tomar foto</Texto>
-            <Texto style={ps.btnSub}>Abre la cámara del dispositivo</Texto>
-          </Vista>
-          <ChevronDerecha size={18} color={Colores.textTertiary} strokeWidth={2} />
-        </PulsableOpacidad>
-
-        <PulsableOpacidad
-          style={ps.btn}
-          onPress={alGaleria}
-          activeOpacity={0.75}>
-
-          <Vista style={ps.btnIco}>
-            <ImagenIcon size={20} color={Colores.primary} strokeWidth={2} />
-          </Vista>
-          <Vista style={{ flex: 1 }}>
-            <Texto style={ps.btnLbl}>Elegir de galería</Texto>
-            <Texto style={ps.btnSub}>Selecciona una imagen guardada</Texto>
-          </Vista>
-          <ChevronDerecha size={18} color={Colores.textTertiary} strokeWidth={2} />
-        </PulsableOpacidad>
-
-        <PulsableOpacidad style={ps.cancel} onPress={alCerrar} activeOpacity={0.7}>
-          <Texto style={ps.cancelTxt}>Cancelar</Texto>
-        </PulsableOpacidad>
+function FotoHoja({ visible, label, current, onCamera, onGallery, onClose }: {
+  visible: boolean; label: string; current: string | null;
+  onCamera: () => void; onGallery: () => void; onClose: () => void;
+}) {
+  const { bottom } = usarSeguraZonaMargenes();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Vista style={ps.overlay}>
+        <PulsableOpacidad style={EstiloHoja.absoluteFill} activeOpacity={1} onPress={onClose}
+          accessibilityRole="button" accessibilityLabel="Cerrar opciones de foto" />
+        <Vista style={[ps.sheet, { paddingBottom: Math.max(bottom, 16) }]} accessibilityViewIsModal>
+          <Vista style={ps.handle} />
+          <DesplazableVista showsVerticalScrollIndicator={false} contentContainerStyle={ps.content} bounces={false}>
+            <Texto style={ps.title} accessibilityRole="header">{label}</Texto>
+            {current && <Imagen source={privadoImagenOrigen(current)} style={ps.preview}
+              accessibilityLabel="Foto cargada" accessible />}
+            <Vista style={s.card}>
+              <PulsableOpacidad style={ps.action} onPress={onCamera} activeOpacity={0.75}
+                accessibilityRole="button">
+                <Camara size={25} color={Colores.primary} strokeWidth={2.5} />
+                <Texto style={ps.actionText}>Tomar foto</Texto>
+                <ChevronDerecha size={19} color={Colores.textSecondary} strokeWidth={2.5} />
+              </PulsableOpacidad>
+              <PulsableOpacidad style={[ps.action, s.divider]} onPress={onGallery} activeOpacity={0.75}
+                accessibilityRole="button">
+                <ImagenIcon size={25} color={Colores.primary} strokeWidth={2.5} />
+                <Texto style={ps.actionText}>Elegir de galería</Texto>
+                <ChevronDerecha size={19} color={Colores.textSecondary} strokeWidth={2.5} />
+              </PulsableOpacidad>
+            </Vista>
+            <PulsableOpacidad style={ps.cancel} onPress={onClose} activeOpacity={0.7}
+              accessibilityRole="button">
+              <Texto style={ps.cancelText}>Cancelar</Texto>
+            </PulsableOpacidad>
+          </DesplazableVista>
+        </Vista>
       </Vista>
-    </Modal>);
-
+    </Modal>
+  );
 }
 
 const ps = EstiloHoja.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 36,
-    paddingTop: 12
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    backgroundColor: '#E5E5EA',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16
-  },
-  preview: {
-    width: '100%',
-    height: 170,
-    borderRadius: 12,
-    resizeMode: 'cover',
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  empty: {
-    width: '100%',
-    height: 80,
-    borderRadius: 12,
-    backgroundColor: '#F7F7F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderStyle: 'dashed'
-  },
-  label: { fontSize: 17, fontWeight: '700', color: Colores.text, marginBottom: 4 },
-  sub: { fontSize: 13, color: Colores.textSecondary, marginBottom: 16 },
-  btn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  btnIco: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#F3EAFC',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  btnLbl: { fontSize: 15, fontWeight: '600', color: Colores.text, marginBottom: 2 },
-  btnSub: { fontSize: 12, color: Colores.textSecondary },
-  cancel: {
-    paddingVertical: 13,
-    alignItems: 'center',
-    borderRadius: 12,
-    backgroundColor: '#F7F7F9',
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  cancelTxt: { fontSize: 14, color: Colores.textSecondary, fontWeight: '600' }
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet: { maxHeight: '85%', backgroundColor: Colores.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colores.border, alignSelf: 'center', marginTop: 12 },
+  content: { paddingHorizontal: 16, paddingTop: 12, gap: 14 },
+  title: { fontSize: 20, fontWeight: '700', color: Colores.text, textAlign: 'center' },
+  preview: { width: '100%', height: 158, borderRadius: 12, resizeMode: 'contain', backgroundColor: '#F7F7F9' },
+  action: { minHeight: 60, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  actionText: { flex: 1, fontSize: 16, fontWeight: '700', color: Colores.text },
+  cancel: { minHeight: 54, padding: 12, borderRadius: 12, backgroundColor: '#F2F2F5',
+    alignItems: 'center', justifyContent: 'center' },
+  cancelText: { fontSize: 19, fontWeight: '700', color: Colores.text }
 });
 
-// ─── PhotoField ───────────────────────────────────────────────────────────────
-function FotoCampo({
-  label: etiqueta,
-  photo: foto,
-  onPress: alPulsar,
-  required: requerido = true,
-  extracting: extrayendo = false
-
-
-
-
-
-
-}: {label: string;photo: string | null;onPress: () => void;required?: boolean;extracting?: boolean;}) {
+function FotoCampo({ label, photo, onPress, extracting = false }: {
+  label: string; photo: string | null; onPress: () => void; extracting?: boolean;
+}) {
   return (
-    <PulsableOpacidad
-      style={[pf.btn, !!foto && pf.btnDone]}
-      onPress={alPulsar}
-      activeOpacity={0.7}
-      disabled={extrayendo}>
-
-      <Vista style={[pf.thumb, !!foto && pf.thumbDone]}>
-        {foto ?
-        <Imagen source={privadoImagenOrigen(foto)} style={pf.img} /> :
-
-        <Camara size={20} color={Colores.textTertiary} strokeWidth={1.8} />
-        }
-      </Vista>
-      <Vista style={{ flex: 1 }}>
-        <Texto style={pf.label}>
-          {etiqueta}
-          {requerido && !foto && <Texto style={{ color: Colores.danger }}> *</Texto>}
-        </Texto>
-        <Texto style={[pf.status, !!foto && pf.statusDone]}>
-          {extrayendo ?
-          'Analizando documento…' :
-          foto ?
-          'Foto cargada · toca para cambiar' :
-          'Toca para agregar foto'}
+    <PulsableOpacidad style={[s.card, pf.row]} onPress={onPress} activeOpacity={0.75}
+      disabled={extracting} accessibilityRole="button"
+      accessibilityState={{ disabled: extracting, busy: extracting }}
+      accessibilityHint={photo ? 'Permite cambiar la foto' : 'Permite agregar una foto'}>
+      {photo ? <Imagen source={privadoImagenOrigen(photo)} style={pf.thumb} /> :
+        <Vista style={pf.icon}><Camara size={26} color={Colores.primary} strokeWidth={2.5} /></Vista>}
+      <Vista style={s.flex}>
+        <Texto style={sr.title}>{label}</Texto>
+        <Texto style={[sr.sub, photo && !extracting && sr.subDone]}>
+          {extracting ? 'Analizando documento…' : photo ? 'Foto cargada' : 'Agregar foto'}
         </Texto>
       </Vista>
-      {extrayendo ?
-      <ActividadIndicador size="small" color={Colores.primary} /> :
-      foto ?
-      <Vista style={pf.check}>
-          <Comprobar size={13} color={Colores.success} strokeWidth={2.8} />
-        </Vista> :
-
-      <Vista style={pf.uploadCircle}>
-          <Subir size={15} color={Colores.textTertiary} strokeWidth={1.8} />
-        </Vista>
-      }
-    </PulsableOpacidad>);
-
+      {extracting ? <ActividadIndicador size="small" color={Colores.primary} /> : photo ?
+        <Comprobar size={22} color={Colores.success} strokeWidth={2.6} /> :
+        <Subir size={21} color={Colores.primary} strokeWidth={2.4} />}
+    </PulsableOpacidad>
+  );
 }
 
 const pf = EstiloHoja.create({
-  btn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  btnDone: {
-    borderColor: '#E5E5EA',
-    backgroundColor: '#FFFFFF'
-  },
-  thumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#F7F7F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    overflow: 'hidden'
-  },
-  thumbDone: { borderColor: '#E5E5EA' },
-  img: { width: 48, height: 48, resizeMode: 'cover' },
-  label: { fontSize: 14, fontWeight: '600', color: Colores.text, marginBottom: 3 },
-  status: { fontSize: 12, color: Colores.textSecondary },
-  statusDone: { color: Colores.primary, fontWeight: '500' },
-  check: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#DCFCE7',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  uploadCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#F3EAFC',
-    alignItems: 'center',
-    justifyContent: 'center'
-  }
+  row: { minHeight: 72, flexDirection: 'row', alignItems: 'center', padding: 13, gap: 12 },
+  icon: { width: 46, alignItems: 'center' },
+  thumb: { width: 46, height: 46, borderRadius: 9, resizeMode: 'cover', backgroundColor: '#F7F7F9' }
 });
 
 // ─── OcrSummary: muestra los datos detectados automáticamente ────────────────
@@ -698,120 +462,37 @@ const oc = EstiloHoja.create({
 });
 
 // ─── SectionRow (Tarjeta de Sección en la lista principal) ─────────────────────
-function SeccionFila({
-  id,
-  title: titulo,
-  subtitle: subtitulo,
-  done: terminado,
-  warning,
-  onPress: alPulsar
-
-
-
-
-
-
-
-}: {id: string;title: string;subtitle: string;done: boolean;warning?: string;onPress: () => void;}) {
+function SeccionFila({ id, title, subtitle, done, warning, onPress, separador = true }: {
+  id: string; title: string; subtitle: string; done: boolean;
+  warning?: string; onPress: () => void; separador?: boolean;
+}) {
   return (
-    <PulsableOpacidad
-      style={[sr.row, terminado && sr.rowDone, !!warning && sr.rowWarn]}
-      onPress={alPulsar}
-      activeOpacity={0.7}>
-
-      <Vista style={sr.ico}>
-        {terminado ?
-        <Comprobar size={24} color={Colores.success} strokeWidth={2.8} /> :
-
-        <SeccionIcono id={id} size={25} color={Colores.primary} strokeWidth={2.2} />
-        }
-      </Vista>
-      <Vista style={{ flex: 1 }}>
-        <Texto style={sr.title}>{titulo}</Texto>
-        <Texto style={[sr.sub, terminado && sr.subDone, !!warning && sr.subWarn]} numberOfLines={1}>
-          {terminado ? 'Completado' : warning ? warning : subtitulo}
+    <PulsableOpacidad style={[sr.row, separador && s.divider]} onPress={onPress}
+      activeOpacity={0.75} accessibilityRole="button">
+      <SeccionIcono id={id} size={26} color={Colores.primary} strokeWidth={2.5} />
+      <Vista style={s.flex}>
+        <Texto style={sr.title}>{title}</Texto>
+        <Texto style={[sr.sub, warning ? sr.subWarn : done && sr.subDone]}>
+          {warning || (done ? 'Completado' : subtitle)}
         </Texto>
       </Vista>
-
-      {terminado &&
-      <Vista style={sr.doneBadge}>
-          <Texto style={sr.doneBadgeText}>Listo</Texto>
-        </Vista>
-      }
-
-      {!!warning &&
-      <Vista style={sr.warnBadge}>
-          <Texto style={sr.warnBadgeText}>Observado</Texto>
-        </Vista>
-      }
-
-      <ChevronDerecha
-        size={20}
-        color={terminado ? Colores.success : Colores.textTertiary}
-        strokeWidth={2} />
-
-    </PulsableOpacidad>);
-
+      {warning ? <AlertTriangle size={20} color={Colores.warning} strokeWidth={2.4} /> : done ?
+        <Comprobar size={22} color={Colores.success} strokeWidth={2.6} /> :
+        <ChevronDerecha size={19} color={Colores.textSecondary} strokeWidth={2.5} />}
+    </PulsableOpacidad>
+  );
 }
 
 const sr = EstiloHoja.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  rowDone: {
-    borderColor: '#E5E5EA',
-    backgroundColor: '#FFFFFF'
-  },
-  rowWarn: {
-    borderColor: '#D9770640',
-    backgroundColor: '#FFFFFF'
-  },
-  ico: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  title: { fontSize: 15, fontWeight: '600', color: Colores.text, marginBottom: 2 },
-  sub: { fontSize: 13, color: Colores.textSecondary },
-  subDone: { color: Colores.success, fontWeight: '500' },
-  subWarn: { color: Colores.warning, fontWeight: '500' },
-  doneBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8
-  },
-  doneBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colores.success
-  },
-  warnBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8
-  },
-  warnBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colores.warning
-  }
+  row: { minHeight: 66, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, gap: 12 },
+  title: { fontSize: 16, fontWeight: '700', color: Colores.text },
+  sub: { fontSize: 14, lineHeight: 19, color: Colores.textSecondary, marginTop: 3 },
+  subDone: { color: '#167348', fontWeight: '600' },
+  subWarn: { color: '#92400E', fontWeight: '600' }
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
-  const margenes = usarSeguraZonaMargenes();
   const { token } = usarAutenticacion();
   const ruta = usarRuta<any>();
   const navegacionParametros = ruta.params;
@@ -1249,121 +930,38 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
   if (estadoEnvio === 'enviada') return <ConfirmacionEnvioSolicitud />;
 
   return (
-    <SeguraZonaVista style={s.container} edges={['top', 'left', 'right']}>
+    <SeguraZonaVista style={s.container}>
       <EstadoBar barStyle="dark-content" backgroundColor={Colores.background} />
+      <CabeceraRegistro titulo="Registro de conductor" onClose={() => navegacion.goBack()} />
 
-      {/* Header Minimalista (consistente con ProfileScreen) */}
-      <Vista style={s.header}>
-        <PulsableOpacidad
-          onPress={() => navegacion.goBack()}
-          style={s.backBtn}
-          activeOpacity={0.7}>
-
-          <ChevronIzquierda size={22} color={Colores.text} strokeWidth={2.4} />
-        </PulsableOpacidad>
-        <Texto style={s.headerTitle}>Registro de Conductor</Texto>
-        <Vista style={{ width: 36 }} />
-      </Vista>
-
-      <DesplazableVista
-        style={{ flex: 1 }}
-        contentContainerStyle={s.listContent}
+      <DesplazableVista style={s.flex} contentContainerStyle={s.listContent}
         showsVerticalScrollIndicator={false}>
-
-        {/* Barra de progreso minimalista */}
-        <Vista style={s.progressRow}>
-          <Vista style={s.track}>
-            <Vista style={[s.fill, { width: `${completadoCantidad / 6 * 100}%` }]} />
-          </Vista>
-          <Vista style={s.progressBadge}>
-            <Texto style={s.progressBadgeNum}>{completadoCantidad}</Texto>
-              <Texto style={s.progressBadgeOf}> de 6</Texto>
-          </Vista>
+        <Vista style={s.card}>
+          <SeccionFila id="license" title="Licencia de conducir" subtitle="Frente y reverso" separador={false}
+            done={terminado.license} warning={warningTexto('license')} onPress={abrirLicenciaSeccion} />
+          <SeccionFila id="tic" title="TIC" subtitle="Tarjeta de identificación del conductor" done={terminado.tic}
+            onPress={() => fotos.ticPhoto ? establecerActivoModal('tic') : establecerCamaraCampo('ticPhoto')} />
+          <SeccionFila id="antecedents" title="Certificado de antecedentes" subtitle="Antecedentes policiales"
+            done={terminado.antecedents} onPress={() => establecerCamaraCampo('antecedentsPhoto')} />
+          <SeccionFila id="vehicle" title="Vehículo"
+            subtitle={fotos.ruatPhoto ? 'Fotos del vehículo' : 'RUAT y fotos del vehículo'}
+            done={terminado.vehicle} warning={warningTexto('vehicle')} onPress={abrirVehiculoSeccion} />
+          <SeccionFila id="docs" title="SOAT" subtitle="Roseta digital vigente"
+            done={terminado.docs} onPress={abrirSoatSeccion} />
+          <SeccionFila id="domicile" title="Domicilio" subtitle="Ubicación y factura de luz" done={terminado.domicile}
+            onPress={() => fotos.domicileProof ? establecerActivoModal('domicile') : establecerCamaraCampo('domicileProof')} />
         </Vista>
-
-        {/* Lista de Secciones */}
-        <SeccionFila
-          id="license"
-          title="Licencia de conducir"
-          subtitle="Por ambos lados (cámara directa)"
-          done={terminado.license}
-          warning={warningTexto('license')}
-          onPress={abrirLicenciaSeccion} />
-
-        <SeccionFila
-          id="tic"
-          title="TIC"
-          subtitle="Tarjeta de identificación del conductor"
-          done={terminado.tic}
-          onPress={() => fotos.ticPhoto ? establecerActivoModal('tic') : establecerCamaraCampo('ticPhoto')} />
-
-        <SeccionFila
-          id="antecedents"
-          title="Antecedentes policiales"
-          subtitle={
-          fotos.antecedentsPhoto ?
-          'Certificado oficial registrado' :
-          'Certificado oficial (cámara directa)'
-          }
-          done={terminado.antecedents}
-          onPress={() => establecerCamaraCampo('antecedentsPhoto')} />
-
-        <SeccionFila
-          id="vehicle"
-          title="Información del vehículo"
-          subtitle={
-          terminado.vehicle ?
-          'RUAT y vehículo registrados' :
-          fotos.ruatPhoto ?
-          'Faltan fotos del vehículo (cámara directa)' :
-          'RUAT y vehículo (cámara directa)'
-          }
-          done={terminado.vehicle}
-          warning={warningTexto('vehicle')}
-          onPress={abrirVehiculoSeccion} />
-
-        <SeccionFila
-          id="docs"
-          title="SOAT — Roseta digital"
-          subtitle={
-          terminado.docs ?
-          'Roseta digital registrada' :
-          'Roseta vigente (cámara directa)'
-          }
-          done={terminado.docs}
-          onPress={abrirSoatSeccion} />
-
-        <SeccionFila
-          id="domicile"
-          title="Domicilio"
-          subtitle="Dirección, ubicación y factura de luz"
-          done={terminado.domicile}
-          onPress={() => {
-            if (fotos.domicileProof) establecerActivoModal('domicile');
-            else establecerCamaraCampo('domicileProof');
-          }} />
-
       </DesplazableVista>
 
-      {/* Footer Minimalista Fijo */}
-      <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom + 14, 24) }]}>
-        {!todosTerminado &&
-        <Texto style={s.footerHint}>Completar campos obligatorios</Texto>
-        }
-        <PulsableOpacidad
-          style={[s.submitBtn, !todosTerminado && s.submitBtnOff]}
-          onPress={manejarEnviar}
-          disabled={!todosTerminado || cargando}
-          activeOpacity={0.85}>
-
-          {cargando ?
-          <ActividadIndicador color={Colores.white} size="small" /> :
-
-          <Texto style={[s.submitTxt, !todosTerminado && s.submitTxtOff]}>
-              {todosTerminado ? 'Registrar como conductor' : `Completar registro (${completadoCantidad}/6)`}
-            </Texto>
-          }
-        </PulsableOpacidad>
+      <Vista style={s.footer}>
+        {!todosTerminado && (
+          <Vista style={s.infoBox}>
+            <ShieldCheck size={25} color={Colores.primary} strokeWidth={2.5} />
+            <Texto style={s.infoTxt}>Usa fotos bien iluminadas, sin reflejos y con el documento completo a la vista.</Texto>
+          </Vista>
+        )}
+        <BotonRegistro titulo="Enviar solicitud" onPress={manejarEnviar}
+          deshabilitado={!todosTerminado} cargando={cargando} />
       </Vista>
 
       {/* ── MODAL: Licencia ─────────────────────────────────────────────────── */}
@@ -1374,15 +972,14 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         onDone={() => establecerActivoModal(null)}
         doneDisabled={!fotos.licenseFront || !fotos.licenseBack}>
 
-        <Texto style={s.lbl}>FOTOS DE LICENCIA *</Texto>
         <FotoCampo
-          label="Licencia — parte frontal"
+          label="Frente de la licencia"
           photo={fotos.licenseFront}
           extracting={extrayendo === 'licenseFront'}
           onPress={() => abrirFoto('licenseFront', 'Licencia frontal')} />
 
         <FotoCampo
-          label="Licencia — parte posterior"
+          label="Reverso de la licencia"
           photo={fotos.licenseBack}
           extracting={extrayendo === 'licenseBack'}
           onPress={() => abrirFoto('licenseBack', 'Licencia posterior')} />
@@ -1397,7 +994,6 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         onDone={() => establecerActivoModal(null)}
         doneDisabled={!fotos.ticPhoto}>
 
-        <Texto style={s.lbl}>TARJETA DE IDENTIFICACIÓN DEL CONDUCTOR *</Texto>
         <FotoCampo
           label="Foto de la TIC"
           photo={fotos.ticPhoto}
@@ -1413,7 +1009,6 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         onDone={() => establecerActivoModal(null)}
         doneDisabled={!fotos.antecedentsPhoto}>
 
-        <Texto style={s.lbl}>CERTIFICADO DE ANTECEDENTES *</Texto>
         <FotoCampo
           label="Certificado de antecedentes"
           photo={fotos.antecedentsPhoto}
@@ -1435,7 +1030,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         !fotos.carBack
         }>
 
-        <Texto style={s.lbl}>RUAT — DATOS DEL VEHÍCULO *</Texto>
+        <Texto style={s.sectionLabel} accessibilityRole="header">RUAT</Texto>
         <FotoCampo
           label="Foto del RUAT"
           photo={fotos.ruatPhoto}
@@ -1443,8 +1038,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
           onPress={() => abrirFoto('ruatPhoto', 'RUAT')} />
 
         <OcrResumen result={ocrResultados.ruatPhoto} showTypeLabels />
-        <Vista style={{ height: 14 }} />
-        <Texto style={s.lbl}>FOTOS DEL VEHÍCULO *</Texto>
+        <Texto style={s.sectionLabel} accessibilityRole="header">Fotos del vehículo</Texto>
         <FotoCampo
           label="Vista delantera"
           photo={fotos.carFront}
@@ -1465,7 +1059,6 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         onDone={() => establecerActivoModal(null)}
         doneDisabled={!fotos.soatPhoto}>
 
-        <Texto style={s.lbl}>SOAT — SEGURO OBLIGATORIO *</Texto>
         <FotoCampo
           label="Foto del SOAT"
           photo={fotos.soatPhoto}
@@ -1474,6 +1067,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 
         <OcrResumen result={ocrResultados.soatPhoto} />
         <Vista style={s.infoBox}>
+          <ShieldCheck size={25} color={Colores.primary} strokeWidth={2.5} />
           <Texto style={s.infoTxt}>
             El SOAT es obligatorio y debe encontrarse vigente.
           </Texto>
@@ -1500,7 +1094,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
           onPointChange={establecerDomicilioPunto}
           onAutoOpenMap={domicilioVisible && abrirMapaDomicilio ? () => establecerAbrirMapaDomicilio(false) : undefined} />
 
-        <Texto style={s.lbl}>FACTURA DE LUZ RECIENTE *</Texto>
+        <Texto style={s.sectionLabel} accessibilityRole="header">Factura de luz reciente</Texto>
         <FotoCampo
           label="Comprobante de domicilio"
           photo={fotos.domicileProof}
@@ -1712,143 +1306,30 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-export { ConductorRegistroPantalla as default };const s = EstiloHoja.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF'
-  },
+export default ConductorRegistroPantalla;
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF'
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colores.text
-  },
-
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
-    backgroundColor: '#FFFFFF'
-  },
-
-  /* Progress Row Minimalista */
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 12
-  },
-  track: {
-    flex: 1,
-    height: 6,
-    backgroundColor: Colores.borderSubtle,
-    borderRadius: 3,
-    overflow: 'hidden'
-  },
-  fill: {
-    height: '100%',
-    backgroundColor: Colores.primary,
-    borderRadius: 3
-  },
-  progressBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colores.primaryLight,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  progressBadgeNum: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: Colores.primary
-  },
-  progressBadgeOf: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: Colores.primary
-  },
-
-  lbl: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colores.textTertiary,
-    letterSpacing: 0.8,
-    marginBottom: 8,
-    textTransform: 'uppercase'
-  },
-  sectionNote: {
-    fontSize: 12,
-    color: Colores.textSecondary,
-    lineHeight: 17,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-
-  /* Footer */
-  footer: {
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5EA',
-    backgroundColor: '#FFFFFF'
-  },
-  footerHint: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colores.textSecondary,
-    textAlign: 'center',
-    marginBottom: 10
-  },
-  submitBtn: {
-    backgroundColor: Colores.primary,
-    borderRadius: 12,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  submitBtnOff: {
-    backgroundColor: '#F3EAFC',
-    borderWidth: 0
-  },
-  submitTxt: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colores.white
-  },
-  submitTxtOff: {
-    color: Colores.primary,
-    opacity: 0.6
-  },
-
-  infoBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: Colores.primary,
-    borderWidth: 1,
-    borderColor: '#E5E5EA'
-  },
-  infoTxt: { fontSize: 13, color: Colores.textSecondary, lineHeight: 18 },
+const s = EstiloHoja.create({
+  flex: { flex: 1 },
+  container: { flex: 1, backgroundColor: Colores.background },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerSpacer: { width: 44 },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '700', color: Colores.text },
+  listContent: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 20, gap: 14 },
+  sectionContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 12 },
+  card: { borderRadius: 16, borderWidth: 1, borderColor: '#EAEAF0', backgroundColor: Colores.surface },
+  divider: { borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: Colores.border },
+  sectionLabel: { fontSize: 16, fontWeight: '700', color: Colores.text },
+  footer: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, gap: 12, backgroundColor: Colores.surface,
+    borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: Colores.border },
+  submitBtn: { minHeight: 54, paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: Colores.primary, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  submitBtnOff: { backgroundColor: Colores.white, borderWidth: 1, borderColor: Colores.border },
+  submitTxt: { fontSize: 19, fontWeight: '700', color: Colores.white, textAlign: 'center' },
+  submitTxtOff: { color: Colores.textSecondary },
+  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14,
+    borderRadius: 16, borderWidth: 1, borderColor: '#EAEAF0', backgroundColor: Colores.white },
+  infoTxt: { flex: 1, fontSize: 14, color: Colores.textSecondary, lineHeight: 20 },
 
   /* Overlays */
   analyzingOverlay: {

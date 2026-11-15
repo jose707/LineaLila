@@ -194,13 +194,13 @@ export { cacheRutaGestor };const cacheViajeHistorialGestor = {
 
   // Guardar o actualizar un destino reciente.
   agregarViaje: async (
-  viaje: Omit<ViajeHistorial, 'id' | 'timestamp' | 'count'>)
+  viaje: Omit<ViajeHistorial, 'id' | 'timestamp' | 'count'>, usuarioId?: string)
   : Promise<void> => {
     try {
       if (!viaje.destinationAddress.trim() ||
       !Number.isFinite(viaje.destinationLocation.latitude) ||
       !Number.isFinite(viaje.destinationLocation.longitude)) return;
-      const viajes = await cacheViajeHistorialGestor.obtenerViajes();
+      const viajes = await cacheViajeHistorialGestor.obtenerViajes(usuarioId);
       const anterior = viajes.find((guardado) =>
       cacheViajeHistorialGestor.claveDestino(guardado) === cacheViajeHistorialGestor.claveDestino(viaje)
       );
@@ -217,22 +217,24 @@ export { cacheRutaGestor };const cacheViajeHistorialGestor = {
       const unico = viajes.filter((guardado) =>
       cacheViajeHistorialGestor.claveDestino(guardado) !== cacheViajeHistorialGestor.claveDestino(viaje)
       );
-      AlmacenamientoAuxiliar.establecerElemento(CACHE_CLAVES.TRIP_HISTORY, JSON.stringify([nuevoViaje, ...unico].slice(0, 50)));
+      const clave = usuarioId ? `${CACHE_CLAVES.TRIP_HISTORY}:${usuarioId}` : CACHE_CLAVES.TRIP_HISTORY;
+      AlmacenamientoAuxiliar.establecerElemento(clave, JSON.stringify([nuevoViaje, ...unico].slice(0, 50)));
     } catch (error) {
       console.error('Error guardando viaje en historial:', error);
     }
   },
 
   // Migrar entradas antiguas de origen-destino sin perder los destinos guardados.
-  obtenerViajes: async (): Promise<ViajeHistorial[]> => {
+  obtenerViajes: async (usuarioId?: string): Promise<ViajeHistorial[]> => {
     try {
-      const datos = AlmacenamientoAuxiliar.obtenerElemento(CACHE_CLAVES.TRIP_HISTORY);
+      const claveHistorial = usuarioId ? `${CACHE_CLAVES.TRIP_HISTORY}:${usuarioId}` : CACHE_CLAVES.TRIP_HISTORY;
+      const datos = AlmacenamientoAuxiliar.obtenerElemento(claveHistorial);
       const almacenado: unknown = datos ? JSON.parse(datos) : [];
       if (!Array.isArray(almacenado)) return [];
 
       let favoritoIds = new Set<string>();
       try {
-        const guardado = JSON.parse(AlmacenamientoAuxiliar.obtenerElemento(CACHE_CLAVES.FAVORITE_TRIP_IDS) || '[]');
+        const guardado = usuarioId ? [] : JSON.parse(AlmacenamientoAuxiliar.obtenerElemento(CACHE_CLAVES.FAVORITE_TRIP_IDS) || '[]');
         if (Array.isArray(guardado)) favoritoIds = new Set(guardado.filter((id): id is string => typeof id === 'string'));
       } catch {/* El historial sigue disponible aunque los favoritos estén dañados. */}
       let favoritosCambiado = false;
@@ -268,7 +270,7 @@ export { cacheRutaGestor };const cacheViajeHistorialGestor = {
       }
       const viajes = Array.from(destinos.values()).slice(0, 50);
       const normalizado = JSON.stringify(viajes);
-      if (datos && datos !== normalizado) AlmacenamientoAuxiliar.establecerElemento(CACHE_CLAVES.TRIP_HISTORY, normalizado);
+      if (datos && datos !== normalizado) AlmacenamientoAuxiliar.establecerElemento(claveHistorial, normalizado);
       if (favoritosCambiado) {
         AlmacenamientoAuxiliar.establecerElemento(CACHE_CLAVES.FAVORITE_TRIP_IDS, JSON.stringify([...favoritoIds]));
       }

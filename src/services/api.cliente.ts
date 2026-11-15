@@ -5,6 +5,20 @@ import { API_HOST } from "../config/constantes";
 // Detectar si estamos en Android emulator, iOS simulator o dispositivo real
 // Para device real en red local: 192.168.100.133:3000
 const API_URL = API_HOST;
+const escuchasCuentaDesactivada = new Set<(mensaje: string) => void>();
+
+export function alDesactivarCuenta(escucha: (mensaje: string) => void): () => void {
+  escuchasCuentaDesactivada.add(escucha);
+  return () => { escuchasCuentaDesactivada.delete(escucha); };
+}
+
+export function cerrarCuentaDesactivada(token?: string, mensaje = 'Tu cuenta ha sido deshabilitada.') {
+  if (!token || AlmacenamientoAuxiliar.obtenerElemento('authToken') !== token) return;
+  AlmacenamientoAuxiliar.quitarElemento('authToken');
+  AlmacenamientoAuxiliar.quitarElemento('refreshToken');
+  AlmacenamientoAuxiliar.quitarElemento('user');
+  escuchasCuentaDesactivada.forEach(escucha => escucha(mensaje));
+}
 
 interface ConsultarOpciones extends RequestInit {
   params?: Record<string, string | number>;
@@ -70,7 +84,7 @@ class ApiCliente {
   }
 
   // Handle response
-  private async manejarRespuesta(respuesta: Response): Promise<unknown> {
+  private async manejarRespuesta(respuesta: Response, autorizacion?: string): Promise<unknown> {
     if (respuesta.status === 401) {
       // Token expired - clear storage and don't try to refresh
       AlmacenamientoAuxiliar.quitarElemento('authToken');
@@ -82,6 +96,9 @@ class ApiCliente {
 
     if (!respuesta.ok) {
       const errorDatos = await respuesta.json().catch(() => ({}));
+      if (respuesta.status === 403 && errorDatos?.code === 'CUENTA_DESACTIVADA') {
+        cerrarCuentaDesactivada(autorizacion?.slice(7), errorDatos.error);
+      }
       throw {
         status: respuesta.status,
         statusText: respuesta.statusText,
@@ -132,7 +149,7 @@ class ApiCliente {
       ...consultarOpciones,
       headers: cabeceras
     });
-    return this.manejarRespuesta(respuesta) as Promise<T>;
+    return this.manejarRespuesta(respuesta, cabeceras.Authorization) as Promise<T>;
   }
 
   // POST request
@@ -152,7 +169,7 @@ class ApiCliente {
       headers: cabeceras,
       body: datos ? JSON.stringify(datos) : undefined
     });
-    return this.manejarRespuesta(respuesta) as Promise<T>;
+    return this.manejarRespuesta(respuesta, cabeceras.Authorization) as Promise<T>;
   }
 
   // PUT request
@@ -172,7 +189,11 @@ class ApiCliente {
       headers: cabeceras,
       body: datos ? JSON.stringify(datos) : undefined
     });
-    return this.manejarRespuesta(respuesta) as Promise<T>;
+    return this.manejarRespuesta(respuesta, cabeceras.Authorization) as Promise<T>;
+  }
+
+  async patch<T>(rutaApi: string): Promise<T> {
+    return this.put<T>(rutaApi, undefined, { method: 'PATCH' });
   }
 
   // DELETE request
@@ -187,7 +208,7 @@ class ApiCliente {
       ...consultarOpciones,
       headers: cabeceras
     });
-    return this.manejarRespuesta(respuesta) as Promise<T>;
+    return this.manejarRespuesta(respuesta, cabeceras.Authorization) as Promise<T>;
   }
 }
 

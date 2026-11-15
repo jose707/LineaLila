@@ -20,6 +20,7 @@ class MainApplication : Application(), ReactApplication {
           add(ActiveRideLocationPackage())
           add(ReviewNotificationPackage())
           add(ComprobantePdfPackage())
+          add(DocumentBiometricsPackage())
         },
     )
   }
