@@ -151,7 +151,7 @@ const ConductorViajeSolicitudPantalla = () => {
   const navegacion = usarNavegacion<NativoPilaNavegacionPropiedad<any>>();
   const margenes = usarSeguraZonaMargenes();
   const { user: usuario, isDriverMode: esConductorModo } = usarAutenticacion();
-  const { settings: { vibrarNuevasOfertas } } = usarAjustes();
+  const { settings: { vibrarNuevasOfertas, darkMode: oscuro } } = usarAjustes();
   const { obtenerSolicitudesViaje: obtenerViajeSolicitudes } = usarViajes();
 
   const [esDisponible, establecerEsDisponible] = usarEstado(() => socketServicio.esConductorConectado());
@@ -285,56 +285,49 @@ const ConductorViajeSolicitudPantalla = () => {
     return () => suscripcion.remove();
   }, [esConductorModo]);
 
-  // 🔌 Socket: sincronizar disponibilidad del conductor
   usarEfecto(() => {
     if (!esConductorModo) return;
     if (confirmedDisponibilidadReferencia.current === esDisponible) {
       confirmedDisponibilidadReferencia.current = null;
       return;
     }
-    let activo = true;
-    if (esDisponible) {
-      // Intentar obtener posición GPS real antes de ponerse online
-      Geolocation.getCurrentPosition(
-        (posicion: {coords: {latitude: number;longitude: number;};}) => {
-          if (!activo || AplicacionEstado.currentState !== 'active') return;
-          socketServicio.irConectado({
-            latitude: posicion.coords.latitude,
-            longitude: posicion.coords.longitude
-          });
-        },
-        () => {
-          // Si no hay GPS disponible, ponerse online sin coordenadas
-          if (activo && AplicacionEstado.currentState === 'active') socketServicio.irConectado();
-        },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 30000 }
-      );
-    } else {
-      socketServicio.irDesconectado();
-    }
-    return () => {activo = false;};
+    if (!esDisponible) socketServicio.irDesconectado();
   }, [esDisponible, esConductorModo]);
 
   usarEfecto(() => {
     if (!esDisponible || !esConductorModo) return;
     let activo = true;
     let consultando = false;
+    const puedeRenovar = () => activo && AplicacionEstado.currentState !== 'background' &&
+      AplicacionEstado.currentState !== 'inactive' && !disponibilidadCambioReferencia.current &&
+      socketServicio.esConductorConectado();
     const renovarUbicacion = () => {
-      if (!activo || consultando || AplicacionEstado.currentState !== 'active' || disponibilidadCambioReferencia.current) return;
+      if (consultando || !puedeRenovar()) return;
+      socketServicio.conectar();
       consultando = true;
-      Geolocation.getCurrentPosition((posicion) => {
+      const publicarUbicacion: Parameters<typeof Geolocation.getCurrentPosition>[0] = posicion => {
         consultando = false;
-        if (activo && AplicacionEstado.currentState === 'active' && !disponibilidadCambioReferencia.current) {
+        if (puedeRenovar()) {
           socketServicio.irConectado({ latitude: posicion.coords.latitude, longitude: posicion.coords.longitude });
         }
-      }, () => { consultando = false; }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 });
+      };
+      Geolocation.getCurrentPosition(publicarUbicacion, () => {
+        if (!puedeRenovar()) {
+          consultando = false;
+          return;
+        }
+        Geolocation.getCurrentPosition(publicarUbicacion, () => { consultando = false; },
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 30000 });
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 });
     };
+    renovarUbicacion();
     const temporizador = setInterval(renovarUbicacion, 15000);
+    const alVolverAlPanel = navegacion.addListener('focus', renovarUbicacion);
     const suscripcion = AplicacionEstado.addEventListener('change', estado => {
       if (estado === 'active') renovarUbicacion();
     });
-    return () => { activo = false; clearInterval(temporizador); suscripcion.remove(); };
-  }, [esDisponible, esConductorModo]);
+    return () => { activo = false; clearInterval(temporizador); alVolverAlPanel(); suscripcion.remove(); };
+  }, [esDisponible, esConductorModo, navegacion]);
 
   usarEnfoqueEfecto(
     usarFuncionRetorno(() => {
@@ -1178,14 +1171,16 @@ const ConductorViajeSolicitudPantalla = () => {
         </Modal>
       }
 
-      {!!rapidoReserva && <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
-        <DesplazableVista
-          style={estilos.quickAssignmentOverlay}
-          contentContainerStyle={estilos.quickAssignmentContent}
-          showsVerticalScrollIndicator={false}>
-
-          <RapidoReservaCard ride={rapidoReserva} segundosRestantes={rapidoSegundosRestantes} driver />
-        </DesplazableVista>
+      {!!rapidoReserva && <Modal visible transparent animationType="fade" statusBarTranslucent
+        navigationBarTranslucent onRequestClose={() => {}}>
+        <SeguraZonaVista style={estilos.quickAssignmentOverlay}>
+          <Vista style={[estilos.quickAssignmentCard, oscuro && estilos.quickAssignmentCardDark]} accessibilityViewIsModal>
+            <DesplazableVista style={estilos.quickAssignmentScroll} contentContainerStyle={estilos.quickAssignmentContent}
+              showsVerticalScrollIndicator={false}>
+              <RapidoReservaCard ride={rapidoReserva} segundosRestantes={rapidoSegundosRestantes} driver oscuro={oscuro} />
+            </DesplazableVista>
+          </Vista>
+        </SeguraZonaVista>
       </Modal>}
       {/* Waiting Overlay */}
       {mostrarEsperandoCapa && esperandoViaje && <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
@@ -1595,8 +1590,13 @@ const estilos = EstiloHoja.create({
     textAlign: 'center'
   },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end' },
-  quickAssignmentOverlay: { flex: 1, backgroundColor: 'rgba(25, 10, 35, 0.65)' },
-  quickAssignmentContent: { flexGrow: 1, justifyContent: 'center', padding: 20 },
+  quickAssignmentOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)' },
+  quickAssignmentCard: { width: '100%', maxWidth: 460, maxHeight: '92%', borderRadius: 24,
+    overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  quickAssignmentCardDark: { backgroundColor: '#1A1A1A' },
+  quickAssignmentScroll: { flexGrow: 0, flexShrink: 1 },
+  quickAssignmentContent: { paddingHorizontal: 16, paddingTop: 17, paddingBottom: 18 },
   modalDismiss: { flex: 1, backgroundColor: THEME.overlay },
   modalSheet: {
     backgroundColor: THEME.surface,

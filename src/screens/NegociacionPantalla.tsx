@@ -10,7 +10,7 @@ import {
 'react-native';
 import { SafeAreaView as SeguraZonaVista, useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import MapaVista, { Circle, Marker } from 'react-native-maps';
-import { useNavigation as usarNavegacion, useRoute as usarRuta, RouteProp as RutaProp } from '@react-navigation/native';
+import { useFocusEffect as usarEnfoqueEfecto, useNavigation as usarNavegacion, useRoute as usarRuta, RouteProp as RutaProp } from '@react-navigation/native';
 import { NativeStackNavigationProp as NativoPilaNavegacionProp } from '@react-navigation/native-stack';
 import { Clock3 as Reloj3, Handshake, Search as Buscar } from 'lucide-react-native';
 import { RaizPilaParametroLista } from "../navigation/AplicacionNavegador";
@@ -273,7 +273,7 @@ const NegociacionPantalla: React.FC = () => {
     };
   }, [mostrarOfertasCapa]);
 
-  usarEfecto(() => {
+  usarEnfoqueEfecto(usarFuncionRetorno(() => {
     const alReversoPulsar = () => {
       establecerErrorCancelacion('');
       establecerMostrarCancelarConfirmar(true);
@@ -282,7 +282,7 @@ const NegociacionPantalla: React.FC = () => {
 
     const suscripcion = ReversoManejador.addEventListener('hardwareBackPress', alReversoPulsar);
     return () => suscripcion.remove();
-  }, []);
+  }, []));
 
   usarEfecto(() => {
     return () => {

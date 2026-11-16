@@ -26,7 +26,7 @@ import BuscarBar, { BusquedaResultado as BuscarResultado, BusquedaBarReferencia 
 import LugarSuggestionEtiqueta from "../components/PlaceSugerenciaEtiqueta";
 import { DestinoIndicadorIcono as DestinoIndicadorIcon, PasajeroMapaIcono, ParadaMapaIcono as ParadaMapaIcon } from "../components/MapUbicacionIcons";
 import { MapPin as MapaPin, X } from 'lucide-react-native';
-import { SEARCHSCREEN_COLORS as C } from '../theme/colors';
+import { usarAjustes } from '../context/AjustesContexto';
 import { LugarSugerencia } from "../services/places.servicio";
 
 type BusquedaPantallaNavegacionPropiedad = NativoPilaNavegacionProp<
@@ -43,6 +43,10 @@ const VACIO_DETENER: Parada = {
 const BuscarPantalla = () => {
   const navegacion = usarNavegacion<BusquedaPantallaNavegacionPropiedad>();
   const ruta = usarRuta<BusquedaPantallaRutaPropiedad>();
+  const { settings } = usarAjustes();
+  const oscuro = settings.darkMode;
+  const acento = oscuro ? '#D5A6FF' : '#7514C5';
+  const tinta = oscuro ? '#FFFFFF' : '#111118';
 
   const MAXIMO_PARADAS = 5;
 
@@ -302,347 +306,146 @@ const BuscarPantalla = () => {
     }, [irReverso])
   );
 
-  return (
-    <SeguraZonaVista style={estilos.container}>
-      {/* HEADER */}
-      <Vista style={estilos.header}>
-        <PulsableOpacidad
-          style={estilos.backButton}
-          onPress={irReverso}
-          activeOpacity={0.7}>
+  const hayResultados = !compartidoCargando && !compartidoError && compartidoResultados.length > 0;
 
-          <X size={24} color={C.primaryLight} strokeWidth={2.8} />
+  return (
+    <SeguraZonaVista style={[estilos.pantalla, oscuro && estilos.pantallaOscura]}>
+      <Vista style={estilos.cabecera}>
+        <PulsableOpacidad style={estilos.control} onPress={irReverso} activeOpacity={0.7}
+          accessibilityRole="button" accessibilityLabel="Cerrar planificación">
+          <X size={24} color={tinta} strokeWidth={2.8} />
         </PulsableOpacidad>
-        <Vista style={estilos.headerContent}>
-          <Texto style={estilos.headerTitle}>Planifica tu viaje</Texto>
-        </Vista>
-        <Vista style={estilos.headerSpacer} />
+        <Texto style={[estilos.titulo, { color: tinta }]} accessibilityRole="header">Planifica tu viaje</Texto>
+        <Vista style={estilos.control} />
       </Vista>
 
-      <DesplazableVista
-        style={estilos.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={estilos.scrollContent}
-        keyboardShouldPersistTaps="handled">
+      <DesplazableVista contentContainerStyle={estilos.contenido}
+        showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Vista>
+          {paradas.map((parada, indice) => {
+            const esPrimero = indice === 0;
+            const esUltimo = indice === paradas.length - 1;
+            const etiquetaCampo = esPrimero ? 'Punto de recogida' : esUltimo ? 'Destino' : 'Parada ' + indice;
 
-        {paradas.map((parada, indice) => {
-          const esPrimero = indice === 0;
-          const esUltimo = indice === paradas.length - 1;
-
-          return (
-            <Vista key={`stop-${indice}`}>
-              {/* STOP ROW */}
-              <Vista style={estilos.section}>
-                <Vista style={estilos.sectionRow}>
-                  {/* Route point icon */}
-                  <Vista style={estilos.stepColumn}>
-                    {esPrimero ? <PasajeroMapaIcono size={40} /> :
-                    esUltimo ? <DestinoIndicadorIcon size={40} /> :
-                    <ParadaMapaIcon number={indice} />}
-                  </Vista>
-
-                  {/* Content */}
-                  <Vista style={estilos.stopContent}>
-                    <Vista style={estilos.stopInputRow}>
-                      <Vista style={estilos.searchBarWrapper}>
-                        <BuscarBar
-                          ref={(instancia) => {
-                            buscarBars.current[indice] = instancia;
-                            if (indice === primeroUnfilledIndice)
-                            primeroBuscarReferencia.current = instancia;
-                          }}
-                          placeholder={
-                          esPrimero ?
-                          '¿Dónde te recogemos?' :
-                          esUltimo ?
-                          '¿Cuál es el destino final?' :
-                          'Buscar parada...'
-                          }
-                          initialValue={parada.address}
-                          onClear={() => limpiarParada(indice)}
-                          onResultSelect={(resultado) =>
-                          manejarParadaSeleccionar(indice, resultado)
-                          }
-                          currentLat={usuarioUbicacion?.latitude}
-                          currentLon={usuarioUbicacion?.longitude}
-                          suffixIcon={
-                          <MapaPin
-                            size={26}
-                            color="#7C3AED"
-                            strokeWidth={2.5} />
-
-                          }
-                          onSuffixIconPress={() => irReversoConSeleccionando(indice)}
-                          hideResults
-                          onResultsChange={(resultados, cargando, error, vacio) => {
-                            if (activoBuscarIndice === indice) {
-                              establecerCompartidoResultados(resultados);
-                              establecerCompartidoCargando(cargando);
-                              establecerCompartidoError(error);
-                              establecerCompartidoVacio(vacio);
-                            }
-                          }}
-                          onFocusChange={(enfocado) => {
-                            if (enfocado) {
-                              establecerCompartidoResultados([]);
-                              establecerCompartidoError('');
-                              establecerCompartidoCargando(false);
-                              establecerCompartidoVacio(false);
-                              establecerActivoBuscarIndice(indice);
-                            }
-                          }} />
-
-                      </Vista>
-
-                      {/* Right buttons */}
-                      {paradas.length > 2 && !esPrimero ?
-                      <PulsableOpacidad
-                        style={estilos.removeStopBtn}
-                        onPress={() => quitarParada(indice)}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-
-                          <X size={18} color="#7C3AED" strokeWidth={3} />
-                        </PulsableOpacidad> :
-                      null}
-                    </Vista>
-                  </Vista>
+            return (
+              <Vista key={'stop-' + indice} style={estilos.filaRuta}>
+                <Vista style={[estilos.columnaIcono, (esPrimero || esUltimo) && estilos.iconoRuta]}
+                  accessible={false} importantForAccessibility="no-hide-descendants">
+                  {esPrimero ? <PasajeroMapaIcono bare size={23} color="#FFFFFF" /> : esUltimo ?
+                    <DestinoIndicadorIcon bare size={23} color="#FFFFFF" /> :
+                    <ParadaMapaIcon number={indice} size={28} />}
                 </Vista>
+
+                <Vista style={estilos.campo}>
+                  <BuscarBar
+                    ref={instancia => {
+                      buscarBars.current[indice] = instancia;
+                      if (indice === primeroUnfilledIndice) primeroBuscarReferencia.current = instancia;
+                    }}
+                    placeholder={etiquetaCampo}
+                    initialValue={parada.address}
+                    onClear={() => limpiarParada(indice)}
+                    onResultSelect={resultado => manejarParadaSeleccionar(indice, resultado)}
+                    currentLat={usuarioUbicacion?.latitude}
+                    currentLon={usuarioUbicacion?.longitude}
+                    suffixIcon={<MapaPin size={24} color={acento} strokeWidth={2.5} />}
+                    onSuffixIconPress={() => irReversoConSeleccionando(indice)}
+                    estiloRuta={{ oscuro, etiquetaMapa: etiquetaCampo + ' en el mapa' }}
+                    hideResults
+                    onResultsChange={(resultados, cargando, error, vacio) => {
+                      if (activoBuscarIndice !== indice) return;
+                      establecerCompartidoResultados(resultados);
+                      establecerCompartidoCargando(cargando);
+                      establecerCompartidoError(error);
+                      establecerCompartidoVacio(vacio);
+                    }}
+                    onFocusChange={enfocado => {
+                      if (!enfocado) return;
+                      establecerCompartidoResultados([]);
+                      establecerCompartidoError('');
+                      establecerCompartidoCargando(false);
+                      establecerCompartidoVacio(false);
+                      establecerActivoBuscarIndice(indice);
+                    }} />
+                </Vista>
+
+                {paradas.length > 2 && !esPrimero && (
+                  <PulsableOpacidad style={estilos.quitar} onPress={() => quitarParada(indice)} activeOpacity={0.7}
+                    accessibilityRole="button" accessibilityLabel={'Quitar ' + etiquetaCampo.toLowerCase()}>
+                    <X size={20} color={acento} strokeWidth={2.6} />
+                  </PulsableOpacidad>
+                )}
               </Vista>
-            </Vista>);
+            );
+          })}
+        </Vista>
 
-        })}
-
-        {/* Shared results list below all SearchBars */}
-        {activoBuscarIndice !== null &&
-        <Vista style={estilos.sharedResults}>
-            {compartidoCargando &&
-          <Vista style={estilos.sharedLoading}>
-                <ActividadIndicador size="small" color="#7C3AED" />
+        {activoBuscarIndice !== null && (
+          <>
+            {compartidoCargando && (
+              <Vista style={estilos.cargando}>
+                <ActividadIndicador size="small" color={acento} accessibilityLabel="Buscando lugares" />
               </Vista>
-          }
-            {!!compartidoError &&
-          <Texto accessibilityRole="alert" style={estilos.searchError}>
-                {compartidoError}
-              </Texto>
-          }
-            {compartidoVacio && !compartidoCargando && !compartidoError &&
-          <Texto style={estilos.attribution}>
-                No se encontraron destinos en La Paz.
-              </Texto>
-          }
-            {!compartidoCargando && !compartidoError && compartidoResultados.length > 0 &&
-          <Vista style={estilos.sharedResultsList}>
-                {compartidoResultados.map((elemento, indice) => {
-              const esUltimoElemento = indice === compartidoResultados.length - 1;
-              return (
-                <PulsableOpacidad
-                  key={elemento.placeId}
-                  style={[
-                  estilos.sharedResultItem,
-                  esUltimoElemento && estilos.sharedResultItemLast]
-                  }
-                  onPress={() => {
-                    if (activoBuscarIndice !== null) {
-                      buscarBars.current[activoBuscarIndice]?.select(elemento);
-                    }
-                  }}
-                  activeOpacity={0.7}>
-
-                      <Vista style={estilos.sharedResultIconContainer}>
-                        <MapaPin
-                      size={22}
-                      color="#7C3AED"
-                      strokeWidth={2.2} />
-
-                      </Vista>
-                      <LugarSuggestionEtiqueta suggestion={elemento} />
-                    </PulsableOpacidad>);
-
-            })}
-                <Texto style={estilos.attribution}>Google Maps</Texto>
+            )}
+            {!!compartidoError && (
+              <Vista style={[estilos.tarjeta, estilos.aviso, oscuro && estilos.tarjetaOscura]}>
+                <Texto accessibilityRole="alert" style={[estilos.mensajeError, oscuro && estilos.errorOscuro]}>{compartidoError}</Texto>
               </Vista>
-          }
-          </Vista>
-        }
+            )}
+            {compartidoVacio && !compartidoCargando && !compartidoError && (
+              <Vista style={[estilos.tarjeta, estilos.aviso, oscuro && estilos.tarjetaOscura]}>
+                <Texto style={[estilos.mensaje, oscuro && estilos.mensajeOscuro]} accessibilityLiveRegion="polite">
+                  No se encontraron lugares en La Paz.
+                </Texto>
+              </Vista>
+            )}
+            {hayResultados && (
+              <Vista style={estilos.resultados}>
+                <Vista style={[estilos.tarjeta, oscuro && estilos.tarjetaOscura]}>
+                  {compartidoResultados.map((elemento, indice) => (
+                    <PulsableOpacidad key={elemento.placeId} activeOpacity={0.72} accessibilityRole="button"
+                      style={[estilos.resultado, indice > 0 && estilos.separador, indice > 0 && oscuro && estilos.separadorOscuro]}
+                      onPress={() => buscarBars.current[activoBuscarIndice]?.select(elemento)}>
+                      <MapaPin size={23} color={acento} strokeWidth={2.5} />
+                      <LugarSuggestionEtiqueta suggestion={elemento} oscuro={oscuro} />
+                    </PulsableOpacidad>
+                  ))}
+                </Vista>
+                <Texto style={[estilos.atribucion, oscuro && estilos.mensajeOscuro]}>Google Maps</Texto>
+              </Vista>
+            )}
+          </>
+        )}
       </DesplazableVista>
-    </SeguraZonaVista>);
-
+    </SeguraZonaVista>
+  );
 };
 
 const estilos = EstiloHoja.create({
-  attribution: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#5E5E5E',
-    padding: 12,
-    textAlign: 'right'
-  },
-  searchError: { fontSize: 14, color: '#B91C1C', padding: 12 },
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF'
-  },
-
-  // HEADER
-  header: {
-    backgroundColor: C.white,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  headerContent: {
-    alignItems: 'center',
-    flex: 1
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: C.textDark,
-    letterSpacing: 0.3
-  },
-  headerSpacer: {
-    width: 40
-  },
-
-  // CONTENT
-  content: {
-    flex: 1
-  },
-  scrollContent: {
-    paddingHorizontal: 14,
-    paddingTop: 4,
-    paddingBottom: 12
-  },
-
-  // CONNECTOR
-  connectorRow: {
-    width: 48,
-    alignItems: 'center',
-    height: 4,
-    justifyContent: 'center'
-  },
-  connectorLine: {
-    width: 2,
-    height: '100%',
-    backgroundColor: '#E5E7EB'
-  },
-
-  // STOP SECTION
-  section: {
-    marginBottom: 0
-  },
-  sectionRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 5
-  },
-  stepColumn: {
-    width: 48,
-    alignItems: 'center'
-  },
-
-  // STOP CONTENT
-  stopContent: {
-    flex: 1
-  },
-
-  // STOP INPUT
-  stopInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 5
-  },
-  searchBarWrapper: {
-    flex: 1
-  },
-  filledInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F3FF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#7C3AED',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginVertical: 6,
-    minHeight: 48
-  },
-  filledInputText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#2D2D2D',
-    fontWeight: '500'
-  },
-  clearInputBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#6B7280',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  removeStopBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#F3E8FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6
-  },
-
-  // SHARED RESULTS
-  sharedResults: {
-    marginTop: 8,
-    paddingHorizontal: 2,
-    marginBottom: 20
-  },
-  sharedLoading: {
-    padding: 16,
-    alignItems: 'center'
-  },
-  sharedResultsList: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#EDE9FE',
-    overflow: 'hidden',
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3
-  },
-  sharedResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6'
-  },
-  sharedResultItemLast: {
-    borderBottomWidth: 0
-  },
-  sharedResultIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F5F3FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12
-  }
+  pantalla: { flex: 1, backgroundColor: '#FFFFFF' },
+  pantallaOscura: { backgroundColor: '#1A1A1A' },
+  cabecera: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  control: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  titulo: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '700' },
+  contenido: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 24, gap: 20 },
+  tarjeta: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EAEAF0', borderRadius: 16 },
+  tarjetaOscura: { backgroundColor: '#2D2D2D', borderColor: '#414141' },
+  filaRuta: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5 },
+  campo: { flex: 1, minWidth: 0 },
+  columnaIcono: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
+  iconoRuta: { borderRadius: 12, backgroundColor: '#000000' },
+  quitar: { width: 36, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  cargando: { paddingVertical: 4, alignItems: 'center' },
+  aviso: { padding: 14 },
+  mensaje: { fontSize: 14, lineHeight: 20, color: '#666675' },
+  mensajeOscuro: { color: '#BDBDC7' },
+  mensajeError: { fontSize: 14, lineHeight: 20, color: '#B91C1C' },
+  errorOscuro: { color: '#FCA5A5' },
+  resultados: { gap: 8 },
+  resultado: { minHeight: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, gap: 12 },
+  separador: { borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
+  separadorOscuro: { borderTopColor: '#414141' },
+  atribucion: { fontSize: 12, color: '#666675', textAlign: 'right', paddingRight: 2 }
 });
 
 export default BuscarPantalla;

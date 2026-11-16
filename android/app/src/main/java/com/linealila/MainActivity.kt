@@ -1,6 +1,7 @@
 package com.linealila
 
 import android.content.Intent
+import android.os.Build
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -24,6 +25,16 @@ class MainActivity : ReactActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
+  }
+
+  override fun invokeDefaultOnBackPressed() {
+    if (Build.VERSION.SDK_INT >= 36 && applicationInfo.targetSdkVersion >= 36) {
+      // ReactActivity disables its back callback in the default handler. Keep it
+      // registered when the launcher task goes to the background and returns.
+      if (!moveTaskToBack(false)) finish()
+      return
+    }
+    super.invokeDefaultOnBackPressed()
   }
 
   /**

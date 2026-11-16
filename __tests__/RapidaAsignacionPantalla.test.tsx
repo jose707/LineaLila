@@ -1,6 +1,8 @@
 import React from 'react';
 import Renderer, { act } from 'react-test-renderer';
 import RapidoAsignacionPantalla from "../src/screens/RapidaAsignacionPantalla";
+import RapidaReservaTarjeta from '../src/components/RapidaReservaTarjeta';
+import type { RapidaAsignacionViaje } from '../src/types/rapidaAsignacion';
 import { viajesServicio } from "../src/services/viajes.servicio";
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -8,6 +10,9 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (efecto: () => void | (() => void)) => jest.requireActual('react').useEffect(efecto, [efecto])
+}));
+jest.mock('../src/context/AjustesContexto', () => ({
+  usarAjustes: () => ({ settings: { darkMode: false } })
 }));
 jest.mock("../src/services/viajes.servicio", () => ({
   viajesServicio: {
@@ -40,7 +45,9 @@ const viaje = {
   pickup_address: 'Origen',
   dropoff_address: 'Destino',
   stops: [{ sequence: 1, address: 'Parada central' }],
-  driverName: 'Ana',
+  driverName: 'Ana Rojas Loza',
+  driverRating: 4.5,
+  driverTrips: 0,
   vehicle: { brand: 'Toyota', model: 'Yaris', plate: 'ABC123' }
 };
 beforeEach(() => {
@@ -52,6 +59,25 @@ afterEach(async () => {
   jest.useRealTimers();
 });
 const salida = () => JSON.stringify(tree.toJSON());
+
+test.each([true, false])('muestra al pasajero en la reserva del conductor con verificación %s', async verified => {
+  const reserva: RapidaAsignacionViaje = {
+    ...viaje,
+    status: 'solicitado',
+    requestMode: 'asignacion_rapida',
+    passenger: { name: 'María Elena Paz Flores', photo: 'https://example.com/pasajero.jpg', verified, rating: 4.8, trips: 1 }
+  };
+  await act(() => {
+    tree = Renderer.create(<RapidaReservaTarjeta ride={reserva} segundosRestantes={20} driver />);
+  });
+  expect(salida()).toContain('María Elena Paz Flores');
+  expect(salida()).toContain('Calificación 4.8 de 5');
+  expect(salida()).toContain('"1"," ","viaje"');
+  expect(salida()).toContain('https://example.com/pasajero.jpg');
+  expect(salida().includes('Verificado')).toBe(verified);
+  expect(salida()).not.toContain('ABC123');
+});
+
 test('muestra la reserva asignada de inmediato y mantiene la cuenta del servidor', async () => {
   const datos = {
     ride: { ...viaje, expiresAt: new Date(Date.now() + 20000).toISOString() },
@@ -69,8 +95,11 @@ test('muestra la reserva asignada de inmediato y mantiene la cuenta del servidor
   });
   expect(salida()).not.toContain('Creando solicitud');
   expect(salida()).not.toContain('Localizando conductores cercanos');
+  expect(salida()).not.toContain('Asignación rápida');
   expect(salida()).toContain('Viaje asignado');
   expect(salida()).toContain('ABC123');
+  expect(salida()).toContain('Ana Rojas Loza');
+  expect(salida()).toContain('Calificación 4.5 de 5');
   expect(salida()).toContain('Parada central');
   expect(salida()).toContain('P1');
   expect(salida()).not.toContain('PARADA 1');

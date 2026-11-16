@@ -17,7 +17,10 @@ export interface RapidaAsignacionViaje {
   pickupSurcharge: number | string;
   totalFare: number;
   finalFare: number;
-  driverName?: string;
+  driverName?: string | null;
+  driverRating?: number;
+  driverTrips?: number;
+  passenger?: { name: string | null; photo: string | null; verified: boolean; rating?: number; trips?: number };
   vehicle?: {brand: string;model: string;color?: string;plate: string;};
   stops?: {address: string;sequence: number;}[];
   distance?: number;

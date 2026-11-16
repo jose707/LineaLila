@@ -47,6 +47,7 @@ interface BusquedaBarPropiedades {
   => void;
   onFocusChange?: (focused: boolean) => void;
   hideResults?: boolean;
+  estiloRuta?: { oscuro: boolean; etiquetaMapa: string };
 }
 
 export interface BusquedaBarReferencia {
@@ -71,7 +72,8 @@ const BuscarBar = forwardReferencia<BusquedaBarReferencia, BusquedaBarPropiedade
     onClear: alLimpiar,
     onResultsChange: alResultadosCambio,
     onFocusChange: alEnfoqueCambio,
-    hideResults: ocultarResultados
+    hideResults: ocultarResultados,
+    estiloRuta
   },
   referencia) =>
   {
@@ -225,9 +227,13 @@ const BuscarBar = forwardReferencia<BusquedaBarReferencia, BusquedaBarPropiedade
       [manejarResultadoSeleccionar]
     );
 
+    const oscuro = estiloRuta?.oscuro;
+    const mostrarSufijo = sufijoIcono && (esEnfocado || !!estiloRuta);
+
     return (
-      <Vista style={estilos.container}>
-        <Vista style={estilos.inputContainer}>
+      <Vista style={estiloRuta ? undefined : estilos.container}>
+        <Vista style={[estilos.inputContainer, estiloRuta && estilos.campoRuta,
+          oscuro && estilos.campoOscuro, estiloRuta && esEnfocado && (oscuro ? estilos.focoOscuro : estilos.focoRuta)]}>
           {prefijoIcono && <Vista style={estilos.prefixIcon}>{prefijoIcono}</Vista>}
           {izquierdaIcono && esEnfocado &&
           <PulsableOpacidad
@@ -240,9 +246,10 @@ const BuscarBar = forwardReferencia<BusquedaBarReferencia, BusquedaBarPropiedade
           }
           <TextoEntrada
             ref={entradaReferencia}
-            style={estilos.input}
+            style={[estilos.input, estiloRuta && estilos.entradaRuta, oscuro && estilos.textoClaro]}
             placeholder={indicacion}
-            placeholderTextColor="#999"
+            accessibilityLabel={estiloRuta ? indicacion : undefined}
+            placeholderTextColor={estiloRuta ? (oscuro ? '#BDBDC7' : '#686875') : '#999'}
             value={buscarTexto}
             editable={!seleccionando}
             maxLength={200}
@@ -268,7 +275,9 @@ const BuscarBar = forwardReferencia<BusquedaBarReferencia, BusquedaBarPropiedade
           {esEnfocado && buscarTexto.length > 0 &&
           <PulsableOpacidad
             disabled={seleccionando}
-            style={estilos.clearButton}
+            style={estiloRuta ? estilos.limpiarRuta : estilos.clearButton}
+            accessibilityRole="button"
+            accessibilityLabel="Limpiar dirección"
             onPress={() => {
               revisionReferencia.current++;
               sesionReferencia.current = nuevoLugaresSesion();
@@ -280,18 +289,24 @@ const BuscarBar = forwardReferencia<BusquedaBarReferencia, BusquedaBarPropiedade
               alLimpiar?.();
             }}>
 
-              <X size={10} color="#FFFFFF" strokeWidth={3} />
+              {estiloRuta ? (
+                <Vista style={estilos.limpiarRutaIcono}>
+                  <X size={17} color="#FFFFFF" strokeWidth={2.8} />
+                </Vista>
+              ) : <X size={10} color="#FFFFFF" strokeWidth={3} />}
             </PulsableOpacidad>
           }
-          {esEnfocado && sufijoIcono && alSufijoIconoPulsar ?
+          {mostrarSufijo && alSufijoIconoPulsar ?
           <PulsableOpacidad
-            style={estilos.suffixIconBtn}
+            style={estiloRuta ? [estilos.controlMapa, oscuro && estilos.controlMapaOscuro] : estilos.suffixIconBtn}
             onPress={alSufijoIconoPulsar}
+            accessibilityRole="button"
+            accessibilityLabel={estiloRuta?.etiquetaMapa}
             activeOpacity={0.7}>
 
               {sufijoIcono}
             </PulsableOpacidad> :
-          esEnfocado && sufijoIcono ?
+          mostrarSufijo ?
           <Vista style={estilos.suffixIcon}>{sufijoIcono}</Vista> :
           null}
         </Vista>
@@ -378,6 +393,16 @@ const estilos = EstiloHoja.create({
     borderWidth: 1,
     borderColor: '#D0D0D0'
   },
+  campoRuta: { minHeight: 56, paddingLeft: 12, paddingRight: 3, borderColor: '#EAEAF0' },
+  campoOscuro: { backgroundColor: '#222222', borderColor: '#414141' },
+  focoRuta: { borderColor: '#7514C5' },
+  focoOscuro: { borderColor: '#D5A6FF' },
+  entradaRuta: { minHeight: 54, paddingVertical: 10, paddingHorizontal: 0, color: '#111118' },
+  textoClaro: { color: '#FFFFFF' },
+  limpiarRuta: { width: 40, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  limpiarRutaIcono: { width: 29, height: 29, borderRadius: 9, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' },
+  controlMapa: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: EstiloHoja.hairlineWidth, borderLeftColor: '#EAEAF0' },
+  controlMapaOscuro: { borderLeftColor: '#414141' },
   leftIconBtn: {
     marginRight: 8
   },

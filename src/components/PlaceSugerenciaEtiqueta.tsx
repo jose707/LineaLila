@@ -3,17 +3,17 @@ import { View as Vista, Text as Texto, StyleSheet as EstiloHoja } from 'react-na
 import { LugarSugerencia } from "../services/places.servicio";
 
 function LugarSugerenciaEtiqueta({
-  suggestion: sugerencia
+  suggestion: sugerencia, oscuro = false
 
 
-}: {suggestion: LugarSugerencia;}) {
+}: {suggestion: LugarSugerencia; oscuro?: boolean;}) {
   return (
     <Vista style={estilos.container}>
-      <Texto style={estilos.primary} numberOfLines={2}>
+      <Texto style={[estilos.primary, oscuro && estilos.claro]} numberOfLines={2}>
         {sugerencia.mainText || sugerencia.address}
       </Texto>
       {!!sugerencia.secondaryText &&
-      <Texto style={estilos.secondary} numberOfLines={2}>
+      <Texto style={[estilos.secondary, oscuro && estilos.secundarioOscuro]} numberOfLines={2}>
           {sugerencia.secondaryText}
         </Texto>
       }
@@ -25,6 +25,8 @@ const estilos = EstiloHoja.create({
     flex: 1,
     justifyContent: 'center'
   },
+  claro: { color: '#FFFFFF' },
+  secundarioOscuro: { color: '#BDBDC7' },
   primary: {
     fontSize: 17,
     fontWeight: '600',

@@ -77,6 +77,7 @@ const TARIFA_PASO = 0.5;
 const TRAFFIC_CORRECTION_FACTOR = 3;
 const PIN_TIP_DESFASE = 106;
 const PANEL_SLIDE_DURACION_MILISEGUNDOS = 350;
+const PLAZO_SALIR_MS = 2000;
 
 
 
@@ -186,47 +187,6 @@ const MapaPantalla = () => {
     });
     return () => { activo = false; app.remove(); mensaje(); };
   }, []));
-
-  // 🔒 BackHandler para double-back-to-exit
-  usarEfecto(() => {
-    let reversoPulsarCantidad = 0;
-    let reversoPulsarEspera: ReturnType<typeof setTimeout> | null = null;
-
-    const alReversoPulsar = () => {
-      if (guardandoModo) {
-        establecerGuardandoModo(null);
-        return true;
-      }
-
-      reversoPulsarCantidad++;
-
-      if (reversoPulsarCantidad === 1) {
-        Alert.alert('Salir', 'Presiona otra vez para cerrar la app');
-
-        reversoPulsarEspera = setTimeout(() => {
-          reversoPulsarCantidad = 0;
-        }, 2000);
-
-        return true;
-      } else if (reversoPulsarCantidad === 2) {
-        if (reversoPulsarEspera) clearTimeout(reversoPulsarEspera);
-        ReversoManejador.exitApp();
-        return true;
-      }
-
-      return false;
-    };
-
-    const suscripcion = ReversoManejador.addEventListener(
-      'hardwareBackPress',
-      alReversoPulsar
-    );
-
-    return () => {
-      suscripcion.remove();
-      if (reversoPulsarEspera) clearTimeout(reversoPulsarEspera);
-    };
-  }, []);
 
   const [recogidaUbicacion, establecerRecogidaUbicacion] = usarEstado<LatitudLongitud | null>(null);
   const [recogidaDireccion, establecerRecogidaDireccion] = usarEstado('');
@@ -354,6 +314,8 @@ const MapaPantalla = () => {
   const [avisoVisible, establecerAvisoVisible] = usarEstado(false);
   const [avisoMensaje, establecerAvisoMensaje] = usarEstado('');
   const [avisoIcono, establecerAvisoIcono] = usarEstado('✓');
+  const [avisoSalirVisible, establecerAvisoSalirVisible] = usarEstado(false);
+  const restablecerMapaReferencia = usarReferencia<() => void>(() => {});
 
   const mapaReferencia = usarReferencia<MapaVista>(null);
   const recogidaMarcadorReferencia = usarReferencia<React.ElementRef<typeof Marker>>(null);
@@ -744,21 +706,62 @@ const MapaPantalla = () => {
 
   usarEnfoqueEfecto(
     usarFuncionRetorno(() => {
+      if (Plataforma.OS !== 'android') return;
+      let esperaSalida: ReturnType<typeof setTimeout> | null = null;
+
+      const limpiarAvisoSalida = () => {
+        if (esperaSalida !== null) clearTimeout(esperaSalida);
+        esperaSalida = null;
+        establecerAvisoSalirVisible(false);
+      };
+
       const alReverso = () => {
+        if (!navegacion.isFocused()) return false;
         if (creandoViajeReferencia.current) return true;
+        if (mostrarClienteMenu) {
+          establecerMostrarClienteMenu(false);
+          return true;
+        }
+        if (guardandoModo) {
+          establecerGuardandoModo(null);
+          return true;
+        }
         if (esAddingParada) {
           cancelarAgregarParadaAlMapa();
           return true;
         }
-        if (recogidaUbicacion || destinoUbicacion) {
-          restablecerTodos();
+        if (seleccionandoModo !== null) {
+          establecerSeleccionandoModo(null);
+          if (navegacion.canGoBack()) navegacion.goBack();
+          else restablecerMapaReferencia.current();
           return true;
         }
-        return false;
+        if (recogidaUbicacion || destinoUbicacion) {
+          restablecerMapaReferencia.current();
+          return true;
+        }
+        if (navegacion.canGoBack()) return false;
+
+        if (esperaSalida !== null) {
+          limpiarAvisoSalida();
+          ReversoManejador.exitApp();
+        } else {
+          establecerAvisoSalirVisible(true);
+          esperaSalida = setTimeout(limpiarAvisoSalida, PLAZO_SALIR_MS);
+        }
+        return true;
       };
       const sub = ReversoManejador.addEventListener('hardwareBackPress', alReverso);
-      return () => sub.remove();
-    }, [recogidaUbicacion, destinoUbicacion, esAddingParada, cancelarAgregarParadaAlMapa])
+      const app = AppState.addEventListener('change', estado => {
+        if (estado !== 'active') limpiarAvisoSalida();
+      });
+      return () => {
+        sub.remove();
+        app.remove();
+        limpiarAvisoSalida();
+      };
+    }, [navegacion, recogidaUbicacion, destinoUbicacion, mostrarClienteMenu, guardandoModo,
+      esAddingParada, seleccionandoModo, cancelarAgregarParadaAlMapa])
   );
 
   usarEfecto(() => {
@@ -1168,6 +1171,10 @@ const MapaPantalla = () => {
     establecerGuardandoModo(null);
     return centroHastaUsuarioUbicacion(false, waitParaCentro);
   };
+
+  React.useLayoutEffect(() => {
+    restablecerMapaReferencia.current = restablecerTodos;
+  }, [restablecerTodos]);
 
   const retornoHastaInicio = () => {
     if (esReturningHastaInicioReferencia.current || creandoViajeReferencia.current) return;
@@ -1921,6 +1928,12 @@ const MapaPantalla = () => {
         visible={avisoVisible}
         icon={avisoIcono}
         onHide={() => establecerAvisoVisible(false)} />
+      <Toast
+        message="Presiona otra vez para salir de la app"
+        visible={avisoSalirVisible}
+        duration={PLAZO_SALIR_MS - 400}
+        icon=""
+        textAlign="center" />
 
 
     </SeguraZonaVista>);

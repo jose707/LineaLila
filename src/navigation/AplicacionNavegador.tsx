@@ -4,6 +4,7 @@ import { RapidaAsignacionRespuesta as RapidoAsignacionRespuesta } from "../types
 import React from 'react';
 import { createNativeStackNavigator as crearNativoPilaNavegador } from '@react-navigation/native-stack';
 import { UsuarioRol } from "../types/modelos";
+import { obtenerPantallaInicio } from './retrocesoAplicacion';
 
 // Importar pantallas - Autenticación
 import MapaPantalla from "../screens/PantallaMapa";
@@ -177,25 +178,11 @@ interface AplicacionNavegadorPropiedades {
   identityRequired?: boolean;
 }
 
-// Función para obtener la pantalla inicial según el rol
-const obtenerInicialRutaNombre = (rol?: UsuarioRol | null) => {
-  switch (rol) {
-    case 'administrador':
-      return 'AdminDashboard';
-    case 'conductor':
-      return 'DriverHome';
-    case 'user':
-      return 'Map';
-    default:
-      return 'Map';
-  }
-};
-
 const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido = false }: AplicacionNavegadorPropiedades) => {
   if (identidadRequerido) {
     return <Pila.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}><Pila.Screen name="IdentityVerification" component={IdentidadVerificacionPantalla} /></Pila.Navigator>;
   }
-  const inicialRuta = obtenerInicialRutaNombre(rol);
+  const inicialRuta = obtenerPantallaInicio(rol);
 
   return (
     <Pila.Navigator

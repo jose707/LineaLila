@@ -1,5 +1,5 @@
 import React, { useEffect as usarEfecto } from 'react';
-import { StatusBar as EstadoBar, Platform as Plataforma, NativeModules as NativoModules, AppState as AplicacionEstado } from 'react-native';
+import { StatusBar as EstadoBar, Platform as Plataforma, NativeModules as NativoModules, AppState as AplicacionEstado, BackHandler } from 'react-native';
 import { NavigationContainer as NavegacionContenedor, createNavigationContainerRef as crearNavegacionContenedorReferencia } from '@react-navigation/native';
 import "./src/services/firebase-iniciar";
 import * as firebaseServicio from "./src/services/firebase.servicio";
@@ -9,11 +9,26 @@ import { AjustesProvider, usarAjustes } from "./src/context/AjustesContexto";
 import RaizNavegador from "./src/navigation/RootNavegador";
 import { usarAutenticacion } from "./src/hooks/usarAutenticacion";
 import type { RaizPilaParametroLista } from "./src/navigation/AplicacionNavegador";
+import { manejarRetrocesoSinHistorial, obtenerPantallaInicio } from './src/navigation/retrocesoAplicacion';
 import { desconectarConductorEnSegundoPlano as disconnectConductorEnFondo } from "./src/services/conductorDisponibilidad.servicio";
 import socketServicio from "./src/services/socket.servicio";
 
 const { NavigationBarModule: NavegacionBarModule } = NativoModules;
 const navegacionReferencia = crearNavegacionContenedorReferencia<RaizPilaParametroLista>();
+
+const RetrocesoAplicacion = () => {
+  const { isLoading, isAuthenticated, role, isDriverMode, mensajeCuentaDesactivada } = usarAutenticacion();
+  const inicio = obtenerPantallaInicio(role === 'administrador' ? role : isDriverMode ? 'conductor' : 'user');
+
+  usarEfecto(() => {
+    if (Plataforma.OS !== 'android' || isLoading || !isAuthenticated || mensajeCuentaDesactivada !== null) return;
+    const suscripcion = BackHandler.addEventListener('hardwareBackPress', () =>
+      manejarRetrocesoSinHistorial(navegacionReferencia, inicio));
+    return () => suscripcion.remove();
+  }, [isLoading, isAuthenticated, inicio, mensajeCuentaDesactivada]);
+
+  return null;
+};
 
 const ViajeNotificacionOpener = () => {
   const { isLoading: esCargando, isAuthenticated: esAuthenticated, isDriverMode: esConductorModo } = usarAutenticacion();
@@ -114,6 +129,7 @@ function Aplicacion() {
         <NavegacionContenedor ref={navegacionReferencia}>
           <ThemeBar />
           <RaizNavegador />
+          <RetrocesoAplicacion />
           <ViajeNotificacionOpener />
           <ConductorFondoDisponibilidad />
         </NavegacionContenedor>
