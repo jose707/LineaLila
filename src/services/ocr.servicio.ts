@@ -3,6 +3,7 @@ import { API_BASE_URL } from "../config/constantes";
 
 export interface OcrExtraerRespuesta {
   documentType: string;
+  requiereCiPropietario?: boolean;
   fields: Record<string, string>;
   rawText: string;
   missing: string[];

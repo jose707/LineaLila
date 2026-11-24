@@ -41,6 +41,11 @@ export interface Usuario {
   documentosIdentidadEnviados?: boolean;
   motivoRechazoIdentidad?: string | null;
   estadoVerificacionIdentidad?: 'pendiente' | 'verificado' | 'rechazado';
+  estadoConductor?: 'pendiente' | 'aprobado' | 'rechazado' | 'suspendido';
+  viajesCompletadosPasajero?: number;
+  viajesRestantesSinVerificar?: number;
+  verificacionIdentidadRequerida?: boolean;
+  recordarVerificacionIdentidad?: boolean;
   rol: UsuarioRol;
   roles?: UsuarioRol[];
   fotoPerfil?: string;

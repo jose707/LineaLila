@@ -35,6 +35,7 @@ import NegotiationPantalla from "../screens/NegociacionPantalla";
 // Importar pantallas - Conductor
 
 import ConductorRegistroPantalla from "../screens/ConductorRegistrationPantalla";
+import { usarAutenticacion } from '../hooks/usarAutenticacion';
 import DocumentoReenvioPantalla from "../screens/DocumentoReenvioPantalla";
 import IdentidadVerificacionPantalla from "../screens/IdentidadVerificacionPantalla";
 
@@ -172,16 +173,17 @@ export type RaizPilaParametroLista = {
 };
 
 const Pila = crearNativoPilaNavegador<RaizPilaParametroLista>();
+const RegistroConductorConIdentidad = (props: React.ComponentProps<typeof ConductorRegistroPantalla>) => {
+  const { user } = usarAutenticacion();
+  return user?.estadoVerificacionIdentidad === 'verificado'
+    ? <ConductorRegistroPantalla {...props} /> : <IdentidadVerificacionPantalla />;
+};
 
 interface AplicacionNavegadorPropiedades {
   role?: UsuarioRol | null;
-  identityRequired?: boolean;
 }
 
-const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido = false }: AplicacionNavegadorPropiedades) => {
-  if (identidadRequerido) {
-    return <Pila.Navigator screenOptions={{ headerShown: false, gestureEnabled: false }}><Pila.Screen name="IdentityVerification" component={IdentidadVerificacionPantalla} /></Pila.Navigator>;
-  }
+const AplicacionNavegador = ({ role: rol }: AplicacionNavegadorPropiedades) => {
   const inicialRuta = obtenerPantallaInicio(rol);
 
   return (
@@ -190,6 +192,8 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
       screenOptions={{
         headerShown: false
       }}>
+      <Pila.Screen name="IdentityVerification" component={IdentidadVerificacionPantalla}
+        options={{ animation: 'slide_from_right' }} />
 
       {/* SCREENS DEL PASAJERO */}
 
@@ -308,7 +312,7 @@ const AplicacionNavegador = ({ role: rol, identityRequired: identidadRequerido =
 
       <Pila.Screen
         name="DriverRegistration"
-        component={ConductorRegistroPantalla}
+        component={RegistroConductorConIdentidad}
         options={{
           animation: 'slide_from_right'
         }} />

@@ -8,11 +8,10 @@ import SplashPantalla from "../screens/SplashPantalla";
 import CuentaDesactivadaPantalla from '../screens/CuentaDesactivadaPantalla';
 import AutenticacionNavegador from "./AutenticacionNavegador";
 import AplicacionNavegador from "./AplicacionNavegador";
-import { IDENTIDAD_VERIFICACION_HABILITADO } from "../config/constantes";
 
 const RaizNavegador = () => {
   const {
-    isLoading: esCargando, isAuthenticated: esAuthenticated, role: rol, isDriverMode: esConductorModo, user: usuario,
+    isLoading: esCargando, isAuthenticated: esAuthenticated, role: rol, isDriverMode: esConductorModo,
     mensajeCuentaDesactivada, cerrarAvisoCuentaDesactivada,
     phoneVerifiedToastVisible: telefonoVerificadoAvisoVisible, hidePhoneVerifiedToast: ocultarTelefonoVerificadoAviso,
     registrationSuccessToastVisible: registroExitoAvisoVisible, hideRegistrationSuccessToast: ocultarRegistroExitoAviso
@@ -38,12 +37,11 @@ const RaizNavegador = () => {
   }
 
   const finalRol = rol === 'administrador' ? rol : esConductorModo ? 'conductor' : 'user';
-  const identidadRequerido = IDENTIDAD_VERIFICACION_HABILITADO && rol !== 'administrador' && rol !== 'conductor' && usuario?.estadoVerificacionIdentidad !== 'verificado';
   const pantalla = esCargando ?
   <SplashPantalla /> :
   !esAuthenticated ?
   <AutenticacionNavegador /> :
-  <AplicacionNavegador key={`${finalRol}:${identidadRequerido}`} role={finalRol as any} identityRequired={identidadRequerido} />;
+  <AplicacionNavegador key={finalRol} role={finalRol as any} />;
 
   return (
     <SeguraZonaProvider>

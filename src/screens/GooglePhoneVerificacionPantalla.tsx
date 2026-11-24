@@ -461,7 +461,7 @@ function GoogleTelefonoVerificacionPantalla({
           <ActividadIndicador color={D.white} size="small" /> :
           <Texto style={[estilos.ctaText, ctaInvalido && estilos.ctaTextDisabled]}>{paso === 'phone' ? 'Enviar código' : 'Verificar'}</Texto>}
         </PulsableOpacidad>
-        {paso === 'phone' && <Texto style={estilos.footerNote}>Solo usaremos tu número para verificar tu cuenta.</Texto>}
+        {paso === 'phone' && <Texto style={estilos.footerNote}>Confirma tu celular para comenzar. Después de 10 viajes completados necesitarás verificar tu CI y realizar la prueba de vida.</Texto>}
       </Vista>
     </KeyboardAvoidingVista>);
 

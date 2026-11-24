@@ -61,6 +61,7 @@ interface Propiedades {navigation: NavPropiedad;}
 interface DashboardEstadisticas {
   totalUsers: number;
   totalRides: number;
+  completedRides: number;
   totalRevenue: number;
   activeDrivers: number;
   pendingApprovals: number;
@@ -165,6 +166,7 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
   const [estadisticas, establecerEstadisticas] = usarEstado<DashboardEstadisticas>({
     totalUsers: 0,
     totalRides: 0,
+    completedRides: 0,
     totalRevenue: 0,
     activeDrivers: 0,
     pendingApprovals: 0
@@ -188,6 +190,7 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
       establecerEstadisticas({
         totalUsers: Number(primero.totalUsers ?? 0),
         totalRides: Number(primero.totalRides ?? 0),
+        completedRides: Number(primero.completedRides ?? 0),
         totalRevenue: Number(primero.totalRevenue ?? 0),
         activeDrivers: Number(primero.totalDrivers ?? 0),
         pendingApprovals: Number(pendienteDatos?.total ?? 0)
@@ -311,7 +314,7 @@ const AdministradorPanelPantalla: React.FC<Propiedades> = ({ navigation: navegac
             <Texto style={s.revenueLabel}>Viajes completados</Texto>
             {cargando ?
             <Vista style={s.revenueSkeleton} /> :
-            <Texto style={s.revenueValue}>{estadisticas.totalRides.toLocaleString()}</Texto>
+            <Texto style={s.revenueValue}>{estadisticas.completedRides.toLocaleString()}</Texto>
             }
           </Vista>
           <PulsableOpacidad style={s.revenueBtn} onPress={() => navegacion.navigate('AdminPayments')} activeOpacity={0.7}>

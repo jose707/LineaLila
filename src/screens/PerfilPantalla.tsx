@@ -255,7 +255,8 @@ const PerfilPantalla = () => {
         {/* HERO CARD - Avatar izquierda */}
         <Vista style={[estilos.heroCard, esOscuro && estilos.heroCardDark]}>
           <Vista style={estilos.heroRow}>
-            <Vista style={[estilos.avatarWrapperNew, esOscuro && estilos.avatarWrapperDark]}>
+            <Vista style={[estilos.avatarWrapperNew, esOscuro && estilos.avatarWrapperDark,
+              usuario?.estadoVerificacionIdentidad !== 'verificado' && { borderWidth: 0 }]}>
               {perfilFotoUrl ?
               <Imagen
                 source={privadoImagenOrigen(perfilFotoUrl)}
@@ -342,6 +343,12 @@ const PerfilPantalla = () => {
         </Vista>
 
         {/* AYUDA Y SOPORTE */}
+        {usuario?.estadoVerificacionIdentidad !== 'verificado' && (
+          <PulsableOpacidad style={estilos.menuItemNew} onPress={() => navegacion.navigate('IdentityVerification')} accessibilityRole="button">
+            <Texto style={estilos.menuItemTextNew}>Verificar identidad</Texto>
+            <ChevronDerecha size={20} color={Colores.textTertiary} />
+          </PulsableOpacidad>
+        )}
         <Vista style={estilos.section}>
           <Vista style={estilos.menuContainer}>
             <PulsableOpacidad

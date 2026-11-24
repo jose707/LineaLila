@@ -164,6 +164,13 @@ const MapaPantalla = () => {
   const ruta = usarRuta<MapaPantallaRutaPropiedad>();
   const { user: usuario, updateUser: actualizarUsuario, isDriverMode: esConductorModo } = usarAutenticacion();
   const usuarioId = usuario?.id;
+  usarEnfoqueEfecto(usarFuncionRetorno(() => {
+    let vigente = true;
+    autenticacionServicio.consultarUsuarioActual().then(datos => {
+      if (vigente && datos) actualizarUsuario(datos);
+    }).catch(() => {});
+    return () => { vigente = false; };
+  }, [usuarioId, actualizarUsuario]));
   const { settings: { preferredVehicleType: vehiculoPreferido } } = usarAjustes();
   const margenes = usarSeguraZonaMargenes();
   const { height: pantallaAlto } = usarWindowDimensions();
@@ -1238,6 +1245,10 @@ const MapaPantalla = () => {
   };
 
   const confirmarViaje = () => {
+    if (usuario?.verificacionIdentidadRequerida) {
+      navegacion.navigate('IdentityVerification');
+      return;
+    }
     if (!recogidaUbicacion || !destinoUbicacion || !rutaInformacion) {
       Alert.alert('Información incompleta', 'Selecciona origen y destino.');
       return;
@@ -1344,7 +1355,9 @@ const MapaPantalla = () => {
         const servidorMensaje: string | undefined =
         error?.data?.error ?? error?.data?.message ?? error?.message;
 
-        if (error?.data?.code === 'NO_DRIVERS') {
+        if (error?.data?.code === 'IDENTIDAD_REQUERIDA') {
+          navegacion.navigate('IdentityVerification');
+        } else if (error?.data?.code === 'NO_DRIVERS') {
           mostrarAviso('Por ahora no hay conductores cerca. Intenta de nuevo en unos minutos.', '!');
         } else if (error?.status === 422 && error?.data?.code === 'OUT_OF_SERVICE_AREA') {
           Alert.alert(
@@ -1408,6 +1421,16 @@ const MapaPantalla = () => {
   // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <SeguraZonaVista style={s.root} edges={['bottom']}>
+      {usuario?.recordarVerificacionIdentidad && usuario.estadoVerificacionIdentidad !== 'verificado' && (
+        <PulsableOpacidad onPress={() => navegacion.navigate('IdentityVerification')}
+          accessibilityRole="button" style={{ padding: 12, backgroundColor: '#F3EAFC' }}>
+          <Texto style={{ color: '#7514C5', textAlign: 'center' }}>
+            {usuario.verificacionIdentidadRequerida
+              ? 'Verifica tu CI y realiza la prueba de vida para solicitar otro viaje.'
+              : `Te quedan ${usuario.viajesRestantesSinVerificar} viajes antes de verificar tu identidad. Verificar ahora`}
+          </Texto>
+        </PulsableOpacidad>
+      )}
       {/* MAP CONTAINER — pin is a sibling of MapView so it never scrolls */}
       <Vista style={s.mapWrapper}
       onLayout={(error) => {

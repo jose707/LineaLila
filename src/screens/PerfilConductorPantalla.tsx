@@ -298,7 +298,7 @@ export default function PerfilConductorPantalla() {
       <DesplazableVista style={estilos.desplazable} contentContainerStyle={estilos.contenido} showsVerticalScrollIndicator={false}>
         <Vista style={estilos.perfil}>
           <Vista>
-            <Vista style={[estilos.avatar, esOscuro && estilos.avatarOscuro]}>
+            <Vista style={[estilos.avatar, esOscuro && estilos.avatarOscuro, conductorEstado?.status !== 'aprobado' && { borderWidth: 0 }]}>
               {perfilFotoUrl ? (
                 <Imagen source={privadoImagenOrigen(perfilFotoUrl)} style={estilos.foto} />
               ) : (

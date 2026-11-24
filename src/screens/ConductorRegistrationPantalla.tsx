@@ -96,6 +96,8 @@ const CAMARA_CAMPOS = [
 
 
 const CAMARA_TITLES: Record<string, string> = {
+  ownerCiFront: 'CI del propietario — anverso',
+  ownerCiBack: 'CI del propietario — reverso',
   licenseFront: 'Licencia — parte frontal',
   licenseBack: 'Licencia — parte posterior',
   ticPhoto: 'Tarjeta de identificación del conductor',
@@ -494,6 +496,7 @@ const sr = EstiloHoja.create({
 // ─── Screen ───────────────────────────────────────────────────────────────────
 function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
   const { token } = usarAutenticacion();
+  const [requiereCiPropietario, establecerRequiereCiPropietario] = usarEstado(false);
   const ruta = usarRuta<any>();
   const navegacionParametros = ruta.params;
 
@@ -587,6 +590,10 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
       const respuesta = await ocrServicio.extractDocument(uri, campo, token || '', {
         crop: recorte
       });
+      if (campo === 'ruatPhoto') {
+        if (!respuesta.fields?.vehicleOwnerCi) throw new Error('No se pudo leer el CI del propietario del RUAT. Toma otra foto.');
+        establecerRequiereCiPropietario(respuesta.requiereCiPropietario === true);
+      }
 
       if ((campo === 'licenseFront' || campo === 'licenseBack') && respuesta.previewBase64) {
         establecerLicenciaVistas((anterior) => ({ ...anterior, [campo]: respuesta.previewBase64! }));
@@ -677,7 +684,10 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
     establecerOrigenesFotos((anterior) => ({ ...anterior, [campo]: origen }));
     establecerFotos((anterior) => ({ ...anterior, [campo]: uri }));
     establecerRecortesFotos((anterior) => ({ ...anterior, [campo]: recorte }));
-    if (OCR_PREVIO_HABILITADO && OCR_TIPOS.includes(campo)) void ejecutarOcr(campo, uri, recorte);
+    if (campo === 'ruatPhoto') {
+      void ejecutarOcr(campo, uri, recorte, !OCR_PREVIO_HABILITADO).finally(() => establecerExtrayendo(null));
+    }
+    else if (OCR_PREVIO_HABILITADO && OCR_TIPOS.includes(campo)) void ejecutarOcr(campo, uri, recorte);
   };
 
   // ── Photo picking ───────────────────────────────────────────────────────────
@@ -754,6 +764,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
     antecedents: !!fotos.antecedentsPhoto,
     vehicle:
     !!fotos.ruatPhoto &&
+    (!requiereCiPropietario || !!fotos.ownerCiFront && !!fotos.ownerCiBack) &&
     !!fotos.carFront &&
     !!fotos.carBack,
     docs: !!fotos.soatPhoto,
@@ -764,8 +775,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
     return undefined;
   };
 
-  const completadoCantidad = Object.values(terminado).filter(Boolean).length;
-  const todosTerminado = completadoCantidad === 6;
+  const todosTerminado = terminado.license && terminado.antecedents && terminado.vehicle && terminado.docs && terminado.domicile;
 
   // ── Guía Licencia: cámara directa, primero frontal y luego trasera ────────
   const abrirLicenciaSeccion = () => {
@@ -875,7 +885,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const manejarEnviar = async () => {
-    if (!todosTerminado || estadoEnvio !== 'pendiente') return;
+    if (!todosTerminado || estadoEnvio !== 'pendiente' || extrayendo) return;
 
     establecerEstadoEnvio('enviando');
     try {
@@ -905,6 +915,10 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
       agregar('carBack', fotos.carBack);
       agregar('soatPhoto', fotos.soatPhoto);
       agregar('ruatPhoto', fotos.ruatPhoto);
+      if (requiereCiPropietario) {
+        agregar('ownerCiFront', fotos.ownerCiFront);
+        agregar('ownerCiBack', fotos.ownerCiBack);
+      }
       agregar('domicileProof', fotos.domicileProof);
 
       const respuesta = await fetch(`${API_BASE_URL}/solicitudes/registrar`, {
@@ -917,6 +931,10 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
       });
       if (!respuesta.ok) {
         const error = await respuesta.json();
+        if (error.code === 'CI_PROPIETARIO_REQUERIDO') {
+          establecerRequiereCiPropietario(true);
+          establecerActivoModal('vehicle');
+        }
         throw new Error(error.error || `Error ${respuesta.status}`);
       }
       establecerEstadoEnvio('enviada');
@@ -939,7 +957,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         <Vista style={s.card}>
           <SeccionFila id="license" title="Licencia de conducir" subtitle="Frente y reverso" separador={false}
             done={terminado.license} warning={warningTexto('license')} onPress={abrirLicenciaSeccion} />
-          <SeccionFila id="tic" title="TIC" subtitle="Tarjeta de identificación del conductor" done={terminado.tic}
+          <SeccionFila id="tic" title="TIC (opcional)" subtitle="Tarjeta de identificación del conductor" done={terminado.tic}
             onPress={() => fotos.ticPhoto ? establecerActivoModal('tic') : establecerCamaraCampo('ticPhoto')} />
           <SeccionFila id="antecedents" title="Certificado de antecedentes" subtitle="Antecedentes policiales"
             done={terminado.antecedents} onPress={() => establecerCamaraCampo('antecedentsPhoto')} />
@@ -989,10 +1007,9 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 
       <SeccionModal
         visible={activoModal === 'tic'}
-        title="TIC"
+        title="TIC (opcional)"
         onClose={() => establecerActivoModal(null)}
-        onDone={() => establecerActivoModal(null)}
-        doneDisabled={!fotos.ticPhoto}>
+        onDone={() => establecerActivoModal(null)}>
 
         <FotoCampo
           label="Foto de la TIC"
@@ -1028,6 +1045,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         !fotos.ruatPhoto ||
         !fotos.carFront ||
         !fotos.carBack
+        || extrayendo === 'ruatPhoto' || requiereCiPropietario && (!fotos.ownerCiFront || !fotos.ownerCiBack)
         }>
 
         <Texto style={s.sectionLabel} accessibilityRole="header">RUAT</Texto>
@@ -1038,6 +1056,16 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
           onPress={() => abrirFoto('ruatPhoto', 'RUAT')} />
 
         <OcrResumen result={ocrResultados.ruatPhoto} showTypeLabels />
+        {requiereCiPropietario && (
+          <>
+            <Texto style={s.sectionLabel}>CI del propietario del RUAT</Texto>
+            <Texto>El vehículo está a nombre de otra persona. Sube ambas caras de su CI para la revisión.</Texto>
+            <FotoCampo label="Anverso del CI del propietario" photo={fotos.ownerCiFront}
+              onPress={() => establecerCamaraCampo('ownerCiFront')} />
+            <FotoCampo label="Reverso del CI del propietario" photo={fotos.ownerCiBack}
+              onPress={() => establecerCamaraCampo('ownerCiBack')} />
+          </>
+        )}
         <Texto style={s.sectionLabel} accessibilityRole="header">Fotos del vehículo</Texto>
         <FotoCampo
           label="Vista delantera"
@@ -1117,6 +1145,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         visible={camaraCampo !== null}
         title={camaraCampo ? CAMARA_TITLES[camaraCampo] || 'Documento' : ''}
         documentType={
+        camaraCampo === 'ownerCiFront' || camaraCampo === 'ownerCiBack' ? 'ci' :
         camaraCampo === 'ticPhoto' ?
         'tic' :
         camaraCampo === 'antecedentsPhoto' ?
@@ -1132,9 +1161,9 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
         'card'
         }
         frameLabel={
-        camaraCampo === 'ciFront' ?
+        camaraCampo === 'ownerCiFront' || camaraCampo === 'ciFront' ?
         'Coloca el frente de la cédula dentro del recuadro' :
-        camaraCampo === 'ciBack' ?
+        camaraCampo === 'ownerCiBack' || camaraCampo === 'ciBack' ?
         'Coloca la parte trasera de la cédula dentro del recuadro' :
         camaraCampo === 'licenseFront' ?
         'Coloca el frente de la licencia dentro del recuadro' :

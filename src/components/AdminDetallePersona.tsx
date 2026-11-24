@@ -1,7 +1,7 @@
 import React, { useState, type ReactNode } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CheckCircle, ChevronRight, CircleX, X } from 'lucide-react-native';
+import { CheckCircle, ChevronRight, CircleX, Clock3, X } from 'lucide-react-native';
 import { privadoImagenOrigen } from '../utils/privateImageOrigen';
 
 export const coloresDetalle = {
@@ -46,13 +46,13 @@ export function MarcoDetallePersona({ titulo, cerrar, ocupado, children }: {
 }
 
 export function ResumenDetallePersona({ nombre, foto, estado, disponible }: {
-  nombre: string; foto: string | null; estado: 'Verificado' | 'Desactivado' | 'Suspendido';
+  nombre: string; foto: string | null; estado: 'Verificado' | 'Desactivado' | 'Suspendido' | 'Sin verificar';
   disponible?: boolean;
 }) {
   const [fotoFallida, setFotoFallida] = useState<string | null>(null);
   const iniciales = nombre.trim().split(/\s+/).slice(0, 2).map(parte => parte.charAt(0)).join('').toUpperCase();
   const verificado = estado === 'Verificado';
-  const color = verificado ? coloresDetalle.verde : coloresDetalle.rojo;
+  const color = verificado ? coloresDetalle.verde : estado === 'Sin verificar' ? coloresDetalle.secundario : coloresDetalle.rojo;
   return (
     <View style={s.perfil}>
       <View style={s.avatar}>
@@ -62,7 +62,9 @@ export function ResumenDetallePersona({ nombre, foto, estado, disponible }: {
       <View style={s.datos}>
         <Text style={s.nombre}>{nombre}</Text>
         <View style={s.filaEstado}>
-          {verificado ? <CheckCircle size={16} color={color} strokeWidth={2.5} /> : <CircleX size={18} color={color} strokeWidth={2.5} />}
+          {verificado ? <CheckCircle size={16} color={color} strokeWidth={2.5} />
+            : estado === 'Sin verificar' ? <Clock3 size={18} color={color} strokeWidth={2.5} />
+            : <CircleX size={18} color={color} strokeWidth={2.5} />}
           <Text style={[s.estado, { color }]}>{estado}</Text>
           {disponible !== undefined && (
             <Text style={s.secundario}>· {disponible ? 'En servicio' : 'No disponible'}</Text>

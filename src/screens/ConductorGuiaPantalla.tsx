@@ -5,7 +5,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Brain, Camera, Car, Check, ClipboardList, FileText, MapPin, ShieldCheck, X } from 'lucide-react-native';
 import { usarAjustes } from '../context/AjustesContexto';
 
-const documentos = ['Licencia de conducir', 'Tarjeta de identificación del conductor (TIC)', 'Certificado de antecedentes', 'RUAT del vehículo', 'SOAT', 'Fotografía actual del vehículo', 'Comprobante de domicilio'];
+const documentos = ['Licencia de conducir', 'Tarjeta de identificación del conductor (TIC, opcional)', 'Certificado de antecedentes', 'RUAT del vehículo', 'SOAT', 'Fotografía actual del vehículo', 'Comprobante de domicilio'];
 const total = 3;
 
 export default function ConductorGuiaPantalla() {

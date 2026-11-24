@@ -90,6 +90,8 @@ export interface DetalleAdministrativoUsuario {
     id: string; nombre: string; correo: string | null; telefono: string | null; rol: Usuario['role'];
     fechaRegistro: string | null; foto: string | null; activo: boolean; telefonoVerificado: boolean;
     estadoIdentidad: string | null;
+    viajesCompletadosPasajero: number;
+    verificacionIdentidadRequerida: boolean;
   };
   solicitudConductor: { id: string; status: string; version: number } | null;
   historial: { id: string; activo: boolean; motivo: string | null; fecha: string; administrador: string | null }[];

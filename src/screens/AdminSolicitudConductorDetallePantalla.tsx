@@ -299,9 +299,11 @@ interface ConductorApplication {
 }
 
 const documentoClaves: Array<{key: string;label: string;optional?: boolean;}> = [
+{ key: 'ownerCiFront', label: 'CI del propietario — anverso', optional: true },
+{ key: 'ownerCiBack', label: 'CI del propietario — reverso', optional: true },
 { key: 'licenseFront', label: 'Licencia frente' },
 { key: 'licenseBack', label: 'Licencia dorso' },
-{ key: 'ticPhoto', label: 'TIC' },
+{ key: 'ticPhoto', label: 'TIC', optional: true },
 { key: 'antecedentsPhoto', label: 'Antecedentes' },
 { key: 'carFront', label: 'Auto frente' },
 { key: 'carBack', label: 'Auto dorso' },
@@ -720,7 +722,8 @@ export default function AdminSolicitudConductorDetallePantalla({ navigation: nav
   };
 
   const documentosAprobadosEnServidor = !!seleccionadoAplicacion && documentoClaves.every(documento =>
-    documento.optional || seleccionadoAplicacion.currentRequest?.files?.[documento.key]?.status === 'verificado');
+    documento.optional && !seleccionadoAplicacion.currentRequest?.files?.[documento.key] ||
+      seleccionadoAplicacion.currentRequest?.files?.[documento.key]?.status === 'verificado');
 
   const adjuntarInforme = async () => {
     try {
@@ -1017,7 +1020,7 @@ export default function AdminSolicitudConductorDetallePantalla({ navigation: nav
 
             </PlegableSeccion>
 
-            <PlegableSeccion titulo="TIC · Identificación de la conductora">
+            {seleccionadoAplicacion.currentRequest?.files?.ticPhoto && <PlegableSeccion titulo="TIC · Documento opcional">
               <EnlaceDocumento titulo="Ver TIC" estado={documentoEstado.ticPhoto} onPress={() => abrirDocumento('ticPhoto')} />
               <DetalleFila label="Número de tarjeta" value={seleccionadoAplicacion.ticOcr?.ticNumber || ''} />
               <DetalleFila label="Lugar de emisión" value={seleccionadoAplicacion.ticOcr?.issuingPlace || ''} />
@@ -1028,7 +1031,7 @@ export default function AdminSolicitudConductorDetallePantalla({ navigation: nav
               seleccionadoAplicacion.ticOcr, seleccionadoAplicacion.licenseFrontOcr, seleccionadoAplicacion.licenseNumber
             )} />
               <DetalleFila label="Categoría marcada" value="Revisar en la imagen" />
-            </PlegableSeccion>
+            </PlegableSeccion>}
 
             <PlegableSeccion titulo="Antecedentes policiales">
               <EnlaceDocumento titulo="Ver certificado" estado={documentoEstado.antecedentsPhoto} onPress={() => abrirDocumento('antecedentsPhoto')} />
@@ -1047,6 +1050,10 @@ export default function AdminSolicitudConductorDetallePantalla({ navigation: nav
 
             <PlegableSeccion titulo="RUAT y vehículo">
               <EnlaceDocumento titulo="Ver RUAT" estado={documentoEstado.ruatPhoto} onPress={() => abrirDocumento('ruatPhoto')} />
+              {['ownerCiFront', 'ownerCiBack'].map(clave => seleccionadoAplicacion.currentRequest?.files?.[clave] && (
+                <EnlaceDocumento key={clave} titulo={clave === 'ownerCiFront' ? 'Ver CI del propietario — anverso' : 'Ver CI del propietario — reverso'}
+                  estado={documentoEstado[clave]} onPress={() => abrirDocumento(clave)} />
+              ))}
               <EnlaceDocumento titulo="Ver vehículo" estado={documentoEstado.carFront === 'rechazado' || documentoEstado.carBack === 'rechazado' ? 'rechazado' : documentoEstado.carFront === 'verificado' && documentoEstado.carBack === 'verificado' ? 'verificado' : undefined} onPress={() => abrirDocumento('carFront')} />
               <DetalleFila
               label="Marca"

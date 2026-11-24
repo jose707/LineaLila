@@ -1,7 +1,8 @@
 import React, { useCallback as usarFuncionRetorno, useEffect as usarEfecto, useState as usarEstado, useRef as usarReferencia } from 'react';
 import { ActivityIndicator as ActividadIndicador, NativeModules as NativoModules, ScrollView as DesplazableVista, SafeAreaView as SeguraZonaVista, StatusBar as EstadoBar, StyleSheet as EstiloHoja, Text as Texto, TouchableOpacity as PulsableOpacidad, View as Vista } from 'react-native';
 import { Camera as Camara, ShieldCheck as ShieldComprobar } from 'lucide-react-native';
-import AsincronoAlmacenamiento from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import type { RectanguloRecorteOcr } from "../services/ocr.servicio";
@@ -29,7 +30,7 @@ type ExtraidoCiResultado = {fields: ExtraidoCampoFila[];failed?: boolean;notice?
 type Observacion = {title: string;message: string;rescan?: boolean;};
 type CiCapturar = {front: string;back: string;crops: Record<Lado, RectanguloRecorteOcr | null>;};
 const MAXIMO_CI_INTENTOS = 3;
-const LIMITE_CI_INTENTOS_HABILITADO = false;
+const ESPERA_IDENTIDAD_MS = 2 * 60 * 60 * 1000;
 const CI_CAMPO_ETIQUETAS: Record<string, string> = {
   firstNames: 'Nombres',
   paternalSurname: 'Apellido paterno',
@@ -49,7 +50,10 @@ const ciLeerFalloMensaje = (restante: number) =>
 `No se pudo verificar tu cédula de identidad. Toma las fotos en un lugar con buena luz y encuadra el documento correctamente. Te quedan ${restante} ${restante === 1 ? 'intento' : 'intentos'}.`;
 
 function IdentidadVerificacionPantalla() {
-  const { user: usuario, token, updateUser: actualizarUsuario, logout: salir, showRegistrationSuccessToast: mostrarRegistroExitoAviso } = usarAutenticacion();
+  const { user: usuario, token, updateUser: actualizarUsuario, logout: salir } = usarAutenticacion();
+  const navegacion = useNavigation<any>();
+  const ruta = useRoute();
+  const [reintentarEn, establecerReintentarEn] = usarEstado<string | null>(null);
   const margenes = usarSeguraZonaMargenes();
   const [lado, establecerLado] = usarEstado<Lado | null>(null);
   const [fotos, establecerFotos] = usarEstado<Record<Lado, string | null>>({ ciFront: null, ciBack: null });
@@ -73,8 +77,7 @@ function IdentidadVerificacionPantalla() {
   const rescanTemporizador = usarReferencia<ReturnType<typeof setTimeout> | null>(null);
   const enviando = usarReferencia(false);
   const switchingCuenta = usarReferencia(false);
-  const verificacionAprobadoReferencia = usarReferencia(false);
-  const intentosClave = usuario?.id ? `identity-ci-ocr-failures:${usuario.id}` : null;
+  const claveIntentos = usuario?.id ? 'intentos-identidad:' + usuario.id : null;
 
   usarEfecto(() => {
     let activo = true;
@@ -89,64 +92,62 @@ function IdentidadVerificacionPantalla() {
     return () => {activo = false;};
   }, [token, consentimientoRecarga]);
 
-  usarEfecto(() => {
-    let activo = true;
-    establecerIntentosCargado(false);
-    intentosReferencia.current = 0;
-    establecerIntentos(0);
-    establecerLimiteAvisoVisible(false);
-    if (intentosClave) {
-      AsincronoAlmacenamiento.getItem(intentosClave).
-      then((valor) => {
-        if (!activo) return;
-        const analizado = Number(valor);
-        const cantidad = Number.isInteger(analizado) ? Math.min(MAXIMO_CI_INTENTOS, Math.max(0, analizado)) : 0;
-        intentosReferencia.current = cantidad;
-        establecerIntentos(cantidad);
-        establecerLimiteAvisoVisible(LIMITE_CI_INTENTOS_HABILITADO && cantidad >= MAXIMO_CI_INTENTOS);
-      }).
-      catch(() => {}).
-      finally(() => {if (activo) establecerIntentosCargado(true);});
-    } else {
-      establecerIntentosCargado(true);
-    }
-    return () => {activo = false;};
-  }, [intentosClave]);
-
   usarEfecto(() => () => {
     if (rescanTemporizador.current) clearTimeout(rescanTemporizador.current);
   }, []);
-  const renovarEstado = usarFuncionRetorno(async (): Promise<void> => {
-    try {
-      const datos: any = await api.obtener('/autenticacion/sesion', { headers: { 'Cache-Control': 'no-cache' } });
-      if (datos?.user?.id && datos.user.estadoVerificacionIdentidad && (
-      !verificacionAprobadoReferencia.current || datos.user.estadoVerificacionIdentidad === 'verificado')) {
-        actualizarUsuario(datos.user);
-      }
-    } catch {
-
-
-
-
-
-
-
-
-
-      // La captura sigue disponible; el envío mostrará el error de red si persiste.
-    }}, [actualizarUsuario]);usarEfecto(() => {if (usuario?.documentosIdentidadEnviados && usuario.estadoVerificacionIdentidad !== 'verificado' && token) {renovarEstado();}}, [usuario?.documentosIdentidadEnviados, usuario?.estadoVerificacionIdentidad, token, renovarEstado]);const registroOcrFallo = async (): Promise<number> => {
-    const cantidad = Math.min(MAXIMO_CI_INTENTOS, intentosReferencia.current + 1);
+  const aplicarIntentos = usarFuncionRetorno((cantidad: number, hasta: string | null) => {
     intentosReferencia.current = cantidad;
     establecerIntentos(cantidad);
-    if (intentosClave) {
-      try {await AsincronoAlmacenamiento.setItem(intentosClave, String(cantidad));} catch {}
-    }
-    return cantidad;
+    establecerReintentarEn(hasta);
+    establecerLimiteAvisoVisible(cantidad >= MAXIMO_CI_INTENTOS);
+  }, []);
+
+  usarEfecto(() => {
+    let vigente = true;
+    establecerIntentosCargado(false);
+    aplicarIntentos(0, null);
+    if (!claveIntentos) return;
+    AsyncStorage.getItem(claveIntentos).then(async valor => {
+      const datos = valor ? JSON.parse(valor) : {};
+      const hasta = typeof datos.reintentarEn === "string" && Number.isFinite(Date.parse(datos.reintentarEn))
+        ? datos.reintentarEn : null;
+      const vencido = hasta !== null && Date.parse(hasta) <= Date.now();
+      const cantidad = !vencido && Number.isInteger(datos.fallidos)
+        ? Math.min(MAXIMO_CI_INTENTOS, Math.max(0, datos.fallidos)) : 0;
+      if (vencido) await AsyncStorage.removeItem(claveIntentos);
+      if (!vigente) return;
+      aplicarIntentos(cantidad, vencido ? null : hasta);
+      establecerIntentosCargado(true);
+    }).catch(() => {
+      if (vigente) establecerObservacion({ title: "No se pudo cargar la verificación", message: "Vuelve a abrir esta pantalla para reintentar." });
+    });
+    return () => { vigente = false; };
+  }, [claveIntentos, aplicarIntentos]);
+
+  usarEfecto(() => {
+    if (!reintentarEn || !claveIntentos) return;
+    let vigente = true;
+    const espera = setTimeout(() => {
+      AsyncStorage.removeItem(claveIntentos).then(() => {
+        if (vigente) aplicarIntentos(0, null);
+      }).catch(() => {
+        if (vigente) establecerObservacion({ title: "No se pudo actualizar la verificación", message: "Vuelve a abrir esta pantalla para reintentar." });
+      });
+    }, Math.max(0, Date.parse(reintentarEn) - Date.now()));
+    return () => { vigente = false; clearTimeout(espera); };
+  }, [reintentarEn, claveIntentos, aplicarIntentos]);
+
+  const registrarFalloIdentidad = async () => {
+    if (!claveIntentos) return;
+    const cantidad = Math.min(MAXIMO_CI_INTENTOS, intentosReferencia.current + 1);
+    const hasta = cantidad >= MAXIMO_CI_INTENTOS ? new Date(Date.now() + ESPERA_IDENTIDAD_MS).toISOString() : null;
+    await AsyncStorage.setItem(claveIntentos, JSON.stringify({ fallidos: cantidad, reintentarEn: hasta }));
+    aplicarIntentos(cantidad, hasta);
   };
 
   const scan = (siguiente: Lado) => {
     if (guardando || !intentosCargado) return;
-    if (LIMITE_CI_INTENTOS_HABILITADO && intentosReferencia.current >= MAXIMO_CI_INTENTOS) {
+    if (intentosReferencia.current >= MAXIMO_CI_INTENTOS) {
       establecerLimiteAvisoVisible(true);
       return;
     }
@@ -256,23 +257,25 @@ function IdentidadVerificacionPantalla() {
       }
       // Un 200 de este endpoint se envía solo después de aprobar y guardar
       // CI, prueba de vida y comparación facial en el servidor.
-      verificacionAprobadoReferencia.current = true;
+      if (claveIntentos) await AsyncStorage.removeItem(claveIntentos).catch(() => {});
+      aplicarIntentos(0, null);
       actualizarUsuario({ ...datos.user, estadoVerificacionIdentidad: 'verificado', documentosIdentidadEnviados: true, motivoRechazoIdentidad: null });
-      mostrarRegistroExitoAviso();
+      if (ruta.name === 'IdentityVerification') navegacion.goBack();
       limpiarCapturar();
       establecerObservacion(null);
       establecerAutorretratoFoto(null);
-      if (intentosClave) {
-        try {await AsincronoAlmacenamiento.removeItem(intentosClave);} catch {}
-      }
     } catch (error: any) {
+      if (error?.status === 422 || error?.status === 409 && error?.data?.error === 'La cédula ya está registrada.') {
+        await registrarFalloIdentidad();
+      }
       if (error?.code === 'E_LIVENESS_CANCELLED' || /UserCancelledException|CancelledException/i.test(String(error?.message || ''))) {
         establecerObservacion(null);
         return;
       }
       if (error?.status === 409 && String(error?.data?.error || '').includes('ya está verificada')) {
-        verificacionAprobadoReferencia.current = true;
-        actualizarUsuario({ estadoVerificacionIdentidad: 'verificado', documentosIdentidadEnviados: true, motivoRechazoIdentidad: null });
+        const actual = await api.obtener<{ user: import('../types/modelos').Usuario }>('/autenticacion/sesion');
+        actualizarUsuario(actual.user);
+        if (ruta.name === 'IdentityVerification') navegacion.goBack();
         return;
       }
       if (error?.data?.code === 'CONSENT_VERSION_MISMATCH') {
@@ -285,13 +288,13 @@ function IdentidadVerificacionPantalla() {
       establecerObservacion({
         title: error?.data?.code === 'UNDERAGE' ? 'Menor de edad' : error?.status === 422 ? 'Observación del CI' : 'No pudimos verificar tu identidad',
         message: error?.data?.error || error?.message || 'No se pudo completar la verificación.',
-        rescan: comprobanteVencido && (!LIMITE_CI_INTENTOS_HABILITADO || intentosReferencia.current < MAXIMO_CI_INTENTOS)
+        rescan: comprobanteVencido && (intentosReferencia.current < MAXIMO_CI_INTENTOS)
       });
     }
   };
 
   const verificarCi = async (capturar: CiCapturar) => {
-    if (enviando.current || !consentimiento || !consentimientoDocumento || !intentosCargado || LIMITE_CI_INTENTOS_HABILITADO && intentosReferencia.current >= MAXIMO_CI_INTENTOS) return;
+    if (enviando.current || !consentimiento || !consentimientoDocumento || !intentosCargado || intentosReferencia.current >= MAXIMO_CI_INTENTOS) return;
     enviando.current = true;
     establecerGuardando(true);
     establecerObservacion(null);
@@ -312,13 +315,15 @@ function IdentidadVerificacionPantalla() {
       });
       const comprobado: any = await respuesta.json();
       if (respuesta.status === 409 && String(comprobado.error || '').includes('ya está verificada')) {
-        verificacionAprobadoReferencia.current = true;
-        actualizarUsuario({ estadoVerificacionIdentidad: 'verificado', documentosIdentidadEnviados: true, motivoRechazoIdentidad: null });
+        const actual = await api.obtener<{ user: import('../types/modelos').Usuario }>('/autenticacion/sesion');
+        actualizarUsuario(actual.user);
+        if (ruta.name === 'IdentityVerification') navegacion.goBack();
         return;
       }
       const mrzObservacion = respuesta.ok ? MRZ_OBSERVACIONES[comprobado.mrzComparison as MrzComparacion] : null;
       if (respuesta.status === 422 || mrzObservacion) {
-        const cantidad = LIMITE_CI_INTENTOS_HABILITADO ? await registroOcrFallo() : 0;
+        await registrarFalloIdentidad();
+        const cantidad = intentosReferencia.current;
         limpiarCapturar();
         const restante = MAXIMO_CI_INTENTOS - cantidad;
         const underage = comprobado.code === 'UNDERAGE';
@@ -330,17 +335,18 @@ function IdentidadVerificacionPantalla() {
           value: String(valor)
         }))
         );
-        if (LIMITE_CI_INTENTOS_HABILITADO && restante <= 0) establecerLimiteAvisoVisible(true);
+        if (restante <= 0) establecerLimiteAvisoVisible(true);
         const motivo = comprobado.error || mrzObservacion || 'No se pudieron verificar los datos de la cédula.';
         establecerExtraidoCiCampos({
           fields: vistaPreviaFilas,
           failed: true,
-          notice: underage ? motivo : LIMITE_CI_INTENTOS_HABILITADO ? `${motivo}\n\n${ciLeerFalloMensaje(restante)}` : `${motivo}\n\nToma las fotos con buena luz y encuadra el documento correctamente.`,
-          canRepeat: !underage && (!LIMITE_CI_INTENTOS_HABILITADO || restante > 0)
+          notice: underage ? motivo : `${motivo}\n\n${ciLeerFalloMensaje(restante)}`,
+          canRepeat: !underage && (restante > 0)
         });
         return;
       }
       if (!respuesta.ok) {
+        if (respuesta.status === 409 && comprobado.error === 'La cédula ya está registrada.') await registrarFalloIdentidad();
         if (comprobado.code === 'CONSENT_VERSION_MISMATCH') {
           limpiarCapturar();
           establecerConsentimiento(false);
@@ -376,7 +382,7 @@ function IdentidadVerificacionPantalla() {
   };
 
   const reintentarVerificacion = async () => {
-    if (enviando.current || !fotos.ciFront || !fotos.ciBack || !consentimiento) return;
+    if (!intentosCargado || intentosReferencia.current >= MAXIMO_CI_INTENTOS || enviando.current || !fotos.ciFront || !fotos.ciBack || !consentimiento) return;
     const capturar = { front: fotos.ciFront, back: fotos.ciBack, crops: fotoRecortes };
     if (!FACE_LIVENESS_HABILITADO || !comprobadoCi) {
       await verificarCi(capturar);
@@ -399,7 +405,7 @@ function IdentidadVerificacionPantalla() {
   };
 
   const repetirCiDespuesLeer = () => {
-    const puedeReintentar = !LIMITE_CI_INTENTOS_HABILITADO || intentosReferencia.current < MAXIMO_CI_INTENTOS;
+    const puedeReintentar = intentosReferencia.current < MAXIMO_CI_INTENTOS;
     establecerExtraidoCiCampos(null);
     if (puedeReintentar) {
       limpiarCapturar();
@@ -409,9 +415,9 @@ function IdentidadVerificacionPantalla() {
   };
 
   const cerrarObservacion = () => {
-    const rescan = observacion?.rescan && (!LIMITE_CI_INTENTOS_HABILITADO || intentosReferencia.current < MAXIMO_CI_INTENTOS);
+    const rescan = observacion?.rescan && (intentosReferencia.current < MAXIMO_CI_INTENTOS);
     establecerObservacion(null);
-    if (LIMITE_CI_INTENTOS_HABILITADO && intentosReferencia.current >= MAXIMO_CI_INTENTOS) establecerLimiteAvisoVisible(true);
+    if (intentosReferencia.current >= MAXIMO_CI_INTENTOS) establecerLimiteAvisoVisible(true);
     if (rescan) {
       if (rescanTemporizador.current) clearTimeout(rescanTemporizador.current);
       rescanTemporizador.current = setTimeout(() => {establecerLado('ciFront');rescanTemporizador.current = null;}, 400);
@@ -423,6 +429,7 @@ function IdentidadVerificacionPantalla() {
     <SeguraZonaVista style={s.safe}>
       <EstadoBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <Vista style={s.topBar}>
+        <PulsableOpacidad onPress={() => navegacion.goBack()} disabled={guardando} accessibilityRole="button"><Texto style={s.accountText}>Volver</Texto></PulsableOpacidad>
         <PulsableOpacidad style={s.topAccountButton} onPress={usarAnotherCuenta} disabled={guardando} accessibilityRole="button">
           <Texto style={s.accountText}>Usar otra cuenta</Texto>
         </PulsableOpacidad>
@@ -430,7 +437,8 @@ function IdentidadVerificacionPantalla() {
       <DesplazableVista style={s.mainScroll} contentContainerStyle={s.content}>
         <Vista style={s.icon}><ShieldComprobar size={32} color="#7514C5" /></Vista>
         <Texto style={s.title}>Verifica tu identidad</Texto>
-        <Texto style={s.slogan}>Viaja con confianza desde el primer paso</Texto>
+        <Texto style={s.slogan}>Escanea tu CI y completa la prueba de vida</Texto>
+        {reintentarEn && <Texto style={s.cardSub}>Agotaste tus tres intentos. Podrás volver a intentarlo el {new Date(reintentarEn).toLocaleString("es-BO", { timeZone: "America/La_Paz" })}.</Texto>}
         {usuario?.estadoVerificacionIdentidad === 'rechazado' && <Texto style={s.cardSub}>{usuario.motivoRechazoIdentidad || 'La verificación anterior fue rechazada. Captura nuevamente ambas caras del CI.'}</Texto>}
         {listo && !FACE_LIVENESS_HABILITADO && <Vista style={s.card}>
           <Camara size={24} color="#7514C5" />
@@ -451,7 +459,7 @@ function IdentidadVerificacionPantalla() {
         {listo && !guardando && FACE_LIVENESS_HABILITADO && !comprobadoCi && <PulsableOpacidad style={s.complete} onPress={() => {reintentarVerificacion();}} disabled={!consentimiento}><Texto style={s.primaryText}>Reintentar lectura</Texto></PulsableOpacidad>}
         {listo && !FACE_LIVENESS_HABILITADO && !!autorretratoFoto && <PulsableOpacidad style={s.complete} onPress={() => {reintentarVerificacion();}} disabled={guardando || !consentimiento}><Texto style={s.primaryText}>Confirmar y verificar identidad</Texto></PulsableOpacidad>}
       </DesplazableVista>
-      {!listo && !comprobadoCi && (!LIMITE_CI_INTENTOS_HABILITADO || intentos < MAXIMO_CI_INTENTOS) && !guardando && <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom, 12) + 12 }]}>
+      {!listo && !comprobadoCi && (intentos < MAXIMO_CI_INTENTOS) && !guardando && <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom, 12) + 12 }]}>
         {(!tieneScannedCi || !consentimiento) && <PulsableOpacidad
           disabled={!consentimientoDocumento}
           accessibilityRole="checkbox"
@@ -469,7 +477,7 @@ function IdentidadVerificacionPantalla() {
           <Texto style={[s.footerButtonText, !consentimiento && s.footerButtonTextUnauthorised]}>Continuar</Texto>
         </PulsableOpacidad>
       </Vista>}
-      {listo && comprobadoCi && !guardando && FACE_LIVENESS_HABILITADO && <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom, 12) + 12 }]}>
+      {listo && comprobadoCi && !guardando && FACE_LIVENESS_HABILITADO && intentos < MAXIMO_CI_INTENTOS && <Vista style={[s.footer, { paddingBottom: Math.max(margenes.bottom, 12) + 12 }]}>
         <PulsableOpacidad style={s.footerButton} onPress={() => {reintentarVerificacion();}} accessibilityRole="button">
           <Texto style={s.footerButtonText}>Continuar prueba de vida</Texto>
         </PulsableOpacidad>
@@ -517,7 +525,7 @@ function IdentidadVerificacionPantalla() {
 
       <Toast
         visible={limiteAvisoVisible && observacion === null}
-        message="Agotaste tus tres intentos de lectura del CI"
+        message="Agotaste tus tres intentos. Espera dos horas para volver a intentarlo."
         icon="!"
         duration={5000}
         onHide={() => establecerLimiteAvisoVisible(false)} />

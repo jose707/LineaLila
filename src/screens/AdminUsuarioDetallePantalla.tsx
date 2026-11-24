@@ -81,7 +81,7 @@ export default function AdminUsuarioDetallePantalla({ navigation, route }: Nativ
       {usuario && detalle && (
         <>
           <ResumenDetallePersona nombre={usuario.nombre} foto={usuario.foto}
-            estado={esActivo ? 'Verificado' : 'Desactivado'} />
+            estado={!esActivo ? 'Desactivado' : usuario.estadoIdentidad === 'verificado' ? 'Verificado' : 'Sin verificar'} />
           <SeccionDetallePersona titulo="Cuenta">
             <DatoDetallePersona etiqueta="Rol" valor={roles[usuario.rol]} />
             <DatoDetallePersona etiqueta="Correo" valor={usuario.correo} />
@@ -90,6 +90,8 @@ export default function AdminUsuarioDetallePantalla({ navigation, route }: Nativ
           </SeccionDetallePersona>
           <SeccionDetallePersona titulo="Verificación">
             <DatoDetallePersona etiqueta="Identidad" valor={usuario.estadoIdentidad ? identidad[usuario.estadoIdentidad] ?? usuario.estadoIdentidad : 'Sin registro'} />
+            <DatoDetallePersona etiqueta="Viajes completados como pasajero" valor={String(usuario.viajesCompletadosPasajero)} />
+            <DatoDetallePersona etiqueta="Verificación requerida para solicitar viajes" valor={usuario.verificacionIdentidadRequerida ? 'Sí' : 'No'} />
             <DatoDetallePersona etiqueta="Número de celular" valor={usuario.telefonoVerificado ? 'Verificado' : 'Sin verificar'} />
             <EnlaceDetallePersona etiqueta="Ver documentos"
               onPress={() => navigation.push('AdminDocuments', { usuarioId, origen: 'usuario' })} />

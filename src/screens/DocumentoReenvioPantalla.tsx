@@ -50,6 +50,8 @@ interface RechazadoDocumento {
 const documentoMapping: Record<string, {display: string;field: string;}> = {
   profilePhoto: { display: 'Foto del rostro (selfie)', field: 'profilePhoto' },
   ciFront: { display: 'CI — parte frontal', field: 'ciFront' },
+  ownerCiFront: { display: 'CI del propietario — anverso', field: 'ownerCiFront' },
+  ownerCiBack: { display: 'CI del propietario — reverso', field: 'ownerCiBack' },
   ciBack: { display: 'CI — parte posterior', field: 'ciBack' },
   licenseFront: {
     display: 'Licencia de conducir — frente',
@@ -79,7 +81,7 @@ function tipoDeDocumento(campo: string): DocumentoTipo {
   if (campo === 'antecedentsPhoto' || campo === 'domicileProof') return 'certificate';
   if (campo === 'ruatPhoto') return 'ruat';
   if (campo === 'soatPhoto') return 'soat';
-  if (campo === 'ciFront' || campo === 'ciBack') return 'ci';
+  if (campo === 'ciFront' || campo === 'ciBack' || campo.startsWith('ownerCi')) return 'ci';
   return 'card';
 }
 
@@ -158,7 +160,7 @@ function DocumentoReenvioPantalla({
   const [documentos, establecerDocumentos] = usarEstado<RechazadoDocumento[]>(() => {
     const rechazados: string[] = ruta.params?.rejectedDocs ?? [];
     const campos = rechazados.flatMap(campo => campo === 'licenseFront' || campo === 'licenseBack'
-      ? ['licenseFront', 'licenseBack'] : [campo]);
+      ? ['licenseFront', 'licenseBack'] : campo.startsWith('ownerCi') ? ['ownerCiFront', 'ownerCiBack'] : [campo]);
     return [...new Set(campos)]
       .filter(campo => Object.prototype.hasOwnProperty.call(documentoMapping, campo))
       .map(campo => ({
@@ -233,6 +235,11 @@ function DocumentoReenvioPantalla({
       });
       if (!respuesta.ok) {
         const error = await respuesta.json().catch(() => ({}));
+        if (error.code === 'CI_PROPIETARIO_REQUERIDO') {
+          establecerDocumentos(anteriores => [...anteriores, ...['ownerCiFront', 'ownerCiBack']
+            .filter(nombre => !anteriores.some(documento => documento.name === nombre))
+            .map(nombre => ({ name: nombre, displayName: documentoMapping[nombre].display, fieldName: nombre, photo: null }))]);
+        }
         throw new Error(error.error || `Error ${respuesta.status}`);
       }
       establecerEstadoEnvio('enviada');

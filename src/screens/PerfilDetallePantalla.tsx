@@ -92,7 +92,7 @@ export default function PerfilDetallePantalla() {
       <ScrollView contentContainerStyle={estilos.contenido} showsVerticalScrollIndicator={false}>
         <View style={estilos.perfil}>
           <View>
-            <View style={[estilos.avatar, oscuro && estilos.avatarOscuro]}>
+            <View style={[estilos.avatar, oscuro && estilos.avatarOscuro, !identidadVerificada && { borderWidth: 0 }]}>
               {foto ? (
                 <Image source={privadoImagenOrigen(foto)} style={estilos.foto} />
               ) : (

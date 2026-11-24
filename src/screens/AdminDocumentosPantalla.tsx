@@ -17,6 +17,7 @@ const documentosConductor = [
   { titulo: 'Licencia', tipos: ['licenseFront', 'licenseBack'], icono: IdCard },
   { titulo: 'Vehículo', tipos: ['carFront', 'carBack'], icono: Car },
   { titulo: 'RUAT', tipos: ['ruatPhoto'], icono: FileText },
+  { titulo: 'CI del propietario del RUAT', tipos: ['ownerCiFront', 'ownerCiBack'], icono: IdCard },
   { titulo: 'SOAT', tipos: ['soatPhoto'], icono: ShieldCheck },
   { titulo: 'Certificado de antecedentes', tipos: ['antecedentsPhoto'], icono: FileCheck },
   { titulo: 'TIC', tipos: ['ticPhoto'], icono: IdCard },
