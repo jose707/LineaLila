@@ -48,15 +48,9 @@ verificacionId: string,
 codigo: string)
 : Promise<FirebaseAutenticacionTipos.UserCredential> => {
   try {
-    console.log(`ðŸ” Verifying OTP code`);
-    console.log(`   Verification ID: ${verificacionId?.substring(0, 20)}...`);
-    console.log(`   Code: ${codigo}`);
-    console.log(`   Code length: ${codigo.length}`);
-
     const credencial = autenticacion.PhoneAuthProvider.credential(verificacionId, codigo);
     const usuarioCredencial = await autenticacion().signInWithCredential(credencial);
 
-    console.log('âœ… OTP verified successfully');
     return usuarioCredencial;
   } catch (error: any) {
     console.error('[Firebase] Error verifying OTP:', error);
@@ -64,20 +58,20 @@ codigo: string)
     console.error('   Error message:', error.message);
     console.error('   Full error:', JSON.stringify(error));
 
-    // Mensajes de error mÃ¡s claros
+    // Mensajes de error para la verificación del código.
     if (error.code === 'auth/invalid-verification-code') {
       throw new Error(
-        'El cÃ³digo de verificaciÃ³n es incorrecto. Verifica que sea el nÃºmero de 6 dÃ­gitos correcto.'
+        'El código de verificación es incorrecto. Revisa los 6 dígitos e intenta de nuevo.'
       );
     } else if (error.code === 'auth/session-expired') {
-      throw new Error('El cÃ³digo expirÃ³. Solicita uno nuevo.');
+      throw new Error('El código expiró. Solicita uno nuevo.');
     } else if (error.code === 'auth/invalid-verification-id') {
       throw new Error(
-        'ID de verificaciÃ³n invÃ¡lido. Intenta enviar el cÃ³digo nuevamente.'
+        'La verificación ya no es válida. Solicita un nuevo código.'
       );
     } else if (error.code === 'auth/missing-verification-code') {
       throw new Error(
-        'El cÃ³digo no se proporcionÃ³. Verifica e intenta de nuevo.'
+        'Ingresa el código de verificación e intenta de nuevo.'
       );
     }
 

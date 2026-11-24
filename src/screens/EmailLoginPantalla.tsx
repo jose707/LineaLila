@@ -24,11 +24,10 @@ import { COLORS as Colores } from '../theme/colors';
 
 type CorreoIngresarPantallaPropiedades = NativoPilaPantallaPropiedades<AutenticacionPilaParametroLista, 'EmailLogin'>;
 
-const TEST_CONDUCTOR = {
-  email: 'conductor.prueba@linealila.test',
-  password: 'Conductor123!',
-  phone: '+59179990001'
-};
+const CONDUCTORES_PRUEBA = [
+  { email: 'conductor.prueba@linealila.test', password: 'Conductor123!', phone: '+59179990001' },
+  { email: 'conductor.prueba2@linealila.test', password: 'Conductor123!', phone: '+59179990002' }
+];
 
 function CorreoIngresarPantalla({
   navigation: navegacion
@@ -146,16 +145,21 @@ function CorreoIngresarPantalla({
               )}
             </PulsableOpacidad>
 
-            <PulsableOpacidad style={[estilos.boton, estilos.accesoPrueba, cargando && estilos.botonOcupado]}
-              disabled={cargando} accessibilityRole="button" accessibilityState={{ disabled: cargando }} activeOpacity={0.8}
-              onPress={() => {
-                establecerCorreo(TEST_CONDUCTOR.email);
-                establecerContrasena(TEST_CONDUCTOR.password);
-                establecerTelefono(TEST_CONDUCTOR.phone);
-                manejarIngresar(TEST_CONDUCTOR);
-              }}>
-              <Texto style={[estilos.botonTexto, estilos.accesoPruebaTexto]}>Entrar como conductor de prueba</Texto>
-            </PulsableOpacidad>
+            {CONDUCTORES_PRUEBA.map((credenciales, indice) => (
+              <PulsableOpacidad key={credenciales.email}
+                style={[estilos.boton, estilos.accesoPrueba, cargando && estilos.botonOcupado]}
+                disabled={cargando} accessibilityRole="button" accessibilityState={{ disabled: cargando }} activeOpacity={0.8}
+                onPress={() => {
+                  establecerCorreo(credenciales.email);
+                  establecerContrasena(credenciales.password);
+                  establecerTelefono(credenciales.phone);
+                  manejarIngresar(credenciales);
+                }}>
+                <Texto style={[estilos.botonTexto, estilos.accesoPruebaTexto]}>
+                  Entrar como conductor de prueba {indice + 1}
+                </Texto>
+              </PulsableOpacidad>
+            ))}
           </Vista>
         </DesplazableVista>
       </KeyboardAvoidingView>
