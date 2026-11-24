@@ -7,14 +7,14 @@ import React, {
   ReactNode,
   useCallback as usarFuncionRetorno } from
 'react';
-import { Alert, AppState, Keyboard, Platform as Plataforma, PermissionsAndroid as PermisosAndroid, NativeModules as NativoModules } from 'react-native';
+import { AppState, Keyboard, Platform as Plataforma, PermissionsAndroid as PermisosAndroid, NativeModules as NativoModules } from 'react-native';
 import { autenticacionServicio } from "../services/autenticacion.servicio";
 import { alFcmTokenRenovar, alPrimerPlanoNotificacion } from "../services/firebase.servicio";
 import { AlmacenamientoAuxiliar } from '../services/storage';
 import { Usuario, UsuarioRol } from "../types/modelos";
 import { IngresarSolicitud, RegistrarseSolicitud } from '../types/api';
 import { socketServicio } from "../services/socket.servicio";
-import api, { alDesactivarCuenta } from '../services/api.cliente';
+import api, { alDesactivarCuenta, alInvalidarSesion, invalidarSesion } from '../services/api.cliente';
 
 export interface AutenticacionContextoTipo {
   user: Usuario | null;
@@ -107,13 +107,21 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
   }, []);
 
   const limpiarSesionLocal = usarFuncionRetorno(() => {
+    Keyboard.dismiss();
     establecerUsuario(null);
     establecerToken(null);
     establecerEsConductorModo(false);
+    establecerTelefonoVerificadoAvisoVisible(false);
+    establecerRegistroExitoAvisoVisible(false);
     AlmacenamientoAuxiliar.quitarElemento('activeRideState');
     socketServicio.desconectar();
     if (Plataforma.OS === 'android') NativoModules.ActiveRideLocationModule?.stop('');
   }, []);
+
+  usarEfecto(() => alInvalidarSesion(() => {
+    limpiarSesionLocal();
+    establecerEsCargando(false);
+  }), [limpiarSesionLocal]);
 
   usarEfecto(() => alDesactivarCuenta(mensaje => {
     desactivadaAlAbrir.current = true;
@@ -124,7 +132,10 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
   usarEfecto(() => {
     if (!token) return;
     const suscripcion = AppState.addEventListener('change', estado => {
-      if (estado === 'active') void api.obtener('/autenticacion/sesion').catch(() => {});
+      if (estado === 'active') {
+        if (!AlmacenamientoAuxiliar.obtenerElemento('authToken')) invalidarSesion(null);
+        else void api.obtener('/autenticacion/sesion').catch(() => {});
+      }
     });
     return () => suscripcion.remove();
   }, [token]);
@@ -142,8 +153,9 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
         if (guardadoToken) {
           // Intentar validar el token con el backend
           establecerToken(guardadoToken);
-          const recienteUsuario = await autenticacionServicio.consultarUsuarioActual();
+          const recienteUsuario = await autenticacionServicio.consultarUsuarioActual({ propagarError: true });
           if (desactivadaAlAbrir.current) return;
+          if (AlmacenamientoAuxiliar.obtenerElemento('authToken') !== guardadoToken) return;
 
           if (recienteUsuario) {
             console.log(
@@ -162,24 +174,26 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
             console.log(
               '🔐 [INIT] Token inválido o expirado. Limpiando sesión local.'
             );
-            AlmacenamientoAuxiliar.quitarElemento('authToken');
-            AlmacenamientoAuxiliar.quitarElemento('user');
-            establecerUsuario(null);
-            establecerToken(null);
-            establecerEsConductorModo(false);
-            Alert.alert(
-              'Sesión caducada',
-              'Por seguridad, vuelve a iniciar sesión.'
-            );
+            invalidarSesion(guardadoToken);
           }
         } else {
           // No hay token guardado: asegurarse de que no quede usuario colgado
           establecerUsuario(null);
           establecerToken(null);
           establecerEsConductorModo(false);
+          invalidarSesion(null);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
+        const tokenConservado = AlmacenamientoAuxiliar.obtenerElemento('authToken');
+        if (tokenConservado && !desactivadaAlAbrir.current) {
+          const usuarioGuardado = await autenticacionServicio.obtenerUsuarioActual();
+          if (usuarioGuardado && AlmacenamientoAuxiliar.obtenerElemento('authToken') === tokenConservado) {
+            establecerToken(tokenConservado);
+            establecerUsuario(usuarioGuardado);
+            establecerEsConductorModo(usuarioGuardado.modoActual === 'conductor');
+          }
+        }
       } finally {
         // MODO DISEÑO: Comentado para mantener SplashScreen visible
         establecerEsCargando(false);
@@ -334,13 +348,12 @@ const AutenticacionProvider: React.FC<AutenticacionProviderPropiedades> = ({ chi
 
   const renovarAutenticacion = usarFuncionRetorno(async () => {
     try {
-      await autenticacionServicio.renovarToken();
-      // El interceptor se encargará de actualizar el token
+      const renovadoToken = await autenticacionServicio.renovarToken();
+      if (AlmacenamientoAuxiliar.obtenerElemento('authToken') === renovadoToken) establecerToken(renovadoToken);
     } catch (error) {
       console.error('Error refreshing auth:', error);
-      await salir();
     }
-  }, [salir]);
+  }, []);
 
   const valor: AutenticacionContextoTipo = {
     user: usuario,

@@ -5,6 +5,7 @@ import {
   Animated as Animado,
   Easing,
   Image as Imagen,
+  Linking,
   Modal,
   StatusBar as EstadoBar,
   StyleSheet as EstiloHoja,
@@ -16,6 +17,7 @@ import {
 import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
 import {
   Camera as Camara,
+  VisionCamera,
   CommonResolutions,
   useCameraDevice as usarCamaraDevice,
   useCameraPermission as usarCamaraPermiso,
@@ -34,6 +36,7 @@ import {
   IdCard } from
 'lucide-react-native';
 import { COLORS as Colores } from '../theme/colors';
+import ConfirmarInferiorHoja from './ConfirmarInferiorSheet';
 
 // Proporción estándar de cédula / tarjeta de identidad (ISO/IEC 7810 ID-1: 85.6mm x 53.98mm)
 const TARJETA_ASPECTO = 1.585;
@@ -124,6 +127,31 @@ const DocumentoCamaraModal: React.FC<DocumentoCamaraModalPropiedades> = ({
   const [capturando, establecerCapturando] = usarEstado(false);
   const [camaraListo, establecerCamaraListo] = usarEstado(false);
   const [modalShown, establecerModalShown] = usarEstado(false);
+  const [solicitandoPermiso, establecerSolicitandoPermiso] = usarEstado(false);
+  const [mostrarAjustesPermiso, establecerMostrarAjustesPermiso] = usarEstado(false);
+  const [errorPermiso, establecerErrorPermiso] = usarEstado('');
+  const permisoPendiente = usarReferencia(false);
+  const permisoVersion = usarReferencia(0);
+
+  const pedirPermiso = usarFuncionRetorno(async () => {
+    if (permisoPendiente.current) return;
+    permisoPendiente.current = true;
+    const version = permisoVersion.current;
+    establecerSolicitandoPermiso(true);
+    establecerErrorPermiso('');
+    try {
+      const concedido = await solicitudPermiso();
+      if (version !== permisoVersion.current) return;
+      if (!concedido && ['denied', 'restricted'].includes(VisionCamera.cameraPermissionStatus)) {
+        establecerMostrarAjustesPermiso(true);
+      }
+    } catch {
+      if (version === permisoVersion.current) establecerErrorPermiso('No se pudo solicitar el permiso. Intenta nuevamente.');
+    } finally {
+      permisoPendiente.current = false;
+      if (version === permisoVersion.current) establecerSolicitandoPermiso(false);
+    }
+  }, [solicitudPermiso]);
 
   // Detección de CI (Cédula de Identidad)
   const esCiDocumento =
@@ -255,10 +283,14 @@ const DocumentoCamaraModal: React.FC<DocumentoCamaraModalPropiedades> = ({
   };
 
   usarEfecto(() => {
-    if (visible && !tienePermiso) {
-      solicitudPermiso().catch(() => {});
-    }
-  }, [visible, tienePermiso, solicitudPermiso]);
+    if (!visible || !modalShown) return;
+    establecerSolicitandoPermiso(false);
+    void pedirPermiso();
+    return () => {
+      permisoVersion.current++;
+      establecerMostrarAjustesPermiso(false);
+    };
+  }, [visible, modalShown, pedirPermiso]);
 
   const ciIconoOpacidad = usarReferencia(new Animado.Value(0)).current;
   const ciIconoGirarY = usarReferencia(new Animado.Value(0)).current;
@@ -463,8 +495,10 @@ const DocumentoCamaraModal: React.FC<DocumentoCamaraModalPropiedades> = ({
             'Necesitamos acceso a la cámara para tomar una selfie.' :
             'Para fotografiar y validar tu documento necesitamos acceso a la cámara.'}
             </Texto>
-            <PulsableOpacidad style={s.permissionBtn} onPress={solicitudPermiso}>
-              <Texto style={s.permissionBtnText}>Dar permiso</Texto>
+            {!!errorPermiso && <Texto style={s.permissionSub} accessibilityRole="alert">{errorPermiso}</Texto>}
+            <PulsableOpacidad style={s.permissionBtn} onPress={pedirPermiso} disabled={solicitandoPermiso}
+              accessibilityRole="button" accessibilityState={{ disabled: solicitandoPermiso, busy: solicitandoPermiso }}>
+              <Texto style={s.permissionBtnText}>{solicitandoPermiso ? 'Solicitando permiso…' : 'Dar permiso'}</Texto>
             </PulsableOpacidad>
           </Vista> :
 
@@ -737,6 +771,16 @@ const DocumentoCamaraModal: React.FC<DocumentoCamaraModalPropiedades> = ({
           </Texto>
         </Vista>
       </Vista>
+      <ConfirmarInferiorHoja visible={visible && mostrarAjustesPermiso}
+        title="Permite el acceso a la cámara"
+        message="Activa el permiso de cámara en los ajustes de Línea Lila para fotografiar tu documento o verificar tu identidad."
+        confirmLabel="Abrir ajustes" cancelLabel="Ahora no"
+        onCancel={() => establecerMostrarAjustesPermiso(false)}
+        onConfirm={async () => {
+          establecerMostrarAjustesPermiso(false);
+          try { await Linking.openSettings(); }
+          catch { establecerErrorPermiso('No se pudieron abrir los ajustes. Intenta nuevamente.'); }
+        }} />
     </Modal>);
 
 };export { DocumentoCamaraModal };

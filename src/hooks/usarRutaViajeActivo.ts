@@ -96,6 +96,7 @@ export function usarRutaViajeActivo(
       establecerRutaError(false);
       return;
     }
+    if (!esEnfocado) return;
     let cancelado = false;
     let reintento: ReturnType<typeof setTimeout> | undefined;
     establecerRutaTrazada(null);
@@ -115,9 +116,8 @@ export function usarRutaViajeActivo(
       } catch {
         if (!cancelado) {
           establecerRutaError(true);
-          if (viaje.status === 'en_curso') {
-            reintento = setTimeout(() => establecerRutaReintentar((valor) => valor + 1), 30000);
-          }
+          reintento = setTimeout(() => establecerRutaReintentar((valor) => valor + 1),
+            viaje.status === 'llegado' ? 5000 : 30000);
         }
       }
     })();
@@ -126,7 +126,7 @@ export function usarRutaViajeActivo(
       if (reintento !== undefined) clearTimeout(reintento);
       control.generacion++;
     };
-  }, [viaje?.rideId, viaje?.status, rutaVisible, rutaPuntoClave, rutaReintentar, claveTrazado, claveEstimacion, viajeIniciado]);
+  }, [viaje?.rideId, viaje?.status, rutaVisible, rutaPuntoClave, rutaReintentar, claveTrazado, claveEstimacion, viajeIniciado, esEnfocado]);
 
   usarEfecto(() => {
     const punto = viaje?.driverLocation;

@@ -52,6 +52,7 @@ import { DestinoIndicadorIcono as DestinoIndicadorIcon, PasajeroMapaIcono, Parad
 import GuardadoLugaresModal, { GuardadoLugar } from '../components/SavedPlacesModal';
 import ConfirmarInferiorHoja from '../components/ConfirmarInferiorSheet';
 import Toast from "../components/Aviso";
+import RecordatorioIdentidad from '../components/RecordatorioIdentidad';
 import { usarAutenticacion } from "../hooks/usarAutenticacion";
 import { MAPSCREEN_COLORS as T } from '../theme/colors';
 import {
@@ -1421,16 +1422,6 @@ const MapaPantalla = () => {
   // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <SeguraZonaVista style={s.root} edges={['bottom']}>
-      {usuario?.recordarVerificacionIdentidad && usuario.estadoVerificacionIdentidad !== 'verificado' && (
-        <PulsableOpacidad onPress={() => navegacion.navigate('IdentityVerification')}
-          accessibilityRole="button" style={{ padding: 12, backgroundColor: '#F3EAFC' }}>
-          <Texto style={{ color: '#7514C5', textAlign: 'center' }}>
-            {usuario.verificacionIdentidadRequerida
-              ? 'Verifica tu CI y realiza la prueba de vida para solicitar otro viaje.'
-              : `Te quedan ${usuario.viajesRestantesSinVerificar} viajes antes de verificar tu identidad. Verificar ahora`}
-          </Texto>
-        </PulsableOpacidad>
-      )}
       {/* MAP CONTAINER — pin is a sibling of MapView so it never scrolls */}
       <Vista style={s.mapWrapper}
       onLayout={(error) => {
@@ -1598,6 +1589,12 @@ const MapaPantalla = () => {
             <Icon.MiUbicacion size={30} color="#000000" strokeWidth={2.0} />
             }
             </PulsableOpacidad>
+            {!destinoUbicacion && usuario?.estadoVerificacionIdentidad !== 'verificado' &&
+              (usuario?.recordarVerificacionIdentidad || usuario?.verificacionIdentidadRequerida) && (
+              <Vista style={s.recordatorioIdentidad}>
+                <RecordatorioIdentidad usuario={usuario} onVerificar={() => navegacion.navigate('IdentityVerification')} />
+              </Vista>
+            )}
             <Vista style={s.searchModalCard}>
               <PulsableOpacidad
               style={s.searchInput}
@@ -2066,6 +2063,7 @@ const s = EstiloHoja.create({
     bottom: 0,
     paddingTop: 66
   },
+  recordatorioIdentidad: { marginHorizontal: 16, marginBottom: 12 },
   searchModalCard: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,

@@ -68,7 +68,7 @@ test.each([true, false])('muestra al pasajero en la reserva del conductor con ve
     passenger: { name: 'María Elena Paz Flores', photo: 'https://example.com/pasajero.jpg', verified, rating: 4.8, trips: 1 }
   };
   await act(() => {
-    tree = Renderer.create(<RapidaReservaTarjeta ride={reserva} segundosRestantes={20} driver />);
+    tree = Renderer.create(<RapidaReservaTarjeta ride={reserva} segundosRestantes={10} driver />);
   });
   expect(salida()).toContain('María Elena Paz Flores');
   expect(salida()).toContain('Calificación 4.8 de 5');
@@ -76,69 +76,61 @@ test.each([true, false])('muestra al pasajero en la reserva del conductor con ve
   expect(salida()).toContain('https://example.com/pasajero.jpg');
   expect(salida().includes('Verificado')).toBe(verified);
   expect(salida()).not.toContain('ABC123');
-});
-
-test('muestra la reserva asignada de inmediato y mantiene la cuenta del servidor', async () => {
-  const datos = {
-    ride: { ...viaje, expiresAt: new Date(Date.now() + 20000).toISOString() },
-    serverTime: new Date().toISOString(),
-    segundosRestantes: 20
-  };
-  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos);
-  await act(async () => {
-    tree = Renderer.create(
-      <RapidoAsignacionPantalla
-        route={{ params: { rideId: viaje.id, request: solicitud, initialSnapshot: datos } } as any}
-        navigation={navegacion as any} />
-
-    );
-  });
-  expect(salida()).not.toContain('Creando solicitud');
-  expect(salida()).not.toContain('Localizando conductores cercanos');
-  expect(salida()).not.toContain('Asignación rápida');
-  expect(salida()).toContain('Viaje asignado');
-  expect(salida()).toContain('ABC123');
-  expect(salida()).toContain('Ana Rojas Loza');
-  expect(salida()).toContain('Calificación 4.5 de 5');
+  expect(salida()).toContain('Destino');
   expect(salida()).toContain('Parada central');
-  expect(salida()).toContain('P1');
-  expect(salida()).not.toContain('PARADA 1');
-  expect(salida()).toContain('00:20');
-  // El reloj del teléfono avanza pero el contador conserva el valor del servidor.
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(3000);
-  });
-  expect(salida()).toContain('00:20');
-  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue({ ...datos, segundosRestantes: 13 });
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(1000);
-  });
-  expect(salida()).toContain('00:13');
-  expect(viajesServicio.obtenerAsignacionRapida).toHaveBeenCalledWith('ride1');
 });
-test('recupera y permite confirmar una reserva con la respuesta anterior del servidor', async () => {
-  const vencimiento = '2026-11-06T17:00:20.000Z';
-  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue({
-    ride: { ...viaje, expiresAt: vencimiento },
-    serverTime: '2026-11-06T17:00:00.000Z'
-  });
-  await act(async () => {
-    tree = Renderer.create(
-      <RapidoAsignacionPantalla
-        route={{ params: { rideId: viaje.id } } as any}
-        navigation={navegacion as any} />
 
-    );
+const datos = (segundosRestantes = 60, status = 'solicitado') => ({
+  ride: { ...viaje, status, driverId: null, vehicle: null, driverName: null },
+  serverTime: new Date().toISOString(), segundosRestantes
+});
+async function abrir() {
+  await act(async () => {
+    tree = Renderer.create(<RapidoAsignacionPantalla
+      route={{ params: { rideId: viaje.id, request: solicitud, initialSnapshot: datos() } } as any}
+      navigation={navegacion as any} />);
   });
-  expect(salida()).toContain('Viaje asignado');
-  expect(salida()).toContain('00:20');
-  const confirmar = tree.root.findAllByProps({ accessibilityRole: 'button' })[0];
-  expect(confirmar.props.disabled).toBe(false);
-  (viajesServicio.confirmarAsignacionRapida as jest.Mock).mockResolvedValue({
-    ride: { ...viaje, status: 'aceptado' }, serverTime: vencimiento, segundosRestantes: 0
-  });
-  await act(async () => confirmar.props.onPress());
+}
+
+test('espera al conductor sin pedir confirmación ni mostrar un temporizador al pasajero', async () => {
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos());
+  await abrir();
+  expect(salida()).toContain('Buscando conductor');
+  expect(salida()).not.toContain('Tiempo restante');
+  expect(salida()).not.toContain('ABC123');
+  expect(salida()).not.toContain('Confirmar por');
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos(47));
+  await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
+  expect(salida()).toContain('Buscando conductor');
+  expect(viajesServicio.confirmarAsignacionRapida).not.toHaveBeenCalled();
+});
+
+test('el pasajero puede cancelar la búsqueda', async () => {
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos());
+  (viajesServicio.cancelarAsignacionRapida as jest.Mock).mockResolvedValue(datos(0, 'cancelado'));
+  await abrir();
+  const cancelar = tree.root.findAllByProps({ accessibilityRole: 'button' })[0];
+  await act(async () => { await cancelar.props.onPress(); });
+  expect(viajesServicio.cancelarAsignacionRapida).toHaveBeenCalledWith(viaje.id);
+  expect(navegacion.navigate).toHaveBeenCalledWith('Map', expect.objectContaining({ quickAssignmentCancelled: true }));
+});
+
+test('abre el viaje cuando el servidor confirma que el conductor aceptó', async () => {
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos());
+  await abrir();
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos(0, 'aceptado'));
+  await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
   expect(navegacion.replace).toHaveBeenCalledWith('PassengerActiveRide', { rideId: viaje.id });
-  expect(salida()).toContain('ABC123');
-  expect(salida()).not.toContain('Creando solicitud');
+});
+
+test('un contador en cero espera el estado definitivo del servidor antes de volver al mapa', async () => {
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos(0));
+  await abrir();
+  expect(navegacion.navigate).not.toHaveBeenCalled();
+  expect(salida()).toContain('Buscando conductor');
+  (viajesServicio.obtenerAsignacionRapida as jest.Mock).mockResolvedValue(datos(0, 'vencido'));
+  await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
+  expect(navegacion.navigate).toHaveBeenCalledWith('Map', expect.objectContaining({
+    quickAssignmentNotice: 'No encontramos un conductor disponible. Puedes volver a intentarlo.'
+  }));
 });

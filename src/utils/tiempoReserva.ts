@@ -7,6 +7,6 @@ export function tiempoRestanteReserva(respuesta: RapidaAsignacionRespuesta | nul
   }
 
   // Las versiones anteriores ya devuelven el vencimiento y la hora del servidor.
-  const diferencia = Date.parse(respuesta.ride.expiresAt) - Date.parse(respuesta.serverTime);
+  const diferencia = Date.parse(respuesta.ride.venceOfertaEn ?? respuesta.ride.expiresAt) - Date.parse(respuesta.serverTime);
   return Number.isFinite(diferencia) ? Math.max(0, Math.ceil(diferencia / 1000)) : null;
 }

@@ -1,3 +1,4 @@
+import { consultarConSesion, invalidarSesion } from '../services/api.cliente';
 import { privadoImagenOrigen } from "../utils/privateImageOrigen";
 // src/screens/ConductorRegistrationPantalla.tsx
 import React, { useState as usarEstado } from 'react';
@@ -14,6 +15,7 @@ import {
   Image as Imagen,
   Linking,
   Modal,
+  PermissionsAndroid,
   KeyboardAvoidingView as KeyboardAvoidingVista,
   Platform as Plataforma } from
 'react-native';
@@ -562,7 +564,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
           navegacion.navigate('DocumentoReenvio' as never);
           return;
         }
-        const r = await fetch(`${API_BASE_URL}/conductores/estado`, {
+        const r = await consultarConSesion(`${API_BASE_URL}/conductores/estado`, {
           headers: { Authorization: `Bearer ${token || ''}` }
         });
         if (r.ok) {
@@ -708,6 +710,18 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
       return;
     }
     try {
+      if (Plataforma.OS === 'android') {
+        const permiso = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+        if (permiso !== PermissionsAndroid.RESULTS.GRANTED) {
+          if (permiso === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+            Alert.alert('Permiso de cámara requerido', 'Activa el permiso de cámara en los ajustes de Línea Lila.', [
+              { text: 'Ahora no', style: 'cancel' },
+              { text: 'Abrir ajustes', onPress: () => { void Linking.openSettings(); } }
+            ]);
+          }
+          return;
+        }
+      }
       const r = await launchCamara({
         mediaType: 'photo',
         quality: 0.7,
@@ -889,7 +903,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
 
     establecerEstadoEnvio('enviando');
     try {
-      if (!token) throw new Error('No hay sesión activa.');
+      if (!token) { invalidarSesion(null); throw new Error('No hay sesión activa.'); }
       const formulario = new FormData();
       formulario.append('domicileAddress', domicilioPunto ?
         `Ubicación marcada: ${domicilioPunto.latitude.toFixed(6)}, ${domicilioPunto.longitude.toFixed(6)}` : '');
@@ -921,7 +935,7 @@ function ConductorRegistroPantalla({ navigation: navegacion }: Propiedades) {
       }
       agregar('domicileProof', fotos.domicileProof);
 
-      const respuesta = await fetch(`${API_BASE_URL}/solicitudes/registrar`, {
+      const respuesta = await consultarConSesion(`${API_BASE_URL}/solicitudes/registrar`, {
         method: 'POST',
         body: formulario,
         headers: {

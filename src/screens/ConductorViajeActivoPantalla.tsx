@@ -182,6 +182,7 @@ export default function ConductorViajeActivoPantalla() {
   const llegadoConfirmarEnFlightReferencia = usarReferencia(false);
   const completarConfirmarEnFlightReferencia = usarReferencia(false);
   const activoMapaReferencia = usarReferencia<MapaVista>(null);
+  const destinoMarcadorReferencia = usarReferencia<React.ElementRef<typeof Marker>>(null);
   const [mapaListo, establecerMapaListo] = usarEstado(false);
   const [taxiTamano, establecerTaxiTamano] = usarEstado(38);
   const manejarMapaRegionCambio = usarFuncionRetorno((region: Region) => {
@@ -590,6 +591,8 @@ export default function ConductorViajeActivoPantalla() {
           {/* Driver */}
           {viaje.driverLocation &&
           <Marker
+            key="conductor"
+            identifier="conductor"
             coordinate={viaje.driverLocation}
             title={'Tú · conductor'}
             description={nombreConductor}
@@ -608,6 +611,8 @@ export default function ConductorViajeActivoPantalla() {
           {/* Antes de llegar, el conductor ve el punto de recogida como pasajero. */}
           {mostrarPasajeroMarcador &&
           <Marker
+            key="recogida-espera"
+            identifier="recogida-espera"
             coordinate={viaje.pickupLocation}
             title="Pasajero · punto de recogida"
             description="Punto acordado, no ubicación GPS en vivo"
@@ -623,14 +628,16 @@ export default function ConductorViajeActivoPantalla() {
           {/* La ruta y sus extremos aparecen al confirmar la llegada. */}
           {mostrarViajeRuta &&
           <>
-              {!viajeIniciado && <Marker coordinate={viaje.pickupLocation} description={viaje.pickupLocation.address} anchor={{ x: 0.5, y: 0.5 }} zIndex={1}>
+              {!viajeIniciado && <Marker key="recogida-ruta" identifier="recogida-ruta" coordinate={viaje.pickupLocation} description={viaje.pickupLocation.address} anchor={{ x: 0.5, y: 0.5 }} zIndex={1}>
                 <Vista style={s.mapIconMarker} collapsable={false}>
                   <PasajeroMapaIcono />
                 </Vista>
               </Marker>}
-              <Marker coordinate={viaje.dropoffLocation} title={estimacionDestino || undefined}
-                description={viaje.dropoffLocation.address} anchor={{ x: 0.5, y: estimacionDestino ? 72 / 94 : 0.5 }} zIndex={1}>
-                <Vista style={estimacionDestino ? s.destinoConEstimacion : s.mapIconMarker} collapsable={false}>
+              <Marker key="destino" identifier="destino" ref={destinoMarcadorReferencia}
+                coordinate={viaje.dropoffLocation} title={estimacionDestino || undefined}
+                description={viaje.dropoffLocation.address} anchor={{ x: 0.5, y: 72 / 94 }} zIndex={1} tracksViewChanges>
+                <Vista style={s.destinoConEstimacion} collapsable={false}
+                  onLayout={() => destinoMarcadorReferencia.current?.redraw()}>
                   {estimacionDestino && (
                     <Vista style={s.estimacionDestino}>
                       <Texto style={s.estimacionDestinoTexto} numberOfLines={2}>
@@ -649,7 +656,8 @@ export default function ConductorViajeActivoPantalla() {
           {mostrarViajeRuta &&
           (viaje.waypoints || []).map((parada, indice) =>
           <Marker
-            key={`wp-${indice}`}
+            key={'parada-' + (parada.id || parada.sequence || indice)}
+            identifier={'parada-' + (parada.id || parada.sequence || indice)}
             coordinate={parada.location}
             title={`P${parada.sequence || indice + 1}`}>
 
@@ -662,6 +670,7 @@ export default function ConductorViajeActivoPantalla() {
           rutaCoordenadas.length > 0 &&
           mostrarViajeRuta &&
           <AnimadoRutaPolilinea
+            key="ruta-viaje"
             coordinates={rutaCoordenadas}
             strokeColor={T.accent}
             strokeWidth={6} />
@@ -1021,8 +1030,8 @@ const s = EstiloHoja.create({
   map: { flex: 1 },
   carMapMarker: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   mapIconMarker: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  destinoConEstimacion: { width: 188, height: 94, alignItems: 'center', justifyContent: 'space-between' },
-  estimacionDestino: { backgroundColor: T.ink, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
+  destinoConEstimacion: { width: 188, height: 94, alignItems: 'center', justifyContent: 'flex-end' },
+  estimacionDestino: { marginBottom: 6, backgroundColor: T.ink, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
   estimacionDestinoTexto: { color: T.white, fontSize: 12, fontWeight: '400', textAlign: 'center' },
   estimacionDestinoMinutos: { fontWeight: '700' },
   mapStatusBanner: { position: 'absolute', alignSelf: 'center', maxWidth: '92%', marginHorizontal: 16, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: T.ink },

@@ -248,7 +248,7 @@ const AplicacionNavegador = ({ role: rol }: AplicacionNavegadorPropiedades) => {
           options={{ animation: 'slide_from_right' }} />
       )}
 
-      <Pila.Screen name="QuickAssignment" component={RapidoAsignacionPantalla} options={{ title: 'Asignación rápida' }} />
+      <Pila.Screen name="QuickAssignment" component={RapidoAsignacionPantalla} options={{ title: 'Asignación rápida', headerBackVisible: false, gestureEnabled: false }} />
       {rol === 'conductor' ? (
         <Pila.Screen name="DriverActiveRide" component={ConductorViajeActivoPantalla}
           options={{ animation: 'slide_from_right' }} />

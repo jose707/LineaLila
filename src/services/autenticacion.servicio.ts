@@ -98,12 +98,14 @@ const autenticacionServicio = {
   },
 
   // Fetch Current User from Server (refreshes data)
-  consultarUsuarioActual: async (): Promise<Usuario | null> => {
+  consultarUsuarioActual: async ({ propagarError = false } = {}): Promise<Usuario | null> => {
+    const tokenConsultado = AlmacenamientoAuxiliar.obtenerElemento('authToken');
     try {
       console.log(
         '[fetchCurrentUser] Obteniendo datos actualizados del servidor...'
       );
       const respuesta = await api.obtener<{user: Usuario;}>('/autenticacion/sesion');
+      if (AlmacenamientoAuxiliar.obtenerElemento('authToken') !== tokenConsultado) return null;
       if (respuesta && respuesta.user) {
         AlmacenamientoAuxiliar.establecerElemento('user', JSON.stringify(respuesta.user));
         return respuesta.user;
@@ -114,6 +116,7 @@ const autenticacionServicio = {
         '[fetchCurrentUser] Error:',
         error?.response?.data || error.message
       );
+      if (propagarError) throw error;
       return null;
     }
   },

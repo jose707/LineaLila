@@ -6,6 +6,51 @@ import { API_HOST } from "../config/constantes";
 // Para device real en red local: 192.168.100.133:3000
 const API_URL = API_HOST;
 const escuchasCuentaDesactivada = new Set<(mensaje: string) => void>();
+const escuchasSesionInvalida = new Set<() => void>();
+
+export function alInvalidarSesion(escucha: () => void): () => void {
+  escuchasSesionInvalida.add(escucha);
+  return () => { escuchasSesionInvalida.delete(escucha); };
+}
+
+export function invalidarSesion(tokenEsperado: string | null) {
+  if (AlmacenamientoAuxiliar.obtenerElemento('authToken') !== tokenEsperado) return;
+  AlmacenamientoAuxiliar.quitarElemento('authToken');
+  AlmacenamientoAuxiliar.quitarElemento('refreshToken');
+  AlmacenamientoAuxiliar.quitarElemento('user');
+  escuchasSesionInvalida.forEach(escucha => escucha());
+}
+
+const errorSesion = () => Object.assign(new Error('Tu sesión ha expirado. Inicia sesión nuevamente.'), {
+  status: 401, data: { code: 'SESION_INVALIDA', error: 'Tu sesión ha expirado. Inicia sesión nuevamente.' }
+});
+
+export async function consultarConSesion(url: string, opciones: RequestInit = {}): Promise<Response> {
+  const tokenActual = AlmacenamientoAuxiliar.obtenerElemento('authToken');
+  if (!tokenActual) {
+    invalidarSesion(null);
+    throw errorSesion();
+  }
+  const cabeceras = new Headers(opciones.headers);
+  if (!cabeceras.has('Authorization')) cabeceras.set('Authorization', `Bearer ${tokenActual}`);
+  const tokenEnviado = cabeceras.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? null;
+  const respuesta = await fetch(url, { ...opciones, headers: cabeceras });
+  if (respuesta.status === 401) {
+    invalidarSesion(tokenEnviado);
+    throw errorSesion();
+  }
+  if (respuesta.status === 403) {
+    const datos = await respuesta.clone().json().catch(() => ({}));
+    if (datos.code === 'CUENTA_DESACTIVADA') cerrarCuentaDesactivada(tokenEnviado ?? undefined, datos.error);
+  }
+  return respuesta;
+}
+
+const rutasPublicas = new Set([
+  '/autenticacion/iniciar-sesion', '/autenticacion/registro', '/autenticacion/google',
+  '/autenticacion/verificar-telefono', '/autenticacion/recuperar-contrasena',
+  '/autenticacion/restablecer-contrasena', '/autenticacion/verificar-correo'
+]);
 
 export function alDesactivarCuenta(escucha: (mensaje: string) => void): () => void {
   escuchasCuentaDesactivada.add(escucha);
@@ -43,7 +88,10 @@ class ApiCliente {
     const esperaId = setTimeout(() => controlador.abort(), this.espera);
 
     try {
-      const respuesta = await fetch(url, {
+      const ruta = url.slice(this.baseURL.length).split('?')[0].replace(/^\/api/, '');
+      const publica = rutasPublicas.has(ruta) || ruta.startsWith('/autenticacion/comprobar-firebase/');
+      const consultar = publica ? fetch : consultarConSesion;
+      const respuesta = await consultar(url, {
         ...opciones,
         signal: controlador.signal
       });
@@ -85,15 +133,6 @@ class ApiCliente {
 
   // Handle response
   private async manejarRespuesta(respuesta: Response, autorizacion?: string): Promise<unknown> {
-    if (respuesta.status === 401) {
-      // Token expired - clear storage and don't try to refresh
-      AlmacenamientoAuxiliar.quitarElemento('authToken');
-      AlmacenamientoAuxiliar.quitarElemento('user');
-      throw new Error(
-        'Tu sesión ha expirado. Por favor inicia sesión nuevamente.'
-      );
-    }
-
     if (!respuesta.ok) {
       const errorDatos = await respuesta.json().catch(() => ({}));
       if (respuesta.status === 403 && errorDatos?.code === 'CUENTA_DESACTIVADA') {

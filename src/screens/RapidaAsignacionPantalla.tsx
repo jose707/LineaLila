@@ -1,6 +1,7 @@
 import React, { useCallback as usarFuncionRetorno, useEffect as usarEfecto, useMemo as usarMemoria, useRef as usarReferencia, useState as usarEstado } from 'react';
 import {
   ActivityIndicator as ActividadIndicador,
+  BackHandler,
   ScrollView as DesplazableVista,
   StyleSheet as EstiloHoja,
   Text as Texto,
@@ -11,13 +12,13 @@ import { SafeAreaView as SeguraZonaVista } from 'react-native-safe-area-context'
 import { useFocusEffect as usarEnfoqueEfecto } from '@react-navigation/native';
 import { NativeStackScreenProps as NativoPilaPantallaPropiedades } from '@react-navigation/native-stack';
 import { RaizPilaParametroLista } from "../navigation/AplicacionNavegador";
-import RapidoReservaCard from "../components/RapidaReservaTarjeta";
 import { RapidaAsignacionRespuesta as RapidoAsignacionRespuesta } from "../types/rapidaAsignacion";
 import { viajesServicio } from "../services/viajes.servicio";
 import socketServicio from "../services/socket.servicio";
 import { iniciarAdaptativaSincronizacion } from '../utils/adaptativaSincronizar';
-import { tiempoRestanteReserva } from '../utils/tiempoReserva';
 import { usarAjustes } from '../context/AjustesContexto';
+import { CarFront } from 'lucide-react-native';
+import { DestinoIndicadorIcono, PasajeroMapaIcono } from '../components/MapUbicacionIcons';
 
 function RapidoAsignacionPantalla({
   route: ruta,
@@ -95,25 +96,23 @@ function RapidoAsignacionPantalla({
     };
   }, [renovar, viajeId]));
 
-  const finalizar = async (confirmar: boolean) => {
+  const finalizar = async () => {
     if (!viajeId || pendiente.current) return;
     pendiente.current = true;
     revision.current++;
     establecerOcupado(true);
     establecerMensaje('');
     try {
-      const datos = await (confirmar ?
-      viajesServicio.confirmarAsignacionRapida(viajeId) :
-      viajesServicio.cancelarAsignacionRapida(viajeId));
+      const datos = await viajesServicio.cancelarAsignacionRapida(viajeId);
       aplicar(datos);
-      if (!confirmar && !leaving.current) {
+      if (datos.ride?.status === 'cancelado' && !leaving.current) {
         leaving.current = true;
         navegacion.navigate('Map', { ...retornoRuta, quickAssignmentCancelled: true });
       }
     } catch (error: any) {
       establecerMensaje(
         error?.data?.error ??
-        'No se pudo confirmar el resultado. Estamos verificando la reserva.'
+        'No se pudo cancelar. Estamos verificando la solicitud.'
       );
     } finally {
       pendiente.current = false;
@@ -121,23 +120,25 @@ function RapidoAsignacionPantalla({
       if (!leaving.current) renovar();
     }
   };
+  usarEnfoqueEfecto(usarFuncionRetorno(() => {
+    const suscripcion = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!leaving.current) void finalizar();
+      return true;
+    });
+    return () => suscripcion.remove();
+  }, [viajeId, aplicar, retornoRuta, renovar]));
+
   const viaje = instantanea?.ride;
-  const segundosRestantes = tiempoRestanteReserva(instantanea);
   const terminal =
-  viaje && ['vencido', 'cancelado', 'completado'].includes(viaje.status) ||
-  segundosRestantes === 0;
+  viaje && ['vencido', 'cancelado', 'completado'].includes(viaje.status);
 
   usarEfecto(() => {
     if (terminal && !leaving.current) {
       leaving.current = true;
-      navegacion.navigate('Map', { ...retornoRuta, quickAssignmentExpired: true });
+      navegacion.navigate('Map', { ...retornoRuta, quickAssignmentNotice: viaje?.status === 'vencido' ? 'No encontramos un conductor disponible. Puedes volver a intentarlo.' : 'La solicitud se canceló.' });
     }
-  }, [terminal, navegacion, retornoRuta]);
+  }, [terminal, viaje?.status, navegacion, retornoRuta]);
 
-  const puedeConfirmar =
-  viaje?.status === 'solicitado' &&
-  segundosRestantes !== null && segundosRestantes > 0 &&
-  !ocupado;
   const texto = oscuro && estilos.textoClaro;
 
   return (
@@ -147,10 +148,45 @@ function RapidoAsignacionPantalla({
         {!viaje ? (
           <Vista style={estilos.cargando} accessibilityLiveRegion="polite">
             <ActividadIndicador size="large" color={oscuro ? '#D5A6FF' : '#7514C5'} />
-            <Texto style={[estilos.textoCargando, texto]}>Recuperando reserva…</Texto>
+            <Texto style={[estilos.textoCargando, texto]}>Recuperando solicitud…</Texto>
           </Vista>
         ) : !terminal && (
-          <RapidoReservaCard ride={viaje} segundosRestantes={segundosRestantes} oscuro={oscuro} />
+          <Vista style={estilos.reserva}>
+            <Vista style={estilos.busqueda}>
+              <Vista style={[estilos.orbita, oscuro && estilos.orbitaOscura]}>
+                <Vista style={[estilos.circulo, oscuro && estilos.circuloOscuro]}>
+                  <CarFront size={46} strokeWidth={2.4} color={oscuro ? '#D5A6FF' : '#7514C5'} />
+                </Vista>
+                <Vista style={[estilos.actividad, oscuro && estilos.actividadOscura]}>
+                  <ActividadIndicador size="small" color={oscuro ? '#D5A6FF' : '#7514C5'} />
+                </Vista>
+              </Vista>
+              <Texto accessibilityRole="header" style={[estilos.titulo, texto]}>Buscando conductor</Texto>
+            </Vista>
+            <Vista style={[estilos.tarjeta, oscuro && estilos.tarjetaOscura]}>
+              <Vista style={estilos.punto}>
+                <Vista style={estilos.iconoRuta}><PasajeroMapaIcono size={25} bare color={oscuro ? '#FFFFFF' : '#111118'} /></Vista>
+                <Vista style={estilos.datos}>
+                  <Texto style={[estilos.etiqueta, oscuro && estilos.secundarioOscuro]}>Recogida</Texto>
+                  <Texto style={[estilos.direccion, texto]}>{viaje.pickup_address}</Texto>
+                </Vista>
+              </Vista>
+              <Vista style={[estilos.punto, estilos.destino, oscuro && estilos.divisorOscuro]}>
+                <Vista style={estilos.iconoRuta}><DestinoIndicadorIcono size={25} bare color={oscuro ? '#FFFFFF' : '#111118'} /></Vista>
+                <Vista style={estilos.datos}>
+                  <Texto style={[estilos.etiqueta, oscuro && estilos.secundarioOscuro]}>Destino</Texto>
+                  <Texto style={[estilos.direccion, texto]}>{viaje.dropoff_address}</Texto>
+                </Vista>
+              </Vista>
+              <Vista style={[estilos.tarifa, oscuro && estilos.divisorOscuro]}>
+                <Vista style={estilos.datos}>
+                  <Texto style={[estilos.total, texto]}>Total del viaje</Texto>
+                  {!!viaje.paymentMethod && <Texto style={[estilos.etiqueta, oscuro && estilos.secundarioOscuro]}>{viaje.paymentMethod === 'qr' ? 'Pago con QR' : 'Efectivo'}</Texto>}
+                </Vista>
+                <Texto style={[estilos.precio, texto]}>Bs {Number(viaje.finalFare).toFixed(2)}</Texto>
+              </Vista>
+            </Vista>
+          </Vista>
         )}
         {!!mensaje && (
           <Texto accessibilityRole="alert" style={[estilos.mensaje, oscuro && estilos.mensajeOscuro]}>{mensaje}</Texto>
@@ -159,20 +195,10 @@ function RapidoAsignacionPantalla({
 
       {!!viaje && !terminal && (
         <Vista style={[estilos.acciones, oscuro && estilos.accionesOscuras]}>
-          <PulsableOpacidad accessibilityRole="button" disabled={!puedeConfirmar}
-            accessibilityState={{ disabled: !puedeConfirmar, busy: ocupado }} activeOpacity={0.85}
-            style={[estilos.boton, estilos.confirmar, !puedeConfirmar && estilos.deshabilitado,
-              !puedeConfirmar && oscuro && estilos.deshabilitadoOscuro]}
-            onPress={() => finalizar(true)}>
-            <Texto style={[estilos.textoBoton, estilos.textoConfirmar, !puedeConfirmar && estilos.textoDeshabilitado,
-              !puedeConfirmar && oscuro && estilos.textoDeshabilitadoOscuro]}>
-              {ocupado ? 'Verificando…' : 'Confirmar por Bs ' + Number(viaje.finalFare).toFixed(2)}
-            </Texto>
-          </PulsableOpacidad>
           <PulsableOpacidad accessibilityRole="button" disabled={ocupado} accessibilityState={{ disabled: ocupado }}
             activeOpacity={0.85} style={[estilos.boton, estilos.cancelar, oscuro && estilos.cancelarOscuro,
-              ocupado && estilos.cancelarDeshabilitado]} onPress={() => finalizar(false)}>
-            <Texto style={[estilos.textoBoton, texto]}>Cancelar reserva</Texto>
+              ocupado && estilos.cancelarDeshabilitado]} onPress={finalizar}>
+            <Texto style={[estilos.textoBoton, texto]}>Cancelar búsqueda</Texto>
           </PulsableOpacidad>
         </Vista>
       )}
@@ -184,27 +210,42 @@ const estilos = EstiloHoja.create({
   pantalla: { flex: 1, paddingTop: 64, backgroundColor: '#FFFFFF' },
   pantallaOscura: { backgroundColor: '#1A1A1A' },
   textoClaro: { color: '#FFFFFF' },
-  contenido: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 18, gap: 12 },
+  contenido: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 24, gap: 16 },
   contenidoCargando: { flexGrow: 1, justifyContent: 'center' },
   cargando: { alignItems: 'center', gap: 12 },
   textoCargando: { color: '#666675', fontSize: 16 },
-  acciones: { paddingHorizontal: 16, paddingVertical: 12, gap: 8,
-    borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
+  acciones: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, gap: 8 },
   accionesOscuras: { borderTopColor: '#414141' },
   boton: { minHeight: 54, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
     alignItems: 'center', justifyContent: 'center' },
-  confirmar: { backgroundColor: '#7514C5' },
   textoBoton: { color: '#111118', fontSize: 19, fontWeight: '700', textAlign: 'center' },
-  textoConfirmar: { color: '#FFFFFF' },
-  deshabilitado: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EAEAF0' },
-  deshabilitadoOscuro: { backgroundColor: '#2D2D2D', borderColor: '#414141' },
-  textoDeshabilitado: { color: '#666675' },
-  textoDeshabilitadoOscuro: { color: '#BDBDC7' },
-  cancelar: { backgroundColor: '#F2F2F5' },
-  cancelarOscuro: { backgroundColor: '#2D2D2D' },
+  cancelar: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EAEAF0' },
+  cancelarOscuro: { backgroundColor: '#2D2D2D', borderColor: '#414141' },
   cancelarDeshabilitado: { opacity: 0.55 },
   mensaje: { color: '#B91C1C', fontSize: 14, lineHeight: 20 },
-  mensajeOscuro: { color: '#FCA5A5' }
+  mensajeOscuro: { color: '#FCA5A5' },
+  reserva: { flex: 1, justifyContent: 'center', gap: 20 },
+  busqueda: { alignItems: 'center', paddingVertical: 12, gap: 12 },
+  orbita: { width: 138, height: 138, borderRadius: 69, borderWidth: 1, borderColor: '#EFE3F9', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  orbitaOscura: { borderColor: '#49315C' },
+  circulo: { width: 106, height: 106, borderRadius: 53, backgroundColor: '#F5EDFC', alignItems: 'center', justifyContent: 'center' },
+  circuloOscuro: { backgroundColor: '#34233F' },
+  actividad: { position: 'absolute', right: 2, bottom: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  actividadOscura: { backgroundColor: '#1A1A1A' },
+  titulo: { color: '#111118', fontSize: 26, lineHeight: 32, fontWeight: '700', textAlign: 'center' },
+  secundarioOscuro: { color: '#BDBDC7' },
+  tarjeta: { borderWidth: 1, borderColor: '#EAEAF0', borderRadius: 16, paddingHorizontal: 16, backgroundColor: '#FFFFFF' },
+  tarjetaOscura: { backgroundColor: '#242424', borderColor: '#414141' },
+  punto: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 15 },
+  iconoRuta: { width: 28, alignItems: 'center' },
+  datos: { flex: 1, minWidth: 0, gap: 4 },
+  etiqueta: { color: '#666675', fontSize: 13, lineHeight: 18 },
+  direccion: { color: '#111118', fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  destino: { borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
+  divisorOscuro: { borderTopColor: '#414141' },
+  tarifa: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 17, borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
+  total: { color: '#111118', fontSize: 15, fontWeight: '600' },
+  precio: { color: '#111118', fontSize: 26, fontWeight: '700', flexShrink: 1 }
 });
 
 export default RapidoAsignacionPantalla;

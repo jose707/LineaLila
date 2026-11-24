@@ -19,12 +19,13 @@ jest.mock('../src/services/autenticacion.servicio', () => ({
 jest.mock('../src/services/storage', () => ({
   AlmacenamientoAuxiliar: {
     obtenerElemento: jest.fn(),
+    quitarElemento: jest.fn(),
   },
 }));
 jest.mock('../src/services/socket.servicio', () => ({
   __esModule: true,
-  default: {},
-  socketServicio: {},
+  default: { desconectar: jest.fn() },
+  socketServicio: { desconectar: jest.fn() },
 }));
 jest.mock('../src/services/conductorDisponibilidad.servicio', () => ({
   desconectarConductorEnSegundoPlano: jest.fn(),

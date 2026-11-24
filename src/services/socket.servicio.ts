@@ -2,7 +2,7 @@
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from "../config/constantes";
 import { AlmacenamientoAuxiliar } from './storage';
-import { cerrarCuentaDesactivada } from './api.cliente';
+import { cerrarCuentaDesactivada, invalidarSesion } from './api.cliente';
 
 export interface ContenidoUbicacionConductor {
   rideId?: string;
@@ -73,6 +73,10 @@ class SocketServicio {
     this.socket.on('connect_error', (error) => {
       const datos = (error as Error & { data?: { code?: string; error?: string } }).data;
       if (datos?.code === 'CUENTA_DESACTIVADA') manejarCuentaDesactivada(datos);
+      if (error.message.startsWith('AUTH_ERROR:')) {
+        const auth = conexion.auth;
+        invalidarSesion(typeof auth === 'object' ? auth.token ?? null : null);
+      }
       console.warn('⚠️ [Socket] Connection error:', error.message);
       this.esConectando = false;
     });

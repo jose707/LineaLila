@@ -32,6 +32,7 @@ const viajesServicio = {
   api.obtener(`/viajes/rapida/actual?role=${rol}`),
   obtenerAsignacionRapida: (viajeId: string): Promise<RapidoAsignacionRespuesta> => api.obtener(`/viajes/${viajeId}/rapida`),
   confirmarAsignacionRapida: (viajeId: string): Promise<RapidoAsignacionRespuesta> => api.post(`/viajes/${viajeId}/rapida/confirmar`, {}),
+  rechazarAsignacionRapida: (viajeId: string): Promise<RapidoAsignacionRespuesta> => api.post(`/viajes/` + viajeId + `/rapida/rechazar`, {}),
   cancelarAsignacionRapida: (viajeId: string): Promise<RapidoAsignacionRespuesta> => api.post(`/viajes/${viajeId}/rapida/cancelar`, {}),
   // ============================
   // SOLICITUD DE VIAJES (CLIENT)

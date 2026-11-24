@@ -1,3 +1,4 @@
+import { consultarConSesion, invalidarSesion } from '../services/api.cliente';
 import { privadoImagenOrigen } from '../utils/privateImageOrigen';
 import React, { useState as usarEstado, useCallback as usarFuncionRetorno } from 'react';
 import {
@@ -148,7 +149,7 @@ export default function PerfilConductorPantalla() {
   const ruatRequerido: boolean = vehiculo?.ruatRequired ?? false;
   const ruatPendiente: boolean = vehiculo?.ruatStatus === 'pendiente' || (!!vehiculo?.ruatFile && !ruatVerificado);
   const manejarRuatSubir = async (uri: string, origen: 'captura_camara' | 'archivo_subido') => {
-    if (!token) return;
+    if (!token) { invalidarSesion(null); return; }
     establecerRuatUploading(true);
     try {
       const formulario = new FormData();
@@ -160,7 +161,7 @@ export default function PerfilConductorPantalla() {
         name: 'ruat.jpg'
       } as any);
 
-      const respuesta = await fetch(`${API_BASE_URL}/conductores/enviar-ruat`, {
+      const respuesta = await consultarConSesion(`${API_BASE_URL}/conductores/enviar-ruat`, {
         method: 'POST',
         body: formulario,
         headers: { Authorization: `Bearer ${token}` }

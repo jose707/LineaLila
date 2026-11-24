@@ -1,6 +1,7 @@
+import { consultarConSesion } from '../services/api.cliente';
 import React, { useCallback as usarFuncionRetorno, useEffect as usarEfecto, useState as usarEstado, useRef as usarReferencia } from 'react';
 import { ActivityIndicator as ActividadIndicador, NativeModules as NativoModules, ScrollView as DesplazableVista, SafeAreaView as SeguraZonaVista, StatusBar as EstadoBar, StyleSheet as EstiloHoja, Text as Texto, TouchableOpacity as PulsableOpacidad, View as Vista } from 'react-native';
-import { Camera as Camara, ShieldCheck as ShieldComprobar } from 'lucide-react-native';
+import { Camera as Camara, ShieldCheck as ShieldComprobar, X } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets as usarSeguraZonaMargenes } from 'react-native-safe-area-context';
@@ -13,7 +14,6 @@ import { DocumentoCamaraModal, type RectanguloFotograma } from "../components/Do
 import ConfirmarInferiorHoja from "../components/ConfirmarInferiorSheet";
 import Toast from "../components/Aviso";
 import { ExtraidoCamposModal, type FilaCampoExtraido as ExtraidoCampoFila } from "../components/ExtraidoCamposModal";
-import { signOut as signOutFirebase } from "../services/firebase.servicio";
 
 type ConsentimientoDocumento = {version: string;texto: string;};
 type Lado = 'ciFront' | 'ciBack';
@@ -50,7 +50,7 @@ const ciLeerFalloMensaje = (restante: number) =>
 `No se pudo verificar tu cédula de identidad. Toma las fotos en un lugar con buena luz y encuadra el documento correctamente. Te quedan ${restante} ${restante === 1 ? 'intento' : 'intentos'}.`;
 
 function IdentidadVerificacionPantalla() {
-  const { user: usuario, token, updateUser: actualizarUsuario, logout: salir } = usarAutenticacion();
+  const { user: usuario, token, updateUser: actualizarUsuario } = usarAutenticacion();
   const navegacion = useNavigation<any>();
   const ruta = useRoute();
   const [reintentarEn, establecerReintentarEn] = usarEstado<string | null>(null);
@@ -76,7 +76,6 @@ function IdentidadVerificacionPantalla() {
   const intentosReferencia = usarReferencia(0);
   const rescanTemporizador = usarReferencia<ReturnType<typeof setTimeout> | null>(null);
   const enviando = usarReferencia(false);
-  const switchingCuenta = usarReferencia(false);
   const claveIntentos = usuario?.id ? 'intentos-identidad:' + usuario.id : null;
 
   usarEfecto(() => {
@@ -158,17 +157,6 @@ function IdentidadVerificacionPantalla() {
     establecerLado(siguiente);
   };
 
-  const usarAnotherCuenta = async () => {
-    if (switchingCuenta.current) return;
-    switchingCuenta.current = true;
-    try {
-      try {await signOutFirebase();} catch {}
-      await salir();
-    } finally {
-      switchingCuenta.current = false;
-    }
-  };
-
   const aplicarCapturar = (uri: string, recorte?: RectanguloRecorteOcr) => {
     const real = lado;
     establecerLado(null);
@@ -247,7 +235,7 @@ function IdentidadVerificacionPantalla() {
         formulario.append('selfie', { uri: autorretratoFoto!, type: 'image/jpeg', name: 'identity-selfie.jpg' } as any);
       }
       appendCiHastaFormulario(formulario, capturar);
-      const respuesta = await fetch(`${API_BASE_URL}/autenticacion/verificar-identidad`, {
+      const respuesta = await consultarConSesion(`${API_BASE_URL}/autenticacion/verificar-identidad`, {
         method: 'POST', body: formulario,
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
       });
@@ -285,9 +273,17 @@ function IdentidadVerificacionPantalla() {
       }
       const comprobanteVencido = String(error?.data?.error || error?.message || '').includes('lectura del CI expiró');
       if (comprobanteVencido) limpiarCapturar();
+      const pruebaVidaFallida = error?.data?.code === 'LIVENESS_NOT_CONFIRMED' ||
+        String(error?.data?.error || error?.message || '').includes('No se pudo confirmar la prueba de vida');
+      const comparacionFallida = error?.data?.code === 'FACE_MATCH_NOT_CONFIRMED' ||
+        String(error?.data?.error || error?.message || '').includes('no coincide suficientemente');
       establecerObservacion({
-        title: error?.data?.code === 'UNDERAGE' ? 'Menor de edad' : error?.status === 422 ? 'Observación del CI' : 'No pudimos verificar tu identidad',
-        message: error?.data?.error || error?.message || 'No se pudo completar la verificación.',
+        title: pruebaVidaFallida ? 'No pudimos confirmar la prueba de vida' :
+          comparacionFallida ? 'No pudimos confirmar tu rostro' :
+            error?.data?.code === 'UNDERAGE' ? 'Menor de edad' : error?.status === 422 ? 'Observación del CI' : 'No pudimos verificar tu identidad',
+        message: pruebaVidaFallida ?
+          'Repite la prueba en un lugar bien iluminado, con el rostro despejado y siguiendo las indicaciones de la cámara.' :
+          error?.data?.error || error?.message || 'No se pudo completar la verificación.',
         rescan: comprobanteVencido && (intentosReferencia.current < MAXIMO_CI_INTENTOS)
       });
     }
@@ -309,7 +305,7 @@ function IdentidadVerificacionPantalla() {
       formulario.append('consent', 'true');
       formulario.append('consentVersion', consentimientoDocumento.version);
       appendCiHastaFormulario(formulario, capturar);
-      const respuesta = await fetch(`${API_BASE_URL}/autenticacion/verificar-identidad/ocr`, {
+      const respuesta = await consultarConSesion(`${API_BASE_URL}/autenticacion/verificar-identidad/ocr`, {
         method: 'POST', body: formulario,
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
       });
@@ -428,10 +424,11 @@ function IdentidadVerificacionPantalla() {
   return (
     <SeguraZonaVista style={s.safe}>
       <EstadoBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <Vista style={s.topBar}>
-        <PulsableOpacidad onPress={() => navegacion.goBack()} disabled={guardando} accessibilityRole="button"><Texto style={s.accountText}>Volver</Texto></PulsableOpacidad>
-        <PulsableOpacidad style={s.topAccountButton} onPress={usarAnotherCuenta} disabled={guardando} accessibilityRole="button">
-          <Texto style={s.accountText}>Usar otra cuenta</Texto>
+      <Vista style={[s.topBar, { paddingTop: margenes.top + 12 }]}>
+        <PulsableOpacidad style={s.closeButton} onPress={() => navegacion.goBack()} disabled={guardando}
+          activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Cerrar verificación de identidad"
+          accessibilityState={{ disabled: guardando }}>
+          <X size={24} color="#111118" strokeWidth={2.8} />
         </PulsableOpacidad>
       </Vista>
       <DesplazableVista style={s.mainScroll} contentContainerStyle={s.content}>
@@ -538,8 +535,8 @@ const s = EstiloHoja.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
   mainScroll: { flex: 1 },
   content: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  topBar: { paddingHorizontal: 20, paddingTop: 48, alignItems: 'center' },
-  topAccountButton: { minHeight: 44, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  topBar: { paddingHorizontal: 16, paddingBottom: 12, alignItems: 'flex-start' },
+  closeButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   icon: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#F3EAFC', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 20 },
   title: { fontSize: 25, fontWeight: '800', color: '#111118', textAlign: 'center' },
   slogan: { marginTop: 10, color: '#7A7A8A', fontSize: 15, textAlign: 'center' },
@@ -547,7 +544,6 @@ const s = EstiloHoja.create({
   complete: { backgroundColor: '#16A34A', height: 52, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginTop: 10 }, primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   selfieButton: { backgroundColor: '#7514C5', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 }, selfieButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   selfieContent: { flex: 1 },
-  accountText: { color: '#111118', fontSize: 14, fontWeight: '700' },
   ocrSpinner: { marginTop: 16, alignSelf: 'center' },
   footer: { paddingHorizontal: 20, paddingTop: 12, backgroundColor: '#FFFFFF' },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16, paddingVertical: 6 },

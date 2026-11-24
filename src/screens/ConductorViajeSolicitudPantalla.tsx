@@ -158,6 +158,10 @@ const ConductorViajeSolicitudPantalla = () => {
   const [rapidoReserva, establecerRapidoReserva] = usarEstado<RapidoAsignacionViaje | null>(null);
   const [rapidoSegundosRestantes, establecerRapidoSegundosRestantes] = usarEstado<number | null>(null);
   const [reservaAviso, establecerReservaAviso] = usarEstado('');
+  const [respondiendoRapida, establecerRespondiendoRapida] = usarEstado(false);
+  const [errorRapida, establecerErrorRapida] = usarEstado('');
+  const respuestaRapidaPendiente = usarReferencia(false);
+  const revisionRapida = usarReferencia(0);
   const rapidoReservaReferencia = usarReferencia<RapidoAsignacionViaje | null>(null);
   const rapidoNavegacionReferencia = usarReferencia<string | null>(null);
 
@@ -168,12 +172,14 @@ const ConductorViajeSolicitudPantalla = () => {
     rapidoNavegacionReferencia.current = null;
     const renovar = async () => {
       if (renovando) return;
+      if (respuestaRapidaPendiente.current) return;
       renovando = true;
+      const revision = revisionRapida.current;
       try {
         const confirmado = await viajesServicio.obtenerViajeActivo('conductor', usuario?.id);
         if (!activo) return;
         const datos = confirmado ? null : await viajesServicio.obtenerAsignacionRapidaActual('conductor');
-        if (!activo) return;
+        if (!activo || revision !== revisionRapida.current || respuestaRapidaPendiente.current) return;
         const reserva = datos?.ride;
         const viaje = confirmado ?? reserva;
         establecerRapidoSegundosRestantes(datos ? tiempoRestanteReserva(datos) : 0);
@@ -205,6 +211,36 @@ const ConductorViajeSolicitudPantalla = () => {
     );
     return () => {activo = false;parada();};
   }, [navegacion, esDisponible, esConductorModo, usuario?.id]));
+
+  const responderRapida = async (aceptar: boolean) => {
+    const reserva = rapidoReservaReferencia.current;
+    if (!reserva || respuestaRapidaPendiente.current) return;
+    respuestaRapidaPendiente.current = true;
+    revisionRapida.current++;
+    establecerRespondiendoRapida(true);
+    establecerErrorRapida('');
+    try {
+      const datos = await (aceptar ? viajesServicio.confirmarAsignacionRapida(reserva.id) :
+        viajesServicio.rechazarAsignacionRapida(reserva.id));
+      rapidoReservaReferencia.current = null;
+      establecerRapidoReserva(null);
+      if (datos.ride && ['aceptado', 'llegado', 'en_curso'].includes(datos.ride.status)) {
+        if (rapidoNavegacionReferencia.current !== datos.ride.id) {
+          rapidoNavegacionReferencia.current = datos.ride.id;
+          navegacion.navigate('DriverActiveRide', { rideId: datos.ride.id });
+        }
+      } else establecerReservaAviso(aceptar ? 'La solicitud ya no está disponible' : 'Solicitud rechazada');
+    } catch (error: any) {
+      if (error?.status === 409 || error?.data?.code === 'OFFER_EXPIRED') {
+        rapidoReservaReferencia.current = null;
+        establecerRapidoReserva(null);
+        establecerReservaAviso('La solicitud ya no está disponible');
+      } else establecerErrorRapida(error?.data?.error ?? 'No se pudo enviar tu respuesta. Comprueba tu conexión.');
+    } finally {
+      respuestaRapidaPendiente.current = false;
+      establecerRespondiendoRapida(false);
+    }
+  };
 
   const [esCargando, establecerEsCargando] = usarEstado(true);
   const [disponibilidadPendiente, establecerDisponibilidadPendiente] = usarEstado<'online' | 'offline' | null>(null);
@@ -1178,6 +1214,16 @@ const ConductorViajeSolicitudPantalla = () => {
             <DesplazableVista style={estilos.quickAssignmentScroll} contentContainerStyle={estilos.quickAssignmentContent}
               showsVerticalScrollIndicator={false}>
               <RapidoReservaCard ride={rapidoReserva} segundosRestantes={rapidoSegundosRestantes} driver oscuro={oscuro} />
+              {!!errorRapida && <Texto accessibilityRole="alert" style={estilos.rapidaError}>{errorRapida}</Texto>}
+              <PulsableOpacidad accessibilityRole="button" disabled={respondiendoRapida || rapidoSegundosRestantes === 0}
+                style={[estilos.rapidaAceptar, (respondiendoRapida || rapidoSegundosRestantes === 0) && { opacity: 0.5 }]}
+                onPress={() => responderRapida(true)}>
+                <Texto style={estilos.rapidaAceptarTexto}>{respondiendoRapida ? 'Verificando…' : 'Aceptar viaje'}</Texto>
+              </PulsableOpacidad>
+              <PulsableOpacidad accessibilityRole="button" disabled={respondiendoRapida}
+                style={estilos.rapidaRechazar} onPress={() => responderRapida(false)}>
+                <Texto style={[estilos.rapidaRechazarTexto, oscuro && { color: '#FFFFFF' }]}>Rechazar</Texto>
+              </PulsableOpacidad>
             </DesplazableVista>
           </Vista>
         </SeguraZonaVista>
@@ -1596,6 +1642,11 @@ const estilos = EstiloHoja.create({
     overflow: 'hidden', backgroundColor: '#FFFFFF' },
   quickAssignmentCardDark: { backgroundColor: '#1A1A1A' },
   quickAssignmentScroll: { flexGrow: 0, flexShrink: 1 },
+  rapidaAceptar: { backgroundColor: '#7514C5', padding: 15, borderRadius: 12, marginTop: 14, alignItems: 'center' },
+  rapidaAceptarTexto: { color: '#FFFFFF', fontWeight: '700', fontSize: 18 },
+  rapidaRechazar: { padding: 15, alignItems: 'center' },
+  rapidaRechazarTexto: { color: '#111118', fontWeight: '600', fontSize: 17 },
+  rapidaError: { color: '#DC2626', marginTop: 10 },
   quickAssignmentContent: { paddingHorizontal: 16, paddingTop: 17, paddingBottom: 18 },
   modalDismiss: { flex: 1, backgroundColor: THEME.overlay },
   modalSheet: {

@@ -16,8 +16,8 @@ function TemporizadorReserva({ segundosRestantes, oscuro = false, driver = false
     [Math.floor(segundosRestantes / 60), segundosRestantes % 60].map(valor => String(valor).padStart(2, '0')).join(':');
 
   return (
-    <View style={[s.tarjeta, oscuro && s.tarjetaOscura, s.filaReloj]} accessible accessibilityLabel={`Tiempo para confirmar, ${reloj}`}>
-      <Text style={[s.datos, s.etiqueta, { color: tinta }]}>Tiempo para confirmar</Text>
+    <View style={[s.tarjeta, oscuro && s.tarjetaOscura, s.filaReloj]} accessible accessibilityLabel={`Tiempo para aceptar, ${reloj}`}>
+      <Text style={[s.datos, s.etiqueta, { color: tinta }]}>Tiempo para aceptar</Text>
       <Text style={[s.reloj, driver && s.relojModal, { color: acento }]}>{reloj}</Text>
     </View>
   );
@@ -54,8 +54,8 @@ function RapidaReservaTarjeta({ ride, segundosRestantes, driver = false, oscuro 
       <View style={s.cabecera}>
         <CheckCircle size={35} strokeWidth={2.4} color={acento} />
         <View style={s.datos}>
-          <Text style={[s.titulo, driver && s.tituloModal, { color: tinta }]} accessibilityRole="header">Viaje asignado</Text>
-          <Text style={secundario}>{driver ? 'El pasajero aún debe confirmar' : 'Tu conductor está reservado'}</Text>
+          <Text style={[s.titulo, driver && s.tituloModal, { color: tinta }]} accessibilityRole="header">Nueva solicitud</Text>
+          <Text style={secundario}>{driver ? 'Acepta o rechaza la solicitud' : 'Tu conductor está reservado'}</Text>
         </View>
       </View>
 
@@ -117,7 +117,7 @@ function RapidaReservaTarjeta({ ride, segundosRestantes, driver = false, oscuro 
             </View>
           </View>
         ))}
-        {!driver && ride.distance != null && ride.duration != null && (
+        {ride.distance != null && ride.duration != null && (
           <Text style={[s.resumen, secundario, divisor]}>
             {(ride.distance / 1000).toFixed(1)} km · {Math.ceil(ride.duration / 60)} min de viaje aprox.
           </Text>
@@ -145,7 +145,7 @@ function RapidaReservaTarjeta({ ride, segundosRestantes, driver = false, oscuro 
         <View style={s.aviso}>
           <Info size={21} color={acento} strokeWidth={2.4} />
           <Text style={[s.datos, secundario]}>
-            Espera la confirmación antes de ir a la recogida. Durante la reserva no recibirás otros viajes.
+            Revisa el recorrido antes de aceptar. Al aceptar podrás dirigirte a la recogida.
           </Text>
         </View>
       )}

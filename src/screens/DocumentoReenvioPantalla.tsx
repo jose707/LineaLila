@@ -1,3 +1,4 @@
+import { consultarConSesion } from '../services/api.cliente';
 // src/screens/DocumentoReenvioPantalla.tsx
 import React, { useEffect as usarEfecto, useState as usarEstado } from 'react';
 import {
@@ -228,7 +229,7 @@ function DocumentoReenvioPantalla({
           }
         }
       });
-      const respuesta = await fetch(`${API_BASE_URL}/solicitudes/reenviar`, {
+      const respuesta = await consultarConSesion(`${API_BASE_URL}/solicitudes/reenviar`, {
         method: 'POST',
         body: formulario,
         headers: { Authorization: `Bearer ${token || ''}` }

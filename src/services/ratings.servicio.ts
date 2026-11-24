@@ -59,7 +59,7 @@ const calificacionesServicio = {
   },
 
   // Get calculated rating for the authenticated user
-  obtenerMiCalificacion: async (): Promise<{
+  obtenerMiCalificacion: async ({ propagarError = false } = {}): Promise<{
     passengerRating: number;
     driverRating: number | null;
     driverId: string | null;
@@ -71,6 +71,7 @@ const calificacionesServicio = {
       return respuesta;
     } catch (error: any) {
       console.error('❌ [ratingsService] Error fetching my rating:', error);
+      if (propagarError) throw error;
       return {
         passengerRating: 5,
         driverRating: null,

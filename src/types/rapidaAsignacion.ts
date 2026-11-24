@@ -10,6 +10,7 @@ export interface RapidaAsignacionViaje {
   'vencido';
   requestMode: 'asignacion_rapida';
   expiresAt: string;
+  venceOfertaEn?: string;
   pickup_address: string;
   dropoff_address: string;
   pickupDistance: number;

@@ -1,3 +1,4 @@
+import { consultarConSesion } from './api.cliente';
 // src/services/ocr.servicio.ts
 import { API_BASE_URL } from "../config/constantes";
 
@@ -58,7 +59,7 @@ opciones?: {crop?: RectanguloRecorteOcr;})
   const temporizador = setTimeout(() => controlador.abort(), 60000);
   let respuesta: Response;
   try {
-    respuesta = await fetch(`${API_BASE_URL}/solicitudes/extraer-ocr`, {
+    respuesta = await consultarConSesion(`${API_BASE_URL}/solicitudes/extraer-ocr`, {
       method: 'POST', body: formulario, signal: controlador.signal,
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
     });

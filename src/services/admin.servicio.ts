@@ -1,3 +1,4 @@
+import { consultarConSesion, invalidarSesion } from './api.cliente';
 import api from "./api.cliente";
 import { NativeModules } from 'react-native';
 import { API_HOST } from '../config/constantes';
@@ -43,7 +44,7 @@ export const obtenerInformesPsicologicos = (solicitudId: string) =>
 
 export async function compartirPendientesPsicologia() {
   const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
-  if (!token) throw new Error('Inicia sesión para compartir la lista.');
+  if (!token) { invalidarSesion(null); throw new Error('Inicia sesión para compartir la lista.'); }
   if (!NativeModules.ComprobantePdf?.compartirPdf) throw new Error('Actualiza la app de Android para compartir el PDF.');
   await NativeModules.ComprobantePdf.compartirPdf(
     `${API_HOST}/api/administracion/psicologia/pendientes.pdf`, token);
@@ -53,11 +54,11 @@ export async function guardarInformePsicologico(solicitudId: string, archivo: Ar
   resultado: ResultadoPsicologico;
 }) {
   const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
-  if (!token) throw new Error('Inicia sesión para guardar el informe.');
+  if (!token) { invalidarSesion(null); throw new Error('Inicia sesión para guardar el informe.'); }
   const formulario = new FormData();
   formulario.append('informe', { ...archivo, name: 'informe.pdf' } as unknown as Blob);
   for (const [campo, valor] of Object.entries(datos)) formulario.append(campo, valor.trim());
-  const respuesta = await fetch(`${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(solicitudId)}/informes-psicologicos`, {
+  const respuesta = await consultarConSesion(`${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(solicitudId)}/informes-psicologicos`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formulario
   });
   if (!respuesta.ok) {
@@ -68,7 +69,7 @@ export async function guardarInformePsicologico(solicitudId: string, archivo: Ar
 
 export async function abrirInformePsicologico(solicitudId: string, evaluacionId: string) {
   const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
-  if (!token) throw new Error('Inicia sesión para ver el informe.');
+  if (!token) { invalidarSesion(null); throw new Error('Inicia sesión para ver el informe.'); }
   if (!NativeModules.ComprobantePdf) throw new Error('La apertura de PDF requiere la app de Android actualizada.');
   await NativeModules.ComprobantePdf.abrir(
     `${API_HOST}/api/administracion/solicitudes/${encodeURIComponent(solicitudId)}/evaluaciones/${encodeURIComponent(evaluacionId)}/informe`, token);

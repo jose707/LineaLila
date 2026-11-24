@@ -1,3 +1,4 @@
+import { consultarConSesion } from './api.cliente';
 import autenticacion from '@react-native-firebase/auth';
 import { FirebaseAuthTypes as FirebaseAutenticacionTipos } from '@react-native-firebase/auth';
 import { GoogleSignin as GoogleIngresar, isCancelledResponse } from '@react-native-google-signin/google-signin';
@@ -466,7 +467,7 @@ jwtToken: string)
     const fcmToken = await obtenerFcmToken();
     if (!fcmToken) return;
 
-    const respuesta = await fetch(apiBaseUrl + '/api/notificaciones/registrar-token', {
+    const respuesta = await consultarConSesion(apiBaseUrl + '/api/notificaciones/registrar-token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

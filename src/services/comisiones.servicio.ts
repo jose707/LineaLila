@@ -1,3 +1,4 @@
+import { consultarConSesion, invalidarSesion } from './api.cliente';
 import { NativeModules, Platform } from 'react-native';
 import { API_HOST } from '../config/constantes';
 import api from './api.cliente';
@@ -38,12 +39,12 @@ export const obtenerMisComisiones = () => api.obtener<{ instrucciones: string | 
 
 export async function enviarComprobante(id: string, archivo: ArchivoComprobante, metodo: MetodoComision, referencia: string) {
   const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
-  if (!token) throw new Error('Inicia sesión para enviar el comprobante.');
+  if (!token) { invalidarSesion(null); throw new Error('Inicia sesión para enviar el comprobante.'); }
   const formulario = new FormData();
   formulario.append('comprobante', archivo as unknown as Blob);
   formulario.append('metodo', metodo);
   formulario.append('referencia', referencia.trim());
-  const respuesta = await fetch(`${API_HOST}/api/conductores/estados-comision/${encodeURIComponent(id)}/comprobantes`, {
+  const respuesta = await consultarConSesion(`${API_HOST}/api/conductores/estados-comision/${encodeURIComponent(id)}/comprobantes`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formulario
   });
   if (!respuesta.ok) {
@@ -68,6 +69,6 @@ export async function abrirPdfComprobante(id: string, comprobanteId: string, adm
   if (!pdfComprobantesEnAndroid) throw new Error('Los comprobantes PDF se abren desde Android.');
   if (!moduloPdf) throw new Error('Actualiza la app para abrir comprobantes PDF.');
   const token = AlmacenamientoAuxiliar.obtenerElemento('authToken');
-  if (!token) throw new Error('Inicia sesión para abrir el comprobante.');
+  if (!token) { invalidarSesion(null); throw new Error('Inicia sesión para abrir el comprobante.'); }
   await moduloPdf.abrir(origenComprobante(id, comprobanteId, administrador).uri, token);
 }

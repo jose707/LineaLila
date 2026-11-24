@@ -21,6 +21,7 @@ import { autenticacionServicio } from "../services/autenticacion.servicio";
 import { alPrimerPlanoNotificacion } from '../services/firebase.servicio';
 import { calificacionesServicio } from "../services/ratings.servicio";
 import { InsigniaPerfilVerificado } from '../theme/icons';
+import RecordatorioIdentidad from '../components/RecordatorioIdentidad';
 import {
   User as Usuario,
   History as Historial,
@@ -41,7 +42,6 @@ interface UsuarioPerfil {
   correo: string;
   telefono: string;
   calificacion: number;
-  totalViajes: number;
 }
 
 const Colores = {
@@ -87,12 +87,21 @@ const PerfilPantalla = () => {
     nombre: 'Usuario',
     correo: 'usuario@email.com',
     telefono: '+591 7123456',
-    calificacion: 5.0,
-    totalViajes: 0
+    calificacion: 5.0
   });
 
   const [conductorEstado, establecerConductorEstado] = usarEstado<Awaited<ReturnType<typeof obtenerMiSolicitudEstado>> | null>(null);
   const usuarioId = usuario?.id;
+  const [viajesCalculados, establecerViajesCalculados] = usarEstado<{ usuarioId: string; total: number } | null>(null);
+  const totalViajes = viajesCalculados && viajesCalculados.usuarioId === usuarioId ? viajesCalculados.total :
+    usuario?.viajesCompletadosPasajero ?? usuario?.totalViajes ?? 0;
+  usarEnfoqueEfecto(React.useCallback(() => {
+    let vigente = true;
+    autenticacionServicio.consultarUsuarioActual().then(datos => {
+      if (vigente && datos) actualizarUsuario(datos);
+    }).catch(() => {});
+    return () => { vigente = false; };
+  }, [usuarioId, actualizarUsuario]));
   const [cambiandoModo, establecerCambiandoModo] = usarEstado(false);
   const [calculadoCalificacion, establecerCalculadoCalificacion] = usarEstado<number>(5.0);
 
@@ -104,23 +113,24 @@ const PerfilPantalla = () => {
         nombre: usuario?.nombre ?? anterior.nombre,
         correo: usuario?.correo ?? anterior.correo,
         telefono: usuario?.telefono ?? anterior.telefono,
-        calificacion: calculadoCalificacion,
-        totalViajes: usuario.totalViajes ?? anterior.totalViajes
+        calificacion: calculadoCalificacion
       }));
     }
   }, [usuario, calculadoCalificacion]);
 
   const cargarMiCalificacion = React.useCallback(async () => {
+    if (!usuarioId) return;
     try {
-      const datos = await calificacionesServicio.obtenerMiCalificacion();
+      const datos = await calificacionesServicio.obtenerMiCalificacion({ propagarError: true });
       const finalCalificacion = datos.passengerRating ?? 5.0;
       establecerCalculadoCalificacion(finalCalificacion);
 
-      establecerPerfil((anterior) => ({ ...anterior, calificacion: finalCalificacion, totalViajes: datos.passengerTrips ?? 0 }));
+      establecerPerfil((anterior) => ({ ...anterior, calificacion: finalCalificacion }));
+      establecerViajesCalculados({ usuarioId, total: datos.passengerTrips });
     } catch (error) {
       console.error('Error loading calificacion:', error);
     }
-  }, []);
+  }, [usuarioId]);
 
   usarEnfoqueEfecto(
     React.useCallback(() => {
@@ -278,7 +288,7 @@ const PerfilPantalla = () => {
                 <Star size={14} color={Colores.primary} fill={Colores.primary} />
                 <Texto style={[estilos.ratingTextSmall, esOscuro && estilos.ratingTextDark]}>{perfil.calificacion || '5.0'}</Texto>
                 <Texto style={[estilos.ratingDot]}>•</Texto>
-                <Texto style={[estilos.ratingSubtext, esOscuro && estilos.ratingSubtextDark]}>{perfil.totalViajes} viajes</Texto>
+                <Texto style={[estilos.ratingSubtext, esOscuro && estilos.ratingSubtextDark]}>{totalViajes} {totalViajes === 1 ? 'viaje' : 'viajes'}</Texto>
               </Vista>
             </Vista>
             <PulsableOpacidad
@@ -291,6 +301,8 @@ const PerfilPantalla = () => {
         </Vista>
 
         {/* MENÚ RÁPIDO - Grilla 2x2 */}
+        <RecordatorioIdentidad usuario={usuario} oscuro={esOscuro}
+          onVerificar={() => navegacion.navigate('IdentityVerification')} />
         <Vista style={estilos.menuGrid}>
           <PulsableOpacidad
             style={estilos.menuGridItem}
@@ -343,7 +355,8 @@ const PerfilPantalla = () => {
         </Vista>
 
         {/* AYUDA Y SOPORTE */}
-        {usuario?.estadoVerificacionIdentidad !== 'verificado' && (
+        {usuario?.estadoVerificacionIdentidad !== 'verificado' && !usuario?.recordarVerificacionIdentidad &&
+          !usuario?.verificacionIdentidadRequerida && (
           <PulsableOpacidad style={estilos.menuItemNew} onPress={() => navegacion.navigate('IdentityVerification')} accessibilityRole="button">
             <Texto style={estilos.menuItemTextNew}>Verificar identidad</Texto>
             <ChevronDerecha size={20} color={Colores.textTertiary} />
