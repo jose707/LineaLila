@@ -66,8 +66,6 @@ const THEME = {
   overlay: 'rgba(15, 23, 42, 0.6)'
 };
 
-const LOCATIONIQ_API_CLAVE = 'pk.2c35bb8a74b61271c3e0f669fb81718d';
-const LOCATIONIQ_BASE_URL = 'https://us1.locationiq.com/v1';
 
 interface ViajeSolicitud {
   id: string;
@@ -534,20 +532,16 @@ const ConductorViajeSolicitudPantalla = () => {
     try {
       establecerMapaCargando(true);
       const rutaPuntos = [viaje.pickupLocation, ...(viaje.waypoints ?? []), viaje.dropoffLocation];
-      const url = `${LOCATIONIQ_BASE_URL}/directions/driving/${rutaPuntos.map((punto) => `${punto.longitude},${punto.latitude}`).join(';')}?key=${LOCATIONIQ_API_CLAVE}&overview=full&geometries=polyline&alternatives=false&steps=true`;
-      const respuesta = await fetch(url);
-      const datos = await respuesta.json();
+      const datos = await viajesServicio.obtenerRutaPrevia(rutaPuntos);
       if (solicitudVersion !== rutaSolicitudReferencia.current) return;
-      if (datos.routes?.length > 0) {
-        const coordenadas = decodificarPolilinea(datos.routes[0].geometry);
-        establecerRutaCoordenadas(coordenadas);
-      }
+      const coordenadas = decodificarPolilinea(datos.polyline);
+      if (coordenadas.length < 2) throw new Error('Ruta sin geometría');
+      establecerRutaCoordenadas(coordenadas);
     } catch {
-      if (solicitudVersion === rutaSolicitudReferencia.current) establecerRutaCoordenadas([
-      viaje.pickupLocation,
-      ...(viaje.waypoints ?? []),
-      viaje.dropoffLocation]
-      );
+      if (solicitudVersion === rutaSolicitudReferencia.current) {
+        establecerRutaCoordenadas([]);
+        Alert.alert('Ruta no disponible', 'No se pudo calcular el recorrido. Vuelve a abrir la solicitud para reintentar.');
+      }
     } finally {
       if (solicitudVersion === rutaSolicitudReferencia.current) establecerMapaCargando(false);
     }

@@ -4,6 +4,10 @@ type Punto = {latitude: number; longitude: number};
 export function distanciaARuta(punto: Punto, ruta: Punto[]): number {
   const escala = Math.PI / 180 * 6371000;
   const coseno = Math.cos(punto.latitude * Math.PI / 180);
+  if (ruta.length === 1) {
+    return Math.hypot((ruta[0].longitude - punto.longitude) * escala * coseno,
+      (ruta[0].latitude - punto.latitude) * escala);
+  }
   let minima = Infinity;
   for (let i = 1; i < ruta.length; i++) {
     const ax = (ruta[i - 1].longitude - punto.longitude) * escala * coseno;
@@ -23,7 +27,7 @@ export function actualizarDesvio(
   distancia: number,
   ahora: number,
 ): boolean {
-  estado.muestras = distancia > 60 ? estado.muestras + 1 : 0;
+  estado.muestras = distancia > 25 ? estado.muestras + 1 : 0;
   if (estado.muestras < 3 || ahora - estado.ultimoIntento < 30000) return false;
   estado.muestras = 0;
   estado.ultimoIntento = ahora;

@@ -7,6 +7,7 @@ import {
   StyleSheet as EstiloHoja,
   TouchableOpacity as PulsableOpacidad,
   Alert,
+  Linking,
   ActivityIndicator as ActividadIndicador,
   Animated,
   ScrollView as DesplazableVista,
@@ -20,7 +21,7 @@ import {
   AppState as AplicacionEstado } from
 'react-native';
 import Geolocation from '@react-native-community/geolocation';
-import { ArrowLeft as ArrowIzquierda, CheckCircle, ChevronRight as ChevronDerecha, ShieldAlert, X } from 'lucide-react-native';
+import { ArrowLeft as ArrowIzquierda, CheckCircle, ChevronRight as ChevronDerecha, Navigation, ShieldAlert, X } from 'lucide-react-native';
 import {
   SafeAreaView as SeguraZonaVista,
   useSafeAreaInsets as usarSeguraZonaMargenes } from
@@ -73,12 +74,13 @@ type AccionesConductorProps = {
   estado: ActivoViaje['status'];
   oscuro: boolean;
   cargando: boolean;
+  alNavegar: () => void;
   alLlegar: () => void;
   alIniciar: () => void;
   alFinalizar: () => void;
 };
 
-function AccionesConductor({ estado, oscuro, cargando, alLlegar, alIniciar, alFinalizar }: AccionesConductorProps) {
+function AccionesConductor({ estado, oscuro, cargando, alNavegar, alLlegar, alIniciar, alFinalizar }: AccionesConductorProps) {
   const acciones = {
     aceptado: { texto: 'Llegué a recogida', pulsar: alLlegar },
     llegado: { texto: 'Iniciar viaje', pulsar: alIniciar },
@@ -89,6 +91,14 @@ function AccionesConductor({ estado, oscuro, cargando, alLlegar, alIniciar, alFi
 
   return (
     <Vista style={[estilos.acciones, oscuro && estilos.divisorOscuro]}>
+      {(estado === 'aceptado' || estado === 'en_curso') && (
+        <PulsableOpacidad style={[estilos.boton, estilos.botonNavegar, oscuro && estilos.botonNavegarOscuro]}
+          onPress={alNavegar} disabled={cargando} activeOpacity={0.85}
+          accessibilityRole="button" accessibilityLabel="Navegar en Google Maps">
+          <Navigation size={20} color={oscuro ? '#D5A6FF' : '#7514C5'} />
+          <Texto style={[estilos.textoBoton, estilos.textoNavegar, oscuro && estilos.textoNavegarOscuro]}>Navegar</Texto>
+        </PulsableOpacidad>
+      )}
       <PulsableOpacidad style={[estilos.boton, estado !== 'aceptado' && estilos.botonNegro]}
         onPress={accion.pulsar} disabled={cargando} activeOpacity={0.85}
         accessibilityRole="button" accessibilityLabel={accion.texto}>
@@ -99,10 +109,14 @@ function AccionesConductor({ estado, oscuro, cargando, alLlegar, alIniciar, alFi
 }
 
 const estilos = EstiloHoja.create({
-  acciones: { gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
+  acciones: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: EstiloHoja.hairlineWidth, borderTopColor: '#EAEAF0' },
   divisorOscuro: { borderTopColor: '#414141' },
-  boton: { justifyContent: 'center', alignItems: 'center', minHeight: 54, paddingVertical: 15, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#7514C5' },
+  boton: { flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 54, paddingVertical: 15, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#7514C5' },
   botonNegro: { backgroundColor: '#000000' },
+  botonNavegar: { flexDirection: 'row', gap: 8, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#7514C5' },
+  botonNavegarOscuro: { borderColor: '#D5A6FF' },
+  textoNavegar: { color: '#7514C5' },
+  textoNavegarOscuro: { color: '#D5A6FF' },
   textoBoton: { fontSize: 19, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.2 }
 });
 
@@ -197,7 +211,7 @@ export default function ConductorViajeActivoPantalla() {
     viajeId,
     viaje.status,
     !!viaje.driverLocation,
-    mostrarRuta && !!rutaCoordenadas?.length].
+    (mostrarRuta || viaje.status === 'aceptado') && !!rutaCoordenadas?.length].
     join(':');
     if (framedMapaEtapaReferencia.current === etapaClave) return;
 
@@ -208,7 +222,7 @@ export default function ConductorViajeActivoPantalla() {
     viaje.dropoffLocation,
     ...(rutaCoordenadas || [])] :
 
-    [viaje.pickupLocation, viaje.driverLocation].filter((punto): punto is NonNullable<typeof punto> => !!punto);
+    [viaje.pickupLocation, viaje.driverLocation, ...(rutaCoordenadas || [])].filter((punto): punto is NonNullable<typeof punto> => !!punto);
 
     if (coordenadas.length > 1) {
       activoMapaReferencia.current?.fitToCoordinates(coordenadas, {
@@ -540,6 +554,24 @@ export default function ConductorViajeActivoPantalla() {
   const recorridoAviso = Math.max(0, altoAviso - radioPanel);
   const fotoParticipante = viaje.passengerProfilePicture;
   const participanteVerificado = viaje.passengerVerified;
+  const navegarEnGoogleMaps = async () => {
+    if (viaje.status !== 'aceptado' && viaje.status !== 'en_curso') return;
+    const destino = viaje.status === 'aceptado' ? viaje.pickupLocation :
+      viaje.waypoints?.find(parada => !parada.arrivedAt && !parada.departedAt)?.location ?? viaje.dropoffLocation;
+    if (!Number.isFinite(destino.latitude) || !Number.isFinite(destino.longitude) ||
+      Math.abs(destino.latitude) > 90 || Math.abs(destino.longitude) > 180) {
+      Alert.alert('Ubicación no disponible', 'No hay un punto válido para iniciar la navegación.');
+      return;
+    }
+    const coordenadas = encodeURIComponent(destino.latitude + ',' + destino.longitude);
+    try {
+      await Linking.openURL('https://www.google.com/maps/dir/?api=1&destination=' + coordenadas +
+        '&travelmode=driving&dir_action=navigate');
+    } catch {
+      Alert.alert('No se pudo abrir Google Maps', 'Intenta nuevamente.');
+    }
+  };
+
   const ajustarMapaHastaViaje = () => {
     const viajePuntos = mostrarViajeRuta ?
     [
@@ -548,7 +580,7 @@ export default function ConductorViajeActivoPantalla() {
     viaje.dropoffLocation,
     ...(rutaCoordenadas || [])] :
 
-    [viaje.pickupLocation, viaje.driverLocation].
+    [viaje.pickupLocation, viaje.driverLocation, ...(rutaCoordenadas || [])].
     filter((punto): punto is NonNullable<typeof punto> => !!punto);
     if (viajePuntos.length > 1) {
       activoMapaReferencia.current?.fitToCoordinates(viajePuntos, {
@@ -667,8 +699,8 @@ export default function ConductorViajeActivoPantalla() {
 
           {/* Route */}
           {rutaCoordenadas &&
-          rutaCoordenadas.length > 0 &&
-          mostrarViajeRuta &&
+          rutaCoordenadas.length > 1 &&
+          (mostrarViajeRuta || mostrarPasajeroMarcador) &&
           <AnimadoRutaPolilinea
             key="ruta-viaje"
             coordinates={rutaCoordenadas}
@@ -680,7 +712,7 @@ export default function ConductorViajeActivoPantalla() {
         <Vista style={[s.mapStatusBanner, { top: margenes.top + 12 }]} pointerEvents="none">
           <Texto style={s.mapStatusText}>{estadoEtiqueta}</Texto>
         </Vista>
-        {rutaError && mostrarViajeRuta &&
+        {rutaError && (mostrarViajeRuta || mostrarPasajeroMarcador) &&
         <PulsableOpacidad
           style={[s.mapRouteError, { top: margenes.top + 70 }]}
           onPress={() => establecerRutaReintentar((valor) => valor + 1)}
@@ -829,7 +861,7 @@ export default function ConductorViajeActivoPantalla() {
         </Vista>
 
         <AccionesConductor estado={viaje.status} oscuro={oscuro} cargando={esCargando}
-          alLlegar={manejarLlegado} alIniciar={manejarInicioViaje} alFinalizar={manejarCompletarViaje} />
+          alNavegar={navegarEnGoogleMaps} alLlegar={manejarLlegado} alIniciar={manejarInicioViaje} alFinalizar={manejarCompletarViaje} />
         {puedeCancelarViaje && (
           <Vista style={s.cancelacionPanel} onLayout={({ nativeEvent }) => establecerAltoCancelacion(nativeEvent.layout.height)}
             importantForAccessibility={panelExpandido ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!panelExpandido}>

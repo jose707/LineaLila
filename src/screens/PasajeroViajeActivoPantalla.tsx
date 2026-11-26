@@ -504,7 +504,7 @@ export default function PasajeroViajeActivoPantalla() {
 
           {/* Route */}
           {rutaCoordenadas &&
-          rutaCoordenadas.length > 0 &&
+          rutaCoordenadas.length > 1 &&
           mostrarViajeRuta &&
           <AnimadoRutaPolilinea
             key="ruta-viaje"

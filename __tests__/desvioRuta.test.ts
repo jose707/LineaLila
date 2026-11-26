@@ -17,3 +17,9 @@ test('confirma tres muestras, reinicia al volver y limita reintentos', () => {
   for (let i = 1; i <= 11; i++) expect(actualizarDesvio(estado, 90, 110000 + i * 2500)).toBe(false);
   expect(actualizarDesvio(estado, 90, 140000)).toBe(true);
 });
+
+test('mide el desvío desde el único punto de una ruta de distancia cero', () => {
+  const punto = { latitude: -16.5, longitude: -68.1 };
+  expect(distanciaARuta(punto, [punto])).toBe(0);
+  expect(distanciaARuta({ ...punto, latitude: -16.501 }, [punto])).toBeGreaterThan(100);
+});

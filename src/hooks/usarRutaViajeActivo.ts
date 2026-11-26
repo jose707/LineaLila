@@ -8,7 +8,7 @@ const minutosDeRuta = (segundos?: number | null) =>
     ? Math.max(1, Math.ceil(segundos / 60))
     : null;
 
-const decodificarPolilinea = (enc: string) => {
+const decodificarPolilinea = (enc: string, distancia?: number) => {
   const puntos: Array<{latitude: number;longitude: number;}> = [];
   let indice = 0,
     latitud = 0,
@@ -33,11 +33,15 @@ const decodificarPolilinea = (enc: string) => {
     longitud += r & 1 ? ~(r >> 1) : r >> 1;
     puntos.push({ latitude: latitud / 1e5, longitude: longitud / 1e5 });
   }
+  if (puntos.length === 0 || puntos.length === 1 && distancia !== 0 ||
+    puntos.some(punto => !Number.isFinite(punto.latitude) || !Number.isFinite(punto.longitude))) {
+    throw new Error('Geometría de ruta inválida');
+  }
   return puntos;
 };
 
 export function usarRutaViajeActivo(
-  viaje: ActivoViaje | null, esEnfocado: boolean, esMontadoReferencia: RefObject<boolean>, estimarRecogida: boolean
+  viaje: ActivoViaje | null, esEnfocado: boolean, esMontadoReferencia: RefObject<boolean>, esPasajero: boolean
 ) {
   const [rutaTrazada, establecerRutaTrazada] = usarEstado<{
     clave: string; puntos: Array<{ latitude: number; longitude: number }>;
@@ -46,22 +50,22 @@ export function usarRutaViajeActivo(
   const claveEstimacion = viaje ? `${viaje.rideId}:${viaje.status}` : '';
   const minutosEstimados = estimacion?.clave === claveEstimacion ? estimacion.minutos : null;
   const viajeIniciado = viaje?.status === 'en_curso' || viaje?.status === 'completing';
-  const claveTrazado = viaje?.rideId + ':' + (viajeIniciado ? 'conductor' : 'recogida');
+  const haciaRecogida = viaje?.status === 'aceptado';
+  const claveTrazado = viaje?.rideId + ':' + (haciaRecogida ? 'hacia-recogida' : viajeIniciado ? 'conductor' : 'recogida');
   const rutaCoordenadas = rutaTrazada?.clave === claveTrazado ? rutaTrazada.puntos : null;
   const [rutaError, establecerRutaError] = usarEstado(false);
   const recalculoReferencia = usarReferencia({ muestras: 0, ultimoIntento: 0, pendiente: false, generacion: 0 });
   const [rutaReintentar, establecerRutaReintentar] = usarEstado(0);
 
-  const rutaVisible = !!viaje && ['llegado', 'en_curso'].includes(viaje.status);
-  const rutaPuntoClave = viaje ? [
+  const rutaVisible = !!viaje && (['llegado', 'en_curso'].includes(viaje.status) || haciaRecogida && !esPasajero);
+  const rutaPuntoClave = viaje ? (haciaRecogida ? [viaje.pickupLocation] : [
   viaje.pickupLocation,
   ...(viaje.waypoints || []).filter(parada => !viajeIniciado || (!parada.arrivedAt && !parada.departedAt)).map(parada => parada.location),
-  viaje.dropoffLocation].
+  viaje.dropoffLocation]).
   map((punto) => `${punto.latitude},${punto.longitude}`).join(';') : '';
 
   usarEfecto(() => {
     const id = viaje?.rideId;
-    const haciaRecogida = viaje?.status === 'aceptado' && estimarRecogida;
     if (!esEnfocado || !id || (!haciaRecogida && viaje?.status !== 'en_curso')) return;
     let vigente = true;
     let pendiente = false;
@@ -77,13 +81,13 @@ export function usarRutaViajeActivo(
         pendiente = false;
       }
     };
-    if (haciaRecogida) void actualizar();
+    if (haciaRecogida && esPasajero) void actualizar();
     const intervalo = setInterval(actualizar, 45000);
     return () => {
       vigente = false;
       clearInterval(intervalo);
     };
-  }, [viaje?.rideId, viaje?.status, estimarRecogida, esEnfocado, claveEstimacion]);
+  }, [viaje?.rideId, viaje?.status, esPasajero, haciaRecogida, esEnfocado, claveEstimacion]);
 
   usarEfecto(() => {
     const control = recalculoReferencia.current;
@@ -103,13 +107,11 @@ export function usarRutaViajeActivo(
     establecerRutaError(false);
     (async () => {
       try {
-        const { polyline: polilinea, duration } = await viajesServicio.obtenerRutaViaje(viaje.rideId, viaje.status === 'en_curso');
-        const coordenadas = decodificarPolilinea(polilinea);
-        if (coordenadas.length < 2 || coordenadas.some((punto) => !Number.isFinite(punto.latitude) || !Number.isFinite(punto.longitude)))
-        throw new Error('Geometría de ruta inválida');
+        const { polyline: polilinea, duration, distance } = await viajesServicio.obtenerRutaViaje(viaje.rideId, viaje.status === 'en_curso', haciaRecogida);
+        const coordenadas = decodificarPolilinea(polilinea, distance);
         if (!cancelado) {
           establecerRutaTrazada({ clave: claveTrazado, puntos: coordenadas });
-          if (viaje.status === 'en_curso') {
+          if (viaje.status === 'en_curso' || haciaRecogida) {
             establecerEstimacion({ clave: claveEstimacion, minutos: minutosDeRuta(duration) });
           }
         }
@@ -117,7 +119,7 @@ export function usarRutaViajeActivo(
         if (!cancelado) {
           establecerRutaError(true);
           reintento = setTimeout(() => establecerRutaReintentar((valor) => valor + 1),
-            viaje.status === 'llegado' ? 5000 : 30000);
+            viaje.status === 'llegado' || haciaRecogida ? 5000 : 30000);
         }
       }
     })();
@@ -126,21 +128,19 @@ export function usarRutaViajeActivo(
       if (reintento !== undefined) clearTimeout(reintento);
       control.generacion++;
     };
-  }, [viaje?.rideId, viaje?.status, rutaVisible, rutaPuntoClave, rutaReintentar, claveTrazado, claveEstimacion, viajeIniciado, esEnfocado]);
+  }, [viaje?.rideId, viaje?.status, rutaVisible, rutaPuntoClave, rutaReintentar, claveTrazado, claveEstimacion, viajeIniciado, haciaRecogida, !!viaje?.driverLocation, esEnfocado]);
 
   usarEfecto(() => {
     const punto = viaje?.driverLocation;
     const control = recalculoReferencia.current;
-    if (!esEnfocado || viaje?.status !== 'en_curso' || !punto ||
+    if (!esEnfocado || !viaje || (viaje.status !== 'en_curso' && !haciaRecogida) || !punto ||
       !rutaCoordenadas || control.pendiente) return;
     if (!actualizarDesvio(control, distanciaARuta(punto, rutaCoordenadas), Date.now())) return;
     control.pendiente = true;
     const generacion = control.generacion;
-    viajesServicio.obtenerRutaViaje(viaje.rideId, true).then(({ polyline, duration }) => {
+    viajesServicio.obtenerRutaViaje(viaje.rideId, !haciaRecogida, haciaRecogida).then(({ polyline, duration, distance }) => {
       if (!esMontadoReferencia.current || generacion !== control.generacion) return;
-      const puntos = decodificarPolilinea(polyline);
-      if (puntos.length < 2 || puntos.some((p) => !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)))
-        throw new Error('Geometría de ruta inválida');
+      const puntos = decodificarPolilinea(polyline, distance);
       establecerRutaTrazada({ clave: claveTrazado, puntos });
       establecerEstimacion({ clave: claveEstimacion, minutos: minutosDeRuta(duration) });
       establecerRutaError(false);
@@ -149,7 +149,7 @@ export function usarRutaViajeActivo(
     }).finally(() => {
       if (generacion === control.generacion) control.pendiente = false;
     });
-  }, [viaje?.driverLocation, viaje?.status, viaje?.rideId, rutaCoordenadas, esEnfocado, claveTrazado, claveEstimacion]);
+  }, [viaje?.driverLocation, viaje?.status, viaje?.rideId, rutaCoordenadas, esEnfocado, haciaRecogida, claveTrazado, claveEstimacion]);
 
   return { viajeIniciado, minutosEstimados, rutaCoordenadas, rutaError, establecerRutaReintentar };
 }

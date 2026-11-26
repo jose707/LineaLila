@@ -70,7 +70,11 @@ const viajesServicio = {
   obtenerDetalleHistorial: (viajeId: string) =>
     api.obtener<ViajeDetalleHistorial>(`/viajes/${encodeURIComponent(viajeId)}`, { params: { historial: 1 } }),
 
-  obtenerRutaViaje: (viajeId: string, recalcular = false, haciaRecogida = false): Promise<{polyline: string; duration?: number | null}> =>
+  obtenerRutaPrevia: (puntos: Array<{ latitude: number; longitude: number }>): Promise<{
+    polyline: string; distance: number; duration: number;
+  }> => api.post('/viajes/ruta-previa', { puntos }),
+
+  obtenerRutaViaje: (viajeId: string, recalcular = false, haciaRecogida = false): Promise<{polyline: string; duration?: number | null; distance?: number}> =>
   api.obtener(`/viajes/${viajeId}/ruta${haciaRecogida ? '?recogida=1' : recalcular ? '?recalcular=1' : ''}`),
 
   obtenerConfiguracionTarifas: async (latitud?: number, longitud?: number): Promise<TarifaAjustesRespuesta | null> => {

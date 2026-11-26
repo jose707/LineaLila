@@ -30,8 +30,8 @@ export interface ViajeHistorial {
 }
 
 const CACHE_CLAVES = {
-  LOCATIONS: 'linealila_cached_locations',
-  ROUTES: 'linealila_cached_routes',
+  LOCATIONS: 'linealila_cached_locations_google',
+  ROUTES: 'linealila_cached_routes_google',
   TRIP_HISTORY: 'linealila_trip_history',
   SEARCH_HISTORY: 'linealila_search_history',
   FAVORITE_TRIP_IDS: 'favoriteTripIds'

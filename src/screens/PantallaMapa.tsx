@@ -62,6 +62,7 @@ import {
   limpiarVencidoCache } from
 "../utils/cacheGestor";
 import type { ViajeHistorial } from "../utils/cacheGestor";
+import { lugaresServicio } from '../services/places.servicio';
 import { viajesServicio } from "../services/viajes.servicio";
 import { autenticacionServicio } from "../services/autenticacion.servicio";
 import { obtenerMiSolicitudEstado } from '../services/admin.servicio';
@@ -72,10 +73,7 @@ import socketServicio from "../services/socket.servicio";
 import { iniciarAdaptativaSincronizacion } from '../utils/adaptativaSincronizar';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const LOCATIONIQ_API_CLAVE = 'pk.2c35bb8a74b61271c3e0f669fb81718d';
-const LOCATIONIQ_BASE_URL = 'https://us1.locationiq.com/v1';
 const TARIFA_PASO = 0.5;
-const TRAFFIC_CORRECTION_FACTOR = 3;
 const PIN_TIP_DESFASE = 106;
 const PANEL_SLIDE_DURACION_MILISEGUNDOS = 350;
 const PLAZO_SALIR_MS = 2000;
@@ -855,20 +853,8 @@ const MapaPantalla = () => {
     try {
       const cacheado = await cacheUbicacionGestor.obtenerUbicacion(coord);
       if (cacheado) return cacheado.address;
-      const r = await fetch(
-        `${LOCATIONIQ_BASE_URL}/reverse.php?key=${LOCATIONIQ_API_CLAVE}&lat=${coord.latitude}&lon=${coord.longitude}&format=json&normalizeaddress=1&addressdetails=1&zoom=18`
-      );
-      if (!r.ok) throw new Error();
-      const d = await r.json();
-      const primero = d.address || {};
-      const partes: string[] = [];
-      if (primero.road && primero.house_number) partes.push(`${primero.road} ${primero.house_number}`);else
-      if (primero.road) partes.push(primero.road);
-      if (primero.neighbourhood || primero.suburb) partes.push(primero.neighbourhood || primero.suburb);
-      const direccion =
-      partes.length > 0 ?
-      partes.join(', ') :
-      (d.display_name || '').split(',').slice(0, 2).join(',');
+      const direccion = await lugaresServicio.inversa(coord);
+      if (!direccion) return coord.latitude.toFixed(4) + ', ' + coord.longitude.toFixed(4);
       await cacheUbicacionGestor.guardarUbicacion(coord, direccion);
       return direccion;
     } catch {
@@ -1016,6 +1002,7 @@ const MapaPantalla = () => {
     const omitirCache = omitirRutaCacheReferencia.current;
     omitirRutaCacheReferencia.current = false;
     establecerRutaCargando(true);
+    establecerRutaInformacion(null);
     establecerRutaCoordenadas([]);
     const mostrarRuta = (coordenadas: LatitudLongitud[], distancia: number, duracion: number) => {
       if (coordenadas.length < 2) throw new Error('Ruta sin geometría');
@@ -1040,46 +1027,29 @@ const MapaPantalla = () => {
         mostrarRuta(cacheado.coordinates, cacheado.distance, cacheado.duration);
         return;
       }
-      const { latitude: sLatitud, longitude: sLongitud } = recogidaUbicacion;
-      const { latitude: errorLatitud, longitude: errorLongitud } = destinoUbicacion;
-
-      // Build coordinates string: origin;waypoints;destination
-      const paradaCoordenadas = paradas.
-      map((parada) => `${parada.longitude},${parada.latitude}`).
-      join(';');
-      const coordenadasStr = paradaCoordenadas ?
-      `${sLongitud},${sLatitud};${paradaCoordenadas};${errorLongitud},${errorLatitud}` :
-      `${sLongitud},${sLatitud};${errorLongitud},${errorLatitud}`;
-
-      const r = await fetch(
-        `${LOCATIONIQ_BASE_URL}/directions/driving/${coordenadasStr}?key=${LOCATIONIQ_API_CLAVE}&overview=full&geometries=polyline&alternatives=false`
-      );
-      if (!r.ok) throw new Error();
-      const d = await r.json();
+      const ruta = await viajesServicio.obtenerRutaPrevia([recogidaUbicacion, ...paradas, destinoUbicacion]);
       if (revision !== rutaRevisionReferencia.current) return;
-      if (d.routes?.length > 0) {
-        const rt = d.routes[0];
-        const coordenadas = decodificarPolilinea(rt.geometry);
-        const brutoDuracion = rt.duration;
-        const correctedDuracion = Math.round(brutoDuracion * TRAFFIC_CORRECTION_FACTOR);
-        if (paradas.length === 0) {
-          await cacheRutaGestor.guardarRuta(recogidaUbicacion, destinoUbicacion, {
-            pickupLat: sLatitud,
-            pickupLon: sLongitud,
-            destLat: errorLatitud,
-            destLon: errorLongitud,
-            distance: rt.distance,
-            duration: correctedDuracion,
-            coordinates: coordenadas,
-            fare: 0,
-            timestamp: Date.now()
-          });
-        }
-        if (revision !== rutaRevisionReferencia.current) return;
-        mostrarRuta(coordenadas, rt.distance, correctedDuracion);
+      const coordenadas = decodificarPolilinea(ruta.polyline);
+      mostrarRuta(coordenadas, ruta.distance, ruta.duration);
+      if (paradas.length === 0) {
+        await cacheRutaGestor.guardarRuta(recogidaUbicacion, destinoUbicacion, {
+          pickupLat: recogidaUbicacion.latitude,
+          pickupLon: recogidaUbicacion.longitude,
+          destLat: destinoUbicacion.latitude,
+          destLon: destinoUbicacion.longitude,
+          distance: ruta.distance,
+          duration: ruta.duration,
+          coordinates: coordenadas,
+          fare: 0,
+          timestamp: Date.now()
+        });
       }
     } catch {
-      if (revision === rutaRevisionReferencia.current) crearAlternativaRuta();
+      if (revision === rutaRevisionReferencia.current) {
+        establecerRutaInformacion(null);
+        establecerRutaCoordenadas([]);
+        mostrarAviso('No se pudo calcular la ruta. Intenta nuevamente.', '!');
+      }
     } finally {
       if (revision === rutaRevisionReferencia.current) establecerRutaCargando(false);
     }
@@ -1120,30 +1090,6 @@ const MapaPantalla = () => {
       puntos.push({ latitude: latitud / 1e5, longitude: longitud / 1e5 });
     }
     return puntos;
-  };
-
-  const calcularDistancia = (primero: LatitudLongitud, segundo: LatitudLongitud) => {
-    const R = 6371e3,
-      φ1 = primero.latitude * Math.PI / 180,
-      φ2 = segundo.latitude * Math.PI / 180;
-    const Δφ = (segundo.latitude - primero.latitude) * Math.PI / 180,
-      Δλ = (segundo.longitude - primero.longitude) * Math.PI / 180;
-    const x =
-    Math.sin(Δφ / 2) ** 2 +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-  };
-
-  const crearAlternativaRuta = () => {
-    if (!recogidaUbicacion || !destinoUbicacion) return;
-    const coordenadas = [
-    recogidaUbicacion,
-    ...paradas.map((parada) => ({ latitude: parada.latitude, longitude: parada.longitude })),
-    destinoUbicacion];
-
-    const d = coordenadas.slice(1).reduce((distancia, punto, indice) => distancia + calcularDistancia(coordenadas[indice], punto), 0);
-    establecerRutaInformacion({ distance: d, duration: d / 10, coordinates: coordenadas });
-    establecerRutaCoordenadas(coordenadas);
   };
 
   const formatoDistancia = (m: number) =>

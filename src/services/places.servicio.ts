@@ -21,6 +21,10 @@ toString(36).
 slice(2)}_${Math.random().toString(36).slice(2)}`.slice(0, 36);export { nuevoLugaresSesion };
 
 const lugaresServicio = {
+  async inversa(ubicacion: { latitude: number; longitude: number }): Promise<string | null> {
+    const respuesta = await api.post<{ direccion: string | null }>('/lugares/inversa', ubicacion);
+    return respuesta.direccion;
+  },
   async autocompletar(
   entrada: string,
   sesionToken: string,
